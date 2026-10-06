@@ -1,10 +1,11 @@
+import { createHash } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { and, desc, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { masters, otpCodes, users } from "../db/schema.js";
+import { masters, otpCodes, sessions, users } from "../db/schema.js";
 import { env, isDev } from "../env.js";
-import { requireAuth, signAccessToken, signRefreshToken } from "../lib/auth.js";
+import { requireAuth, signAccessToken, signRefreshToken, verifyRefreshToken } from "../lib/auth.js";
 
 const phoneSchema = z
   .string()
@@ -21,6 +22,35 @@ async function currentUserView(id: string, phone: string, name: string, role: st
 
 function generateCode(): string {
   return String(Math.floor(1000 + Math.random() * 9000));
+}
+
+/** Хеш refresh-токена: в базе лежит только он, сам токен — у клиента. */
+function refreshHash(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * Новая сессия входа для устройства: строка в sessions плюс refresh-токен,
+ * в который зашит её id. Просроченные сессии пользователя попутно подчищаем.
+ */
+async function openSession(user: { id: string; phone: string; role: string }) {
+  await db.delete(sessions).where(and(eq(sessions.userId, user.id), lt(sessions.expiresAt, new Date())));
+
+  const [session] = await db
+    .insert(sessions)
+    .values({
+      userId: user.id,
+      tokenHash: "", // заполним сразу после подписи: хеш зависит от токена
+      expiresAt: new Date(Date.now() + env.refreshTtlSeconds * 1000),
+    })
+    .returning();
+
+  const refreshToken = signRefreshToken(
+    { sub: user.id, phone: user.phone, role: user.role },
+    session!.id,
+  );
+  await db.update(sessions).set({ tokenHash: refreshHash(refreshToken) }).where(eq(sessions.id, session!.id));
+  return refreshToken;
 }
 
 export async function authRoutes(app: FastifyInstance) {
@@ -101,11 +131,77 @@ export async function authRoutes(app: FastifyInstance) {
       : (await db.insert(users).values({ phone, name: name ?? "Клиент NailGo", role: "client" }).returning())[0]!;
 
     const payload = { sub: user.id, phone: user.phone, role: user.role };
+    const refreshToken = await openSession(user);
+
     return {
       accessToken: signAccessToken(payload),
-      refreshToken: signRefreshToken(payload),
+      refreshToken,
       user: await currentUserView(user.id, user.phone, user.name, user.role),
     };
+  });
+
+  /**
+   * Продление сессии.
+   *
+   * Access-токен живёт 15 минут, refresh — месяц. Когда access истекает, клиент
+   * присылает refresh и получает новую пару: сессия продолжается без повторного
+   * входа по SMS. Refresh при этом меняется (ротация), поэтому перехваченный
+   * старый токен после продления уже не годится.
+   */
+  app.post("/auth/refresh", async (request, reply) => {
+    const { refreshToken } = z
+      .object({ refreshToken: z.string().trim().min(10, "Нужен refresh-токен") })
+      .parse(request.body ?? {});
+
+    const payload = verifyRefreshToken(refreshToken);
+    if (!payload) {
+      return reply.code(401).send({ error: "invalid_refresh", message: "Сессия истекла, войдите заново" });
+    }
+
+    const [session] = await db.select().from(sessions).where(eq(sessions.id, payload.sid)).limit(1);
+    // Сессия удалена (выход) или токен уже сменился — продлевать нечего.
+    if (!session || session.tokenHash !== refreshHash(refreshToken) || session.expiresAt < new Date()) {
+      return reply.code(401).send({ error: "invalid_refresh", message: "Сессия истекла, войдите заново" });
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.id, payload.sub)).limit(1);
+    if (!user) {
+      return reply.code(401).send({ error: "invalid_refresh", message: "Пользователь не найден" });
+    }
+
+    const next = { sub: user.id, phone: user.phone, role: user.role };
+    const rotated = signRefreshToken(next, session.id);
+    await db
+      .update(sessions)
+      .set({ tokenHash: refreshHash(rotated), lastUsedAt: new Date() })
+      .where(eq(sessions.id, session.id));
+
+    return {
+      accessToken: signAccessToken(next),
+      refreshToken: rotated,
+      expiresInSeconds: env.accessTtlSeconds,
+      user: await currentUserView(user.id, user.phone, user.name, user.role),
+    };
+  });
+
+  /**
+   * Выход: сервер забывает refresh-токен, поэтому продлить сессию по нему
+   * больше нельзя даже при копии токена у клиента.
+   */
+  app.post("/auth/logout", { preHandler: requireAuth }, async (request) => {
+    const me = request.currentUser!;
+    const { refreshToken } = z.object({ refreshToken: z.string().trim().min(10).optional() }).parse(request.body ?? {});
+
+    const payload = refreshToken ? verifyRefreshToken(refreshToken) : null;
+    if (payload?.sub === me.id) {
+      // Выходим только из этой сессии: другие устройства остаются в системе.
+      await db.delete(sessions).where(and(eq(sessions.id, payload.sid), eq(sessions.userId, me.id)));
+    } else {
+      // Токена нет — на всякий случай закрываем все сессии пользователя.
+      await db.delete(sessions).where(eq(sessions.userId, me.id));
+    }
+
+    return { ok: true };
   });
 
   /** Текущий пользователь по access-токену. */

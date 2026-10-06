@@ -21,6 +21,28 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Сессии входа: по одной строке на устройство.
+ *
+ * Refresh-токен содержит id сессии (jti), а в базе лежит только его хеш.
+ * Продление меняет токен и хеш, поэтому старый токен перестаёт работать,
+ * но другие устройства остаются в системе. Выход удаляет только свою сессию.
+ */
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("sessions_user").on(table.userId)],
+);
+
 export const masters = pgTable("masters", {
   id: id(),
   slug: text("slug").notNull().unique(),

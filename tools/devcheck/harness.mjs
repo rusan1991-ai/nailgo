@@ -175,7 +175,12 @@ export async function login(phone, name = "Тест Клиент") {
   const code = requested.data.devCode;
   const verified = await api("/auth/verify-otp", { method: "POST", body: { phone, code, name } });
   if (verified.status !== 200) throw new Error(`login failed: ${JSON.stringify(verified.data)}`);
-  return { user: verified.data.user, accessToken: verified.data.accessToken };
+  // Храним оба токена: access — для запросов, refresh — чтобы продлить сессию.
+  return {
+    user: verified.data.user,
+    accessToken: verified.data.accessToken,
+    refreshToken: verified.data.refreshToken,
+  };
 }
 
 /**

@@ -5,7 +5,7 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { api, ApiError, setAuthToken } from "../api/client";
+import { api, ApiError, setAuthToken, setRefreshHandler } from "../api/client";
 import { safeStorage } from "../utils/storage";
 
 export type AuthUser = {
@@ -25,6 +25,14 @@ export function isMaster(user: AuthUser | null): boolean {
 type Session = {
   user: AuthUser;
   accessToken?: string;
+  /** Живёт месяц: по нему сессия продлевается без повторного ввода кода. */
+  refreshToken?: string;
+};
+
+type AuthResponse = {
+  accessToken: string;
+  refreshToken: string;
+  user: AuthUser;
 };
 
 type RequestCodeResult = {
@@ -93,6 +101,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     else safeStorage.remove(AUTH_STORAGE_KEY);
   }, []);
 
+  /**
+   * Продление сессии по refresh-токену.
+   *
+   * Обработчик отдаём в API-клиент: тот вызовет его при первом же 401 и
+   * повторит запрос. Если продлить не удалось (refresh истёк или отозван) —
+   * разлогиниваемся, чтобы пользователь не остался с «мёртвой» сессией.
+   */
+  useEffect(() => {
+    setRefreshHandler(async () => {
+      const stored = readSession();
+      if (!stored?.refreshToken) return null;
+      try {
+        const response = await api.post<AuthResponse>("/auth/refresh", { refreshToken: stored.refreshToken });
+        persist({ user: response.user, accessToken: response.accessToken, refreshToken: response.refreshToken });
+        return response.accessToken;
+      } catch {
+        persist(null);
+        return null;
+      }
+    });
+    return () => setRefreshHandler(null);
+  }, [persist]);
+
   /** Проверяем сохранённый токен на сервере: истёк — тихо разлогиниваемся. */
   useEffect(() => {
     let alive = true;
@@ -104,7 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void (async () => {
       try {
         const response = await api.get<{ user: AuthUser }>("/auth/me");
-        if (alive) persist({ user: response.user, accessToken: stored.accessToken });
+        if (alive) persist({ ...stored, user: response.user });
       } catch (caught) {
         if (caught instanceof ApiError && (caught.status === 401 || caught.status === 403)) persist(null);
       } finally {
@@ -140,12 +171,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setPending(true);
         setError(null);
         try {
-          const response = await api.post<{ accessToken: string; user: AuthUser }>("/auth/verify-otp", {
+          const response = await api.post<AuthResponse>("/auth/verify-otp", {
             phone: normalizePhone(phone),
             code,
             name,
           });
-          persist({ user: response.user, accessToken: response.accessToken });
+          // Храним оба токена: access — для запросов, refresh — чтобы продлить сессию.
+          persist({
+            user: response.user,
+            accessToken: response.accessToken,
+            refreshToken: response.refreshToken,
+          });
           return response.user;
         } catch (caught) {
           const message = caught instanceof Error ? caught.message : "Не удалось войти";
@@ -156,6 +192,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       },
       signOut: () => {
+        // Просим сервер забыть refresh-токен: после выхода продлить сессию
+        // по сохранённой копии уже нельзя. Ответ не ждём — выходим сразу.
+        void api.post("/auth/logout", { refreshToken: session?.refreshToken }).catch(() => undefined);
         persist(null);
         setError(null);
       },

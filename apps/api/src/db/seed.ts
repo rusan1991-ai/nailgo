@@ -8,7 +8,7 @@
 import { eq } from "drizzle-orm";
 import { normalizePhone } from "../lib/phone.js";
 import { db } from "./index.js";
-import { bookings, conversations, masters, messages, otpCodes, reviews, services, users, workingHours } from "./schema.js";
+import { bookings, conversations, masters, messages, otpCodes, reviews, services, sessions, users, workingHours } from "./schema.js";
 
 const mastersSeed = [
   {
@@ -170,6 +170,7 @@ export async function seed() {
   await db.delete(services);
   await db.delete(masters);
   await db.delete(otpCodes);
+  await db.delete(sessions);
 
   const masterRows = await db.insert(masters).values(mastersSeed).returning();
 

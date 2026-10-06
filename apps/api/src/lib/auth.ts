@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { eq } from "drizzle-orm";
@@ -15,13 +16,35 @@ export function signAccessToken(payload: TokenPayload): string {
   return jwt.sign(payload, env.jwtAccessSecret, { expiresIn: env.accessTtlSeconds });
 }
 
-export function signRefreshToken(payload: TokenPayload): string {
-  return jwt.sign(payload, env.jwtRefreshSecret, { expiresIn: env.refreshTtlSeconds });
+/**
+ * Refresh-токен содержит id сессии (sid) и уникальный id токена (jti).
+ * По sid сервер находит строку в sessions и сверяет хеш токена, jti делает
+ * каждый выданный токен уникальным — без него две выдачи в одну секунду дают
+ * одинаковую строку JWT и ротация перестаёт работать.
+ */
+export function signRefreshToken(payload: TokenPayload, sessionId: string): string {
+  return jwt.sign({ ...payload, sid: sessionId }, env.jwtRefreshSecret, {
+    expiresIn: env.refreshTtlSeconds,
+    // Уникальный id токена: без него две выдачи в одну секунду дают одинаковую
+    // строку JWT, и ротация не меняет токен.
+    jwtid: randomUUID(),
+  });
 }
+
+export type RefreshPayload = TokenPayload & { sid: string; jti: string };
 
 export function verifyAccessToken(token: string): TokenPayload | null {
   try {
     return jwt.verify(token, env.jwtAccessSecret) as TokenPayload;
+  } catch {
+    return null;
+  }
+}
+
+export function verifyRefreshToken(token: string): RefreshPayload | null {
+  try {
+    const payload = jwt.verify(token, env.jwtRefreshSecret) as RefreshPayload;
+    return payload.sid ? payload : null;
   } catch {
     return null;
   }

@@ -13,7 +13,14 @@ export type AuthUser = {
   name: string;
   phone: string;
   role?: "client" | "master" | "admin";
+  /** slug мастера: заполнен, если пользователь владеет кабинетом. */
+  masterSlug?: string | null;
 };
+
+/** Мастер это или админ — им открыт кабинет /pro. */
+export function isMaster(user: AuthUser | null): boolean {
+  return user?.role === "master" || user?.role === "admin";
+}
 
 type Session = {
   user: AuthUser;

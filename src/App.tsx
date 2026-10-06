@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { AuthProvider, useAuth } from "./auth/AuthContext";
+import { Link, BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { AuthProvider, isMaster, useAuth } from "./auth/AuthContext";
 import { BookingProvider } from "./bookings/BookingContext";
 import { BookingPage } from "./pages/BookingPage";
 import { FavoritesPage } from "./pages/FavoritesPage";
@@ -44,13 +44,38 @@ function NotFoundPage() {
   );
 }
 
-function RequireAuth({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+function RequireAuth({ children, masterOnly = false }: { children: ReactNode; masterOnly?: boolean }) {
+  const { user, signOut } = useAuth();
   const location = useLocation();
 
   if (!user) {
     const returnTo = `${location.pathname}${location.search}`;
     return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
+  }
+
+  if (masterOnly && !isMaster(user)) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#fff7fa] px-6 text-center text-slate-600">
+        <div className="max-w-md">
+          <p className="text-sm uppercase tracking-[0.2em] text-pink-500">NailGo</p>
+          <h1 className="mt-3 text-3xl font-semibold text-slate-900">Кабинет доступен мастерам</h1>
+          <p className="mt-2 text-sm">
+            Вы вошли как клиент ({user.phone}). Чтобы открыть кабинет, войдите по номеру мастера.
+          </p>
+          <div className="mt-6 flex justify-center gap-3">
+            <button
+              onClick={signOut}
+              className="rounded-xl border border-pink-200 px-5 py-3 text-sm font-medium text-pink-600 transition hover:bg-pink-50"
+            >
+              Выйти и войти как мастер
+            </button>
+            <Link to="/" className="rounded-xl bg-pink-500 px-5 py-3 text-sm font-semibold text-white hover:bg-pink-600">
+              На главную
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   return children;
@@ -77,9 +102,15 @@ export default function App() {
                 </RequireAuth>
               }
             />
-            {/* Кабинет мастера: в прототипе открыт без авторизации, чтобы его
-                можно было смотреть сразу. Гейт RequireAuth вернём вместе с бэкендом. */}
-            <Route path="/pro" element={<MasterLayout />}>
+            {/* Кабинет мастера доступен только владельцу кабинета (роль master). */}
+            <Route
+              path="/pro"
+              element={
+                <RequireAuth masterOnly>
+                  <MasterLayout />
+                </RequireAuth>
+              }
+            >
               <Route index element={<DashboardPage />} />
               <Route path="schedule" element={<SchedulePage />} />
               <Route path="bookings" element={<BookingsPage />} />

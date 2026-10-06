@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext";
+import { isMaster, useAuth } from "../auth/AuthContext";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -8,7 +8,7 @@ export function LoginPage() {
   const { requestCode, verifyCode, user, pending, error: authError } = useAuth();
 
   const params = new URLSearchParams(location.search);
-  const returnTo = params.get("returnTo") || "/";
+  const returnTo = params.get("returnTo") || null;
 
   const [step, setStep] = useState<"phone" | "code">("phone");
   const [name, setName] = useState("");
@@ -18,11 +18,14 @@ export function LoginPage() {
   const [hint, setHint] = useState("");
   const [error, setError] = useState("");
 
+  /** Куда вернуть после входа: явный returnTo либо кабинет для мастера. */
+  const destination = returnTo ?? (isMaster(user) ? "/pro" : "/");
+
   useEffect(() => {
     if (user) {
-      navigate(returnTo, { replace: true });
+      navigate(destination, { replace: true });
     }
-  }, [navigate, returnTo, user]);
+  }, [destination, navigate, user]);
 
   const askCode = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -53,8 +56,8 @@ export function LoginPage() {
       return;
     }
     try {
-      await verifyCode({ phone, code: code.trim(), name: name.trim() || undefined });
-      navigate(returnTo, { replace: true });
+      const loggedIn = await verifyCode({ phone, code: code.trim(), name: name.trim() || undefined });
+      navigate(returnTo ?? (isMaster(loggedIn) ? "/pro" : "/"), { replace: true });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Не удалось войти");
     }
@@ -132,6 +135,10 @@ export function LoginPage() {
 
         <div className="mt-5 border-t border-[#f3e4ea] pt-4 text-sm text-slate-500">
           <p>После входа вы сможете записываться, отменять и смотреть историю своих записей.</p>
+          <p className="mt-2 rounded-xl bg-[#fff4f8] px-3 py-2 text-xs text-slate-500">
+            Демо-мастер: <span className="font-medium text-slate-700">+7 999 000-00-01</span> — вход по нему открывает
+            кабинет мастера. Код подставляется автоматически в dev-режиме.
+          </p>
           <Link to="/" className="mt-2 inline-block text-pink-600 hover:text-pink-700">
             Вернуться на главную
           </Link>

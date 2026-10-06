@@ -6,6 +6,7 @@ import { bookings, masters, services } from "../db/schema.js";
 import { isDev } from "../env.js";
 import { atMinutes, parseISODate, toISODate } from "../lib/time.js";
 import { serializeBooking } from "../lib/serialize.js";
+import { requireAuth, requireMaster } from "../lib/auth.js";
 import { createBooking, createBookingSchema } from "./bookings.js";
 
 const listQuery = z.object({
@@ -16,13 +17,12 @@ const listQuery = z.object({
   to: z.string().optional(),
 });
 
-/**
- * Кабинет мастера. В прототипе открыт без авторизации — когда появится вход,
- * достаточно добавить сюда preHandler: [requireAuth, requireMaster].
- */
+/** Кабинет мастера: доступен только владельцу кабинета (роль master). */
+const masterOnly = { preHandler: [requireAuth, requireMaster] };
+
 export async function cabinetRoutes(app: FastifyInstance) {
   /** Все записи студии с фильтрами — источник данных для таблицы «Записи». */
-  app.get("/cabinet/bookings", async (request) => {
+  app.get("/cabinet/bookings", masterOnly, async (request) => {
     const { status, query, masterSlug, from, to } = listQuery.parse(request.query ?? {});
     const needle = query?.toLowerCase();
 
@@ -56,14 +56,14 @@ export async function cabinetRoutes(app: FastifyInstance) {
   });
 
   /** Мастер создаёт запись вручную. */
-  app.post("/cabinet/bookings", async (request, reply) => {
+  app.post("/cabinet/bookings", masterOnly, async (request, reply) => {
     const input = createBookingSchema.parse(request.body ?? {});
     const booking = await createBooking(input, { source: "master", status: "confirmed" });
     return reply.code(201).send({ booking });
   });
 
   /** Мастер отменяет запись. */
-  app.post("/cabinet/bookings/:id/cancel", async (request, reply) => {
+  app.post("/cabinet/bookings/:id/cancel", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
     const [booking] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
     if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
@@ -73,7 +73,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
   });
 
   /** Мастер подтверждает запись. */
-  app.post("/cabinet/bookings/:id/confirm", async (request, reply) => {
+  app.post("/cabinet/bookings/:id/confirm", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
     const [booking] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
     if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
@@ -83,7 +83,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
   });
 
   /** Расписание на диапазон дат — для недельной сетки. */
-  app.get("/cabinet/schedule", async (request, reply) => {
+  app.get("/cabinet/schedule", masterOnly, async (request, reply) => {
     const { from, to } = z
       .object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
       .parse(request.query ?? {});
@@ -117,7 +117,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
   });
 
   /** База клиентов: агрегируем записи по телефону. */
-  app.get("/cabinet/clients", async (request) => {
+  app.get("/cabinet/clients", masterOnly, async (request) => {
     const { query } = listQuery.parse(request.query ?? {});
     const needle = query?.toLowerCase();
 
@@ -186,20 +186,29 @@ export async function cabinetRoutes(app: FastifyInstance) {
   });
 
   /** Пересоздать демо-данные (только вне прода). */
-  app.post("/cabinet/demo/reset", async (_request, reply) => {
+  app.post("/cabinet/demo/reset", masterOnly, async (_request, reply) => {
     if (!isDev) return reply.code(403).send({ error: "forbidden", message: "Только для dev-окружения" });
     const { seed } = await import("../db/seed.js");
     const counts = await seed();
     return { ok: true, counts };
   });
 
-  /** Сводка для главной кабинета. */
-  app.get("/cabinet/stats", async () => {
+  /**
+   * Сводка для главной кабинета.
+   *
+   * По умолчанию — текущий месяц. Параметр `month=YYYY-MM` нужен демо-данным:
+   * они лежат на неделе 20–26 мая 2024, и кабинет показывает цифры за этот месяц.
+   */
+  app.get("/cabinet/stats", masterOnly, async (request) => {
+    const { month } = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/).optional() }).parse(request.query ?? {});
     const rows = await db.select().from(bookings);
 
     const today = new Date();
-    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-    const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const [year, monthIndex] = month
+      ? [Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1]
+      : [today.getFullYear(), today.getMonth()];
+    const monthStart = new Date(year, monthIndex, 1);
+    const prevMonthStart = new Date(year, monthIndex - 1, 1);
     const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
@@ -228,6 +237,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
     return {
       todayISO: toISODate(today),
+      monthISO: `${year}-${String(monthIndex + 1).padStart(2, "0")}`,
       bookingsToday: active.filter((booking) => inRange(booking.startAt, dayStart, dayEnd)).length,
       bookingsThisMonth: thisMonth.length,
       bookingsPrevMonth: prevMonth.length,

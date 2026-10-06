@@ -95,31 +95,13 @@ export const weekAppointments: Appointment[] = [
   { id: "a23", day: 6, start: 1140, duration: 60, client: "Свободное окно", service: "", kind: "other", status: "pending" },
 ];
 
-export const todaySchedule = [
-  { time: "18:00", client: "Мария К.", service: "Маникюр + гель-лак", status: "confirmed" as AppointmentStatus },
-  { time: "19:00", client: "Екатерина Л.", service: "Наращивание ногтей", status: "confirmed" as AppointmentStatus },
-  { time: "20:30", client: "Ольга П.", service: "Маникюр + гель-лак", status: "pending" as AppointmentStatus },
-  { time: "22:00", client: "Свободное окно", service: "", status: "pending" as AppointmentStatus },
-];
 
-export const monthStats = {
-  bookings: 128,
-  newClients: 32,
-  newClientsDelta: "+8%",
-  income: 128000,
-  incomeDelta: "+15%",
-};
+
 
 export const profileCompletion = [
   { title: "Заполните портфолио", bonus: "+10% к просмотрам" },
   { title: "Добавьте сертификаты", bonus: "+10% к доверию" },
   { title: "Получите больше отзывов", bonus: "+20% к рейтингу" },
-];
-
-export const recentClients = [
-  { name: "Ирина К.", phone: "+7 (999) 123-45-67", date: "22 мая", status: "Приятный клиент", tone: "green" },
-  { name: "Екатерина Л.", phone: "+7 (999) 123-45-68", date: "19 мая", status: "Приятный клиент", tone: "green" },
-  { name: "Ольга П.", phone: "+7 (999) 123-45-69", date: "15 мая", status: "Завершено", tone: "green" },
 ];
 
 export const journalArticles = [

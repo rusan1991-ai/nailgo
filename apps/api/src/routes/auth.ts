@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { and, desc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { otpCodes, users } from "../db/schema.js";
+import { masters, otpCodes, users } from "../db/schema.js";
 import { env, isDev } from "../env.js";
 import { requireAuth, signAccessToken, signRefreshToken } from "../lib/auth.js";
 
@@ -12,6 +12,12 @@ const phoneSchema = z
   .min(6, "Укажите номер телефона")
   .max(25)
   .transform((value) => value.replace(/[^\d+]/g, ""));
+
+/** Представление пользователя для клиента: роль и slug мастера, если он мастер. */
+async function currentUserView(id: string, phone: string, name: string, role: string) {
+  const [master] = await db.select().from(masters).where(eq(masters.userId, id)).limit(1);
+  return { id, phone, name, role, masterSlug: master?.slug ?? null };
+}
 
 function generateCode(): string {
   return String(Math.floor(1000 + Math.random() * 9000));
@@ -79,7 +85,7 @@ export async function authRoutes(app: FastifyInstance) {
     return {
       accessToken: signAccessToken(payload),
       refreshToken: signRefreshToken(payload),
-      user: { id: user.id, phone: user.phone, name: user.name, role: user.role },
+      user: await currentUserView(user.id, user.phone, user.name, user.role),
     };
   });
 

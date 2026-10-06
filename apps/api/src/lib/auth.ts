@@ -3,7 +3,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { eq } from "drizzle-orm";
 import { env } from "../env.js";
 import { db } from "../db/index.js";
-import { users } from "../db/schema.js";
+import { masters, users } from "../db/schema.js";
 
 export type TokenPayload = {
   sub: string;
@@ -27,9 +27,18 @@ export function verifyAccessToken(token: string): TokenPayload | null {
   }
 }
 
+export type CurrentUser = {
+  id: string;
+  phone: string;
+  role: string;
+  name: string;
+  /** slug мастера, если пользователь — мастер (кабинет показывает его данные). */
+  masterSlug: string | null;
+};
+
 declare module "fastify" {
   interface FastifyRequest {
-    currentUser?: { id: string; phone: string; role: string; name: string };
+    currentUser?: CurrentUser;
   }
 }
 
@@ -51,10 +60,18 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
     return reply.code(401).send({ error: "unauthorized", message: "Пользователь не найден" });
   }
 
-  request.currentUser = { id: user.id, phone: user.phone, role: user.role, name: user.name };
+  const [master] = await db.select().from(masters).where(eq(masters.userId, user.id)).limit(1);
+
+  request.currentUser = {
+    id: user.id,
+    phone: user.phone,
+    role: user.role,
+    name: user.name,
+    masterSlug: master?.slug ?? null,
+  };
 }
 
-/** Гостевой доступ: кабинет мастера в прототипе открыт, но роль уже проверяется. */
+/** Кабинет мастера: только пользователь с ролью master (или admin). */
 export async function requireMaster(request: FastifyRequest, reply: FastifyReply) {
   if (!request.currentUser) {
     return reply.code(401).send({ error: "unauthorized", message: "Требуется вход" });

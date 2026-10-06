@@ -5,8 +5,9 @@
  * Используются двумя путями: CLI `npm run db:seed` и dev-роут
  * `POST /api/cabinet/demo/reset`, поэтому живут внутри src.
  */
+import { eq } from "drizzle-orm";
 import { db } from "./index.js";
-import { bookings, masters, otpCodes, reviews, services, workingHours } from "./schema.js";
+import { bookings, masters, otpCodes, reviews, services, users, workingHours } from "./schema.js";
 
 const mastersSeed = [
   {
@@ -79,6 +80,9 @@ const servicesSeed = [
 
 /** Демо-неделя: 20 мая 2024 — понедельник. */
 const weekStart = new Date(2024, 4, 20);
+/** Телефон владелицы кабинета: вход по нему открывает /pro. */
+export const DEMO_MASTER_PHONE = "+79990000001";
+
 const at = (dayOffset: number, minutes: number) => {
   const date = new Date(weekStart);
   date.setDate(date.getDate() + dayOffset);
@@ -132,6 +136,18 @@ export async function seed() {
   await db.delete(otpCodes);
 
   const masterRows = await db.insert(masters).values(mastersSeed).returning();
+
+  // Аккаунт хозяйки кабинета: вход по телефону с ролью master.
+  const [masterUser] = await db
+    .insert(users)
+    .values({ phone: DEMO_MASTER_PHONE, name: "Анна Смирнова", role: "master" })
+    .onConflictDoUpdate({ target: users.phone, set: { role: "master", name: "Анна Смирнова" } })
+    .returning();
+
+  const owner = masterRows.find((row) => row.slug === "anna-smirnova");
+  if (owner && masterUser) {
+    await db.update(masters).set({ userId: masterUser.id }).where(eq(masters.id, owner.id));
+  }
   const masterBySlug = new Map(masterRows.map((row) => [row.slug, row.id]));
 
   await db.insert(services).values(servicesSeed);

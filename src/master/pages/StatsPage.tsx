@@ -10,6 +10,7 @@ import {
   Tabs,
 } from "../components/ui";
 import { AreaLineChart, DonutChart, Funnel, MultiLineChart, Sparkline } from "../components/charts";
+import { useCabinetStats } from "../../api/cabinet";
 import {
   formatNumber,
   formatRub,
@@ -22,9 +23,15 @@ import {
   statusBreakdown,
   topServices,
 } from "../data";
+import { demoWeek } from "../../store/bookings";
 
 const kpiIcons = [Eye, UserPlus, Wallet, TrendingUp];
-const kpiColors = ["#3b82f6", "#22c55e", "#a855f7", "#f59e0b"];
+
+/** Кириллица для чисел: 4856 → «4 856». */
+const formatInt = (value: number) => new Intl.NumberFormat("ru-RU").format(value);
+
+/** Месяц демо-недели: записи лежат на 20–26 мая 2024. */
+const STATS_MONTH = demoWeek[0].iso.slice(0, 7);
 
 const tabs = [
   { id: "overview", label: "Обзор" },
@@ -38,6 +45,50 @@ const tabs = [
 export function StatsPage() {
   const [tab, setTab] = useState("overview");
   const [scale, setScale] = useState("По дням");
+  const { data: stats } = useCabinetStats(STATS_MONTH);
+
+  /**
+   * Четыре верхние карточки считаются по реальным записям и клиентам из API.
+   * Показы, клики и источники трафика ниже — демо-данные рекламных кампаний:
+   * их подтянем, когда появится интеграция с рекламными кабинетами.
+   */
+  const kpis = [
+    {
+      label: "Всего записей",
+      value: stats ? formatInt(stats.totalBookings) : "—",
+      delta: stats ? `в этом месяце ${formatInt(stats.bookingsThisMonth)}` : "",
+      caption: stats ? `отменено ${stats.cancelled}` : "",
+      color: "#3b82f6",
+      spark: statisticsKpis[0]!.spark,
+    },
+    {
+      label: "Клиенты",
+      value: stats ? formatInt(stats.clientsTotal) : "—",
+      delta: stats ? `новых за месяц ${formatInt(stats.newClientsThisMonth)}` : "",
+      caption: "считаем по номеру телефона",
+      color: "#22c55e",
+      spark: statisticsKpis[1]!.spark,
+    },
+    {
+      label: "Выручка за месяц",
+      value: stats ? formatRub(stats.incomeThisMonth) : "—",
+      delta: stats?.incomeDeltaLabel ?? "",
+      caption: "по сравнению с прошлым месяцем",
+      color: "#a855f7",
+      spark: statisticsKpis[2]!.spark,
+    },
+    {
+      label: "Средний чек",
+      value:
+        stats && stats.bookingsThisMonth > 0
+          ? formatRub(Math.round(stats.incomeThisMonth / stats.bookingsThisMonth))
+          : "—",
+      delta: "",
+      caption: "выручка / записи за месяц",
+      color: "#f59e0b",
+      spark: statisticsKpis[3]!.spark,
+    },
+  ];
 
   return (
     <div>
@@ -62,7 +113,7 @@ export function StatsPage() {
       {tab === "overview" ? (
         <>
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {statisticsKpis.map((kpi, index) => {
+            {kpis.map((kpi, index) => {
               const Icon = kpiIcons[index] ?? Eye;
               return (
                 <Card key={kpi.label}>
@@ -75,10 +126,10 @@ export function StatsPage() {
                   <p className="mt-3 text-2xl font-semibold text-slate-900">{kpi.value}</p>
                   <div className="mt-2 flex items-end justify-between gap-3">
                     <div>
-                      <p className="text-sm text-emerald-500">{kpi.delta}</p>
-                      <p className="text-xs text-slate-400">по сравнению с прошлым периодом</p>
+                      {kpi.delta && <p className="text-sm text-emerald-500">{kpi.delta}</p>}
+                      {kpi.caption && <p className="text-xs text-slate-400">{kpi.caption}</p>}
                     </div>
-                    <Sparkline points={kpi.spark} color={kpiColors[index]} />
+                    <Sparkline points={kpi.spark} color={kpi.color} />
                   </div>
                 </Card>
               );

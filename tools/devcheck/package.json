@@ -1,0 +1,14 @@
+{
+  "name": "nailgo-devcheck",
+  "private": true,
+  "type": "module",
+  "description": "Проверки фронтенда NailGo без браузера: сборка esbuild + рендер в jsdom против живого API.",
+  "scripts": {
+    "bundle": "node build.mjs",
+    "routes": "node routes.mjs",
+    "e2e": "node e2e.mjs"
+  },
+  "dependencies": {
+    "jsdom": "^30.1.2"
+  }
+}

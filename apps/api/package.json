@@ -1,0 +1,33 @@
+{
+  "name": "nailgo-api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "start:prod": "node dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "db:reset": "tsx scripts/reset.ts"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@fastify/cors": "^10.0.2",
+    "drizzle-orm": "^0.45.3",
+    "fastify": "^5.2.1",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.23.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22.10.7",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

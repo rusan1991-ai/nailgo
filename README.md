@@ -1,0 +1,64 @@
+# NailGo — маркетплейс мастеров маникюра
+
+Клиентское приложение (поиск мастера и запись) и кабинет мастера. Фронтенд живёт
+в корне репозитория, API — в `apps/api`.
+
+| Часть | Стек | Где |
+| --- | --- | --- |
+| Клиент + кабинет | React 19, Vite, Tailwind, react-router | `src/` |
+| API | Fastify, Drizzle ORM, Zod, JWT | `apps/api/` |
+| БД локально | PGlite (Postgres в WASM, файл в `apps/api/.pglite`) | `DATABASE_URL="pglite://./.pglite"` |
+| БД на сервере | PostgreSQL | `DATABASE_URL="postgresql://…"` |
+
+## Быстрый старт
+
+```bash
+# 1. Фронтенд
+npm install
+npm run dev                     # http://localhost:5173
+
+# 2. API
+cd apps/api
+cp .env.example .env
+npm install
+npm run db:migrate              # применить миграции
+npm run db:seed                 # демо-данные (мастера, услуги, записи недели 20–26 мая)
+npm run start                   # http://127.0.0.1:4000/api/health
+```
+
+В dev-режиме Vite проксирует `/api` на API, поэтому браузер никогда не обращается
+к `localhost` напрямую — это важно для окна предпросмотра и для прода.
+Адрес API переопределяется переменной `VITE_API_TARGET`, публичный адрес — `VITE_API_URL`.
+
+## Что уже работает
+
+- каталог мастеров и услуг берётся из API (если API недоступен — показывается демо-каталог);
+- вход по телефону: `POST /api/auth/request-otp` → код, `POST /api/auth/verify-otp` → токен.
+  В dev-режиме код возвращается в ответе (`DEV_OTP_ENABLED=true`), в продакшене подключается SMS;
+- клиент записывается: свободные окна считает сервер, двойная запись на одно время
+  невозможна (HTTP 409 `slot_taken`);
+- клиент видит и отменяет свои записи (`/account`), отмена подтверждается номером телефона;
+- кабинет мастера (`/pro`) читает те же записи из БД: расписание, таблица записей,
+  клиенты, статистика — и создаёт записи, которые сразу видны клиенту;
+- демо-данные пересоздаются из кабинета: `POST /api/cabinet/demo/reset` (только dev).
+
+## Проверки
+
+```bash
+npx tsc --noEmit                  # типы фронтенда
+npm run build                     # сборка фронтенда
+cd apps/api && npm run build      # типы и сборка API
+
+# сквозные проверки без браузера (нужен запущенный Vite + API)
+cd tools/devcheck && npm install
+node bundle.mjs                   # собрать приложение в bundle.js
+node routes.mjs                   # отрисовать все маршруты
+node e2e.mjs                      # сценарий «мастер создаёт запись → клиент видит и отменяет»
+```
+
+## Переменные окружения
+
+- фронтенд: `VITE_API_URL`, `VITE_API_TARGET`, `VITE_ALLOWED_HOSTS`;
+- API: см. `apps/api/.env.example` (порт, секреты JWT, TTL кода, шаг слотов, рабочие часы).
+
+Прод и Docker — в [DEPLOY.md](./DEPLOY.md).

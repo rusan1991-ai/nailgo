@@ -1,0 +1,119 @@
+import { randomUUID } from "node:crypto";
+import { boolean, doublePrecision, index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+
+/**
+ * Схема NailGo (Postgres).
+ *
+ * Локально используется PGlite — это настоящий Postgres, скомпилированный в WASM,
+ * поэтому локальная и серверная схемы совпадают полностью: миграции одни и те же.
+ * Деньги — целые рубли, идентификаторы генерируются в приложении (crypto.randomUUID).
+ */
+const id = () =>
+  text("id")
+    .primaryKey()
+    .$defaultFn(() => randomUUID());
+
+export const users = pgTable("users", {
+  id: id(),
+  phone: text("phone").notNull().unique(),
+  name: text("name").notNull(),
+  role: text("role").notNull().default("client"), // client | master | admin
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const masters = pgTable("masters", {
+  id: id(),
+  slug: text("slug").notNull().unique(),
+  userId: text("user_id"),
+  name: text("name").notNull(),
+  tags: text("tags").notNull(),
+  about: text("about"),
+  metro: text("metro").notNull(),
+  distance: text("distance").notNull(),
+  address: text("address"),
+  priceFrom: integer("price_from").notNull(),
+  experience: text("experience").notNull(),
+  rating: doublePrecision("rating").notNull().default(5),
+  reviewsCount: integer("reviews_count").notNull().default(0),
+});
+
+export const services = pgTable("services", {
+  id: id(),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  durationMinutes: integer("duration_minutes").notNull(),
+  price: integer("price").notNull(),
+  active: boolean("active").notNull().default(true),
+});
+
+export const workingHours = pgTable(
+  "working_hours",
+  {
+    id: id(),
+    masterId: text("master_id")
+      .notNull()
+      .references(() => masters.id, { onDelete: "cascade" }),
+    weekday: integer("weekday").notNull(), // 0 = понедельник … 6 = воскресенье
+    startMinute: integer("start_minute").notNull(),
+    endMinute: integer("end_minute").notNull(),
+  },
+  (table) => [uniqueIndex("working_hours_master_weekday").on(table.masterId, table.weekday)],
+);
+
+export const bookings = pgTable(
+  "bookings",
+  {
+    id: id(),
+    masterId: text("master_id")
+      .notNull()
+      .references(() => masters.id),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => services.id),
+    clientName: text("client_name").notNull(),
+    clientPhone: text("client_phone").notNull(),
+    comment: text("comment"),
+    startAt: timestamp("start_at", { withTimezone: true }).notNull(),
+    endAt: timestamp("end_at", { withTimezone: true }).notNull(),
+    price: integer("price").notNull(),
+    status: text("status").notNull().default("pending"), // pending | confirmed | completed | cancelled
+    source: text("source").notNull().default("client"), // client | master
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("bookings_master_start").on(table.masterId, table.startAt),
+    index("bookings_phone").on(table.clientPhone),
+    index("bookings_status").on(table.status),
+  ],
+);
+
+export const reviews = pgTable("reviews", {
+  id: id(),
+  masterId: text("master_id")
+    .notNull()
+    .references(() => masters.id, { onDelete: "cascade" }),
+  clientName: text("client_name").notNull(),
+  score: integer("score").notNull(),
+  text: text("text").notNull(),
+  service: text("service").notNull(),
+  status: text("status").notNull().default("published"), // published | moderation | hidden
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const otpCodes = pgTable(
+  "otp_codes",
+  {
+    id: id(),
+    phone: text("phone").notNull(),
+    code: text("code").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumed: boolean("consumed").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("otp_phone").on(table.phone)],
+);
+
+export type Master = typeof masters.$inferSelect;
+export type Service = typeof services.$inferSelect;
+export type Booking = typeof bookings.$inferSelect;
+export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled";

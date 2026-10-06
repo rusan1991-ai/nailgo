@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Проверки фронтенда NailGo без браузера: сборка esbuild + рендер в jsdom против живого API.",
   "scripts": {
-    "bundle": "node build.mjs",
+    "bundle": "node bundle.mjs",
     "routes": "node routes.mjs",
     "e2e": "node e2e.mjs"
   },

@@ -2,11 +2,14 @@
  * Рендер всех маршрутов в jsdom против живого API: ловим падения и пустые экраны.
  * Запуск: node routes.mjs (сначала npm run bundle)
  */
-import { makeDom, rootText, rootHtmlLength, wait, login } from "./harness.mjs";
+import { makeDom, rootText, rootHtmlLength, wait, login, loginMaster } from "./harness.mjs";
 
+// Кабинет /pro закрыт ролевым гейтом, поэтому для него нужна сессия мастера,
+// а для клиентских страниц — обычная.
 const session = await login("+79990001122", "Тест Клиент");
+const masterSession = await loginMaster();
 
-const routes = [
+const clientRoutes = [
   "/",
   "/search",
   "/last-minute",
@@ -19,6 +22,9 @@ const routes = [
   "/journal",
   "/account",
   "/settings",
+];
+
+const masterRoutes = [
   "/pro",
   "/pro/schedule",
   "/pro/bookings",
@@ -31,9 +37,14 @@ const routes = [
   "/pro/settings",
 ];
 
+const routes = [
+  ...clientRoutes.map((route) => ({ route, session })),
+  ...masterRoutes.map((route) => ({ route, session: masterSession })),
+];
+
 let failed = 0;
-for (const route of routes) {
-  const { dom, errors, consoleErrors } = makeDom(route, { session });
+for (const { route, session: routeSession } of routes) {
+  const { dom, errors, consoleErrors } = makeDom(route, { session: routeSession });
   await wait(1600);
   const length = rootHtmlLength(dom);
   const text = rootText(dom);

@@ -82,6 +82,16 @@ export async function cabinetRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  /** Мастер завершает визит (услуга оказана). */
+  app.post("/cabinet/bookings/:id/complete", masterOnly, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const [booking] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
+    if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
+
+    await db.update(bookings).set({ status: "completed" }).where(eq(bookings.id, id));
+    return { ok: true };
+  });
+
   /** Расписание на диапазон дат — для недельной сетки. */
   app.get("/cabinet/schedule", masterOnly, async (request, reply) => {
     const { from, to } = z

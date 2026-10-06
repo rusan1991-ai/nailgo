@@ -81,7 +81,8 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
     }
     setLoading(true);
     try {
-      const data = await api.get<{ items: ApiBooking[] }>(`/bookings?phone=${encodeURIComponent(phone)}`);
+      // Записи отдаются по токену сессии: подставлять телефон в запрос не нужно.
+      const data = await api.get<{ items: ApiBooking[] }>("/bookings");
       setBookings(data.items.map(toItem));
       setError(null);
     } catch (caught) {
@@ -127,7 +128,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       cancelBooking: async (id) => {
         setError(null);
         try {
-          await api.post(`/bookings/${id}/cancel`, { phone });
+          await api.post(`/bookings/${id}/cancel`);
           setBookings((current) =>
             current.map((booking) => (booking.id === id ? { ...booking, status: "cancelled" } : booking)),
           );

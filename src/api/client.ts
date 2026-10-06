@@ -34,7 +34,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     response = await fetch(`${BASE_URL}${path}`, {
       ...init,
       headers: {
-        "content-type": "application/json",
+        // content-type ставим только при наличии тела: POST без тела с
+        // content-type: application/json Fastify отвергает как пустой JSON.
+        ...(init?.body ? { "content-type": "application/json" } : {}),
         ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
         ...(init?.headers ?? {}),
       },

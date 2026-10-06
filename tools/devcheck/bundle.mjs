@@ -4,13 +4,19 @@
  *
  * Запуск: node tools/devcheck/bundle.mjs
  */
+import path from "node:path";
 import { build } from "esbuild";
 
+// Пути считаем от корня репозитория, а не от текущего каталога:
+// скрипт должен работать и из корня, и из tools/devcheck.
+const here = import.meta.dirname;
+const repoRoot = path.resolve(here, "..", "..");
+
 const result = await build({
-  entryPoints: ["src/main.tsx"],
+  entryPoints: [path.join(repoRoot, "src/main.tsx")],
   bundle: true,
   format: "iife",
-  outfile: "tools/devcheck/bundle.js",
+  outfile: path.join(here, "bundle.js"),
   jsx: "automatic",
   loader: { ".css": "empty", ".png": "empty", ".svg": "empty" },
   define: {

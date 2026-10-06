@@ -3,6 +3,7 @@ import { and, desc, eq, gt, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import { bookings, masters, services, workingHours } from "../db/schema.js";
+import { requireAuth } from "../lib/auth.js";
 import { env } from "../env.js";
 import { atMinutes, parseISODate, weekdayIndex } from "../lib/time.js";
 import { serializeBooking } from "../lib/serialize.js";
@@ -116,9 +117,20 @@ export async function bookingRoutes(app: FastifyInstance) {
     return reply.code(201).send({ booking });
   });
 
-  /** Записи клиента по номеру телефона. */
-  app.get("/bookings", async (request) => {
-    const { phone } = z.object({ phone: z.string().trim().min(6) }).parse(request.query ?? {});
+  /**
+   * Записи клиента. Телефон берём из токена: по одному номеру нельзя прочитать
+   * чужие записи (в них имена, адреса и телефоны).
+   */
+  app.get("/bookings", { preHandler: requireAuth }, async (request, reply) => {
+    const me = request.currentUser!;
+    const { phone: askedPhone } = z
+      .object({ phone: z.string().trim().min(6).optional() })
+      .parse(request.query ?? {});
+
+    if (askedPhone && askedPhone !== me.phone && me.role !== "admin") {
+      return reply.code(403).send({ error: "forbidden", message: "Это не ваш номер телефона" });
+    }
+    const phone = me.phone;
 
     const rows = await db
       .select({ booking: bookings, master: masters, service: services })
@@ -131,14 +143,14 @@ export async function bookingRoutes(app: FastifyInstance) {
     return { items: rows.map((row) => serializeBooking(row.booking, row.master, row.service)) };
   });
 
-  /** Отмена клиентом: номер телефона должен совпадать. */
-  app.post("/bookings/:id/cancel", async (request, reply) => {
+  /** Отмена клиентом: отменять можно только свои записи (проверка по токену). */
+  app.post("/bookings/:id/cancel", { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { phone } = z.object({ phone: z.string().trim().min(6) }).parse(request.body ?? {});
+    const me = request.currentUser!;
 
     const [booking] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
     if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
-    if (booking.clientPhone !== phone) {
+    if (booking.clientPhone !== me.phone && me.role !== "admin") {
       return reply.code(403).send({ error: "forbidden", message: "Это не ваша запись" });
     }
     if (booking.status === "cancelled") return { ok: true };

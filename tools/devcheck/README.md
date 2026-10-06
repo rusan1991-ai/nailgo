@@ -4,14 +4,22 @@
 (`http://127.0.0.1:5173`), то есть ровно так, как это делает браузер предпросмотра.
 
 ```bash
-npm run dev            # в корне репозитория, порт 5173
-cd apps/api && npm run start   # API на 127.0.0.1:4000
+# терминал 1: API (после npm install, npm run db:migrate и npm run db:seed)
+cd apps/api && npm run start              # API на 127.0.0.1:4000
 
-cd tools/devcheck && npm install          # один раз: jsdom
-node bundle.mjs                            # сборка приложения в bundle.js
-node routes.mjs                            # рендер всех маршрутов
-node e2e.mjs                               # сквозной сценарий «мастер ↔ клиент»
+# терминал 2: фронтенд
+npm run dev                                # Vite на 5173, /api проксируется на API
+
+# проверки (из каталога tools/devcheck, там же один раз npm install)
+cd tools/devcheck
+npm run bundle                             # сборка приложения в bundle.js
+npm run routes                             # рендер всех маршрутов
+npm run e2e                                # сквозной сценарий «мастер ↔ клиент»
 ```
+
+Маршруты кабинета `/pro` закрыты ролевым гейтом, поэтому `routes.mjs` и
+`e2e.mjs` входят мастером (`MASTER_PHONE` в `harness.mjs`), а клиентские
+страницы проверяются под обычной клиентской сессией.
 
 Что проверяет `e2e.mjs`:
 

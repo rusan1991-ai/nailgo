@@ -1,8 +1,10 @@
 /** Полный сброс локальной БД: удаляем данные и накатываем сиды заново. */
 import { closeDb, db, runMigrations } from "../src/db/index.js";
+import { assertLocalDatabaseFree } from "./guard.js";
 import { bookings, masters, otpCodes, reviews, services, users, workingHours } from "../src/db/schema.js";
 import { seed } from "../src/db/seed.js";
 
+await assertLocalDatabaseFree();
 await runMigrations();
 
 await db.delete(bookings);

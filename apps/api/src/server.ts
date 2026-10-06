@@ -27,6 +27,11 @@ export async function buildServer() {
       return reply.code(error.statusCode).send({ error: error.code, message: error.message });
     }
 
+    // Пустое тело с content-type: application/json — это ошибка клиента, а не сбой.
+    if ((error as { code?: string }).code === "FST_ERR_CTP_EMPTY_JSON_BODY") {
+      return reply.code(400).send({ error: "empty_body", message: "Пустое тело запроса" });
+    }
+
     request.log.error(error);
     return reply.code(500).send({ error: "internal_error", message: "Внутренняя ошибка сервера" });
   });

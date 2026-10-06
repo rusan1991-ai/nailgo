@@ -235,21 +235,40 @@ export async function createBooking(input: NewBookingInput): Promise<Booking> {
 export async function cancelBooking(id: string, phone?: string): Promise<void> {
   if (phone) {
     await api.post(`/bookings/${id}/cancel`, { phone });
-  } else {
-    await api.post(`/cabinet/bookings/${id}/cancel`);
+    updateStatus(id, "cancelled");
+    return;
   }
+  await setStatus(id, "cancel");
+}
+
+/**
+ * Смена статуса мастером: оптимистично обновляем список, а если сервер
+ * отказал — возвращаем то, что реально лежит в базе, чтобы экран не врал.
+ */
+async function setStatus(id: string, action: "confirm" | "complete" | "cancel"): Promise<void> {
+  const next: BookingStatus = action === "confirm" ? "confirmed" : action === "complete" ? "completed" : "cancelled";
+  updateStatus(id, next);
+  try {
+    await api.post(`/cabinet/bookings/${id}/${action}`);
+  } catch (error) {
+    await refresh();
+    throw error;
+  }
+}
+
+function updateStatus(id: string, status: BookingStatus): void {
   emit({
     ...state,
-    bookings: state.bookings.map((booking) => (booking.id === id ? { ...booking, status: "cancelled" } : booking)),
+    bookings: state.bookings.map((booking) => (booking.id === id ? { ...booking, status } : booking)),
   });
 }
 
 export async function confirmBooking(id: string): Promise<void> {
-  await api.post(`/cabinet/bookings/${id}/confirm`);
-  emit({
-    ...state,
-    bookings: state.bookings.map((booking) => (booking.id === id ? { ...booking, status: "confirmed" } : booking)),
-  });
+  await setStatus(id, "confirm");
+}
+
+export async function completeBooking(id: string): Promise<void> {
+  await setStatus(id, "complete");
 }
 
 export function exportBookings(): string {

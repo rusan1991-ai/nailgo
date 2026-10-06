@@ -1,5 +1,6 @@
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { pgliteDir, releaseStaleLock } from "./pglite-lock.js";
 import { drizzle as drizzlePglite, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate as migratePglite } from "drizzle-orm/pglite/migrator";
 import { Pool } from "pg";
@@ -23,9 +24,14 @@ const databaseUrl = process.env.DATABASE_URL ?? "pglite://./.pglite";
 
 const isPostgres = databaseUrl.startsWith("postgres://") || databaseUrl.startsWith("postgresql://");
 
-const localClient = isPostgres
-  ? null
-  : new PGlite(databaseUrl.replace(/^pglite:\/\//, ""));
+// После аварийного завершения процесса PGlite оставляет postmaster.pid и
+// следующий запуск ждёт освобождения базы. Если держателя нет — снимаем lock.
+const localDir = pgliteDir(databaseUrl);
+if (localDir && releaseStaleLock(localDir)) {
+  console.warn(`Снят устаревший lock локальной базы: ${localDir}/postmaster.pid`);
+}
+
+const localClient = isPostgres ? null : new PGlite(localDir ?? databaseUrl.replace(/^pglite:\/\//, ""));
 
 export const db = (isPostgres
   ? drizzlePg(new Pool({ connectionString: databaseUrl }), { schema })

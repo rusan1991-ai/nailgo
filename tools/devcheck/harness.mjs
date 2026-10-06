@@ -6,6 +6,9 @@ import fs from "fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 
 export const ORIGIN = process.env.NAILGO_ORIGIN ?? "http://127.0.0.1:5173";
+
+/** Демо-мастер из сидов API: его номер открывает кабинет /pro. */
+export const MASTER_PHONE = "+79990000001";
 export const BUNDLE = fs.readFileSync(new URL("./bundle.js", import.meta.url), "utf8");
 
 export const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -72,6 +75,25 @@ export function findButton(dom, text) {
   );
 }
 
+/** Строка таблицы, в которой встречаются все указанные фрагменты. */
+export function rowByText(dom, ...parts) {
+  return [...dom.window.document.querySelectorAll("tr")].find((row) => {
+    const text = (row.textContent ?? "").replace(/\s+/g, " ");
+    return parts.every((part) => text.includes(part));
+  });
+}
+
+/** Клик по кнопке внутри конкретного элемента (например, внутри строки таблицы). */
+export function clickIn(scope, text) {
+  if (!scope) throw new Error(`нет элемента, внутри которого ищем «${text}»`);
+  const element = [...scope.querySelectorAll("button, a")].find((candidate) =>
+    (candidate.textContent ?? "").replace(/\s+/g, " ").includes(text),
+  );
+  if (!element) throw new Error(`не найден элемент с текстом «${text}»`);
+  element.click();
+  return element;
+}
+
 export function click(dom, text) {
   const element = findButton(dom, text);
   if (!element) throw new Error(`не найден элемент с текстом «${text}»`);
@@ -103,6 +125,22 @@ export async function api(path, init) {
   });
   const text = await response.text();
   return { status: response.status, data: text ? JSON.parse(text) : null };
+}
+
+/**
+ * Запрос к API от имени сессии: кабинетные ручки требуют
+ * заголовок Authorization: Bearer <token>.
+ */
+export async function apiAs(session, path, init) {
+  return api(path, {
+    ...init,
+    headers: { "content-type": "application/json", authorization: `Bearer ${session.accessToken}` },
+  });
+}
+
+/** Сессия мастера — для страниц кабинета, закрытых ролевым гейтом. */
+export async function loginMaster() {
+  return login(MASTER_PHONE, "Анна Смирнова");
 }
 
 /** Вход по коду: возвращает сессию для localStorage. */

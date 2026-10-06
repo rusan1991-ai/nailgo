@@ -3,7 +3,20 @@
  * мастер создаёт запись в кабинете → клиент видит её у себя → клиент отменяет →
  * кабинет видит отмену.
  */
-import { api, check, click, login, makeDom, rootText, setField, wait } from "./harness.mjs";
+import {
+  api,
+  apiAs,
+  check,
+  click,
+  clickIn,
+  login,
+  loginMaster,
+  makeDom,
+  rootText,
+  rowByText,
+  setField,
+  wait,
+} from "./harness.mjs";
 
 const PHONE = "+79990001122";
 const DATE = "2024-05-22";
@@ -23,9 +36,11 @@ function setSelect(dom, index, value) {
 }
 
 const session = await login(PHONE, "Тест Клиент");
+const masterSession = await loginMaster();
 console.log(`Сессия клиента: ${session.user.name} ${session.user.phone}`);
+console.log(`Сессия мастера: ${masterSession.user.name} ${masterSession.user.phone} (${masterSession.user.role})`);
 
-const before = await api(`/bookings?phone=${encodeURIComponent(PHONE)}`);
+const before = await apiAs(session, `/bookings?phone=${encodeURIComponent(PHONE)}`);
 const beforeIds = new Set(before.data.items.map((item) => item.id));
 
 const catalog = await api("/services");
@@ -44,7 +59,7 @@ if (!slot) throw new Error("нет свободного окна с шагом 3
 console.log(`Свободное окно для проверки: ${DATE} ${slot} (${service.name})`);
 
 /* 1. Мастер создаёт запись в своём кабинете */
-const master = makeDom("/pro/schedule", { session });
+const master = makeDom("/pro/schedule", { session: masterSession });
 await wait(1600);
 click(master.dom, "Добавить запись");
 await wait(300);
@@ -63,7 +78,7 @@ assert("мастер увидел подтверждение создания", 
 master.dom.window.close();
 
 /* 2. Запись есть в API у клиента и в кабинете */
-const clientList = await api(`/bookings?phone=${encodeURIComponent(PHONE)}`);
+const clientList = await apiAs(session, `/bookings?phone=${encodeURIComponent(PHONE)}`);
 const created = clientList.data.items.find(
   (item) =>
     !beforeIds.has(item.id) &&
@@ -73,18 +88,72 @@ const created = clientList.data.items.find(
 assert("запись создана сервером", Boolean(created), created ? `${created.serviceName} · ${created.status}` : "нет");
 assert("статус из кабинета — confirmed", created?.status === "confirmed", created?.status);
 
-const cabinetList = await api(`/cabinet/bookings?from=${DATE}&to=${DATE}`);
+const cabinetList = await apiAs(masterSession, `/cabinet/bookings?from=${DATE}&to=${DATE}`);
 const inCabinet = cabinetList.data.items.find((item) => item.id === created?.id);
 assert("запись видна в кабинете мастера", Boolean(inCabinet), inCabinet?.clientName);
 
 /* 3. Мастер видит запись в таблице «Записи» */
-const bookings = makeDom("/pro/bookings", { session });
+const bookings = makeDom("/pro/bookings", { session: masterSession });
 await wait(1800);
 const bookingsText = rootText(bookings.dom);
 assert("таблица «Записи» показывает клиента", bookingsText.includes("Тест Клиент"));
 assert("таблица «Записи» показывает услугу", bookingsText.includes(service.name), service.name);
 assert("в кабинете нет ошибок", bookings.errors.length === 0 && bookings.consoleErrors.length === 0, bookings.errors[0] ?? "");
 bookings.dom.window.close();
+
+/* 3.5 Мастер завершает визит прямо в таблице кабинета (кнопка «Действия») */
+const cabinetAfterComplete = makeDom("/pro/bookings", { session: masterSession });
+await wait(1800);
+const ourRow = rowByText(cabinetAfterComplete.dom, service.name, `${slot} –`);
+assert("в кабинете нашлась строка нашей записи", Boolean(ourRow), `${service.name} ${slot}`);
+clickIn(ourRow, "Действия с записью");
+await wait(200);
+assert("меню действий открылось", rootText(cabinetAfterComplete.dom).includes("Завершить"));
+clickIn(ourRow, "Завершить");
+await wait(1500);
+const completedInDb = await apiAs(masterSession, `/cabinet/bookings?from=${DATE}&to=${DATE}`);
+const completed = completedInDb.data.items.find((item) => item.id === created?.id);
+assert("статус «completed» дошёл до базы", completed?.status === "completed", completed?.status);
+assert(
+  "таблица показывает «Завершена»",
+  (ourRow?.textContent ?? "").includes("Завершена"),
+  (ourRow?.textContent ?? "").replace(/\s+/g, " ").slice(0, 80),
+);
+cabinetAfterComplete.dom.window.close();
+
+/* 3.6 Клиентская заявка «ожидает» — мастер подтверждает её из кабинета */
+// Слоты перезапрашиваем: список, полученный до создания записи мастера, уже
+// устарел, а API обязан убрать занятое время из свободных (анти-овербукинг).
+const freshSlots = await api(`/masters/anna-smirnova/slots?date=${DATE}&serviceId=${service.id}`);
+const freshLabels = freshSlots.data.slots.map((item) => item.label);
+assert("занятое окно исчезло из свободных", !freshLabels.includes(slot), `занято ${slot}`);
+
+const clientSlot = freshLabels.find((label) => allowed.has(label) && label !== slot);
+const requested = await api("/bookings", {
+  method: "POST",
+  body: {
+    masterSlug: "anna-smirnova",
+    serviceId: service.id,
+    dateISO: DATE,
+    startMinutes: Number(clientSlot.slice(0, 2)) * 60 + Number(clientSlot.slice(3)),
+    clientName: "Тест Клиент",
+    clientPhone: PHONE,
+  },
+});
+assert("клиент оставил заявку со статусом pending", requested.data.booking?.status === "pending", requested.data.booking?.status);
+
+const cabinetForConfirm = makeDom("/pro/bookings", { session: masterSession });
+await wait(1800);
+const pendingRow = rowByText(cabinetForConfirm.dom, service.name, `${clientSlot} –`);
+assert("заявка видна в кабинете", Boolean(pendingRow), clientSlot);
+clickIn(pendingRow, "Действия с записью");
+await wait(200);
+clickIn(pendingRow, "Подтвердить");
+await wait(1500);
+const confirmedInDb = await apiAs(masterSession, `/cabinet/bookings?from=${DATE}&to=${DATE}`);
+const confirmed = confirmedInDb.data.items.find((item) => item.id === requested.data.booking.id);
+assert("подтверждение дошло до базы", confirmed?.status === "confirmed", confirmed?.status);
+cabinetForConfirm.dom.window.close();
 
 /* 4. Клиент видит запись у себя */
 const account = makeDom("/account", { session });
@@ -94,33 +163,47 @@ assert("клиент видит услугу в «Моём профиле»", ac
 assert("карточка помечена как предстоящая", accountText.includes("Предстоящая запись"));
 assert("у клиента нет ошибок", account.errors.length === 0 && account.consoleErrors.length === 0, account.errors[0] ?? "");
 
+/* 4.1 Завершённый мастером визит виден клиенту во вкладке «Прошедшие» */
+click(account.dom, "Прошедшие");
+await wait(600);
+const completedText = rootText(account.dom);
+assert("завершённый визит виден клиенту", completedText.includes("Завершено"), `дата ${DATE}, окно ${slot}`);
+
 /* 5. Клиент отменяет запись через интерфейс */
-const article = [...account.dom.window.document.querySelectorAll("article")].find((element) =>
-  (element.textContent ?? "").includes(service.name),
-);
+// У клиента может быть несколько записей на ту же услугу (в том числе
+// оставшихся от прошлых прогонов), поэтому ищем карточку именно нашей записи:
+// услуга + время выбранного окна.
+const sameBooking = (element) => {
+  const text = (element.textContent ?? "").replace(/\s+/g, " ");
+  return text.includes(service.name) && text.includes(clientSlot);
+};
+click(account.dom, "Предстоящие");
+await wait(600);
+const article = [...account.dom.window.document.querySelectorAll("article")].find(sameBooking);
 const cancelButton = article
   ? [...article.querySelectorAll("button")].find((button) => button.textContent.includes("Отменить"))
   : null;
-assert("кнопка отмены найдена", Boolean(cancelButton));
+assert("карточка нашей записи найдена и в ней есть отмена", Boolean(cancelButton), `${DATE} ${clientSlot}`);
 cancelButton?.click();
 await wait(1500);
-const stillUpcoming = [...account.dom.window.document.querySelectorAll("article")].some((element) =>
-  (element.textContent ?? "").includes(service.name),
-);
+const stillUpcoming = [...account.dom.window.document.querySelectorAll("article")].some(sameBooking);
 assert("отменённая запись ушла из «Предстоящих»", !stillUpcoming);
 click(account.dom, "Отмененные");
 await wait(600);
 assert("карточка появилась во вкладке «Отмененные»", rootText(account.dom).includes("Отменено"));
 account.dom.window.close();
 
-const afterCancel = await api(`/bookings?phone=${encodeURIComponent(PHONE)}`);
-const cancelled = afterCancel.data.items.find((item) => item.id === created?.id);
+const afterCancel = await apiAs(session, `/bookings?phone=${encodeURIComponent(PHONE)}`);
+const cancelled = afterCancel.data.items.find((item) => item.id === requested.data.booking.id);
 assert("отмена дошла до базы", cancelled?.status === "cancelled", cancelled?.status);
 
-const cabinetAfter = await api(`/cabinet/bookings?status=cancelled&from=${DATE}&to=${DATE}`);
+const cabinetAfter = await apiAs(
+  masterSession,
+  `/cabinet/bookings?status=cancelled&from=${DATE}&to=${DATE}`,
+);
 assert(
   "кабинет мастера видит отмену",
-  cabinetAfter.data.items.some((item) => item.id === created?.id),
+  cabinetAfter.data.items.some((item) => item.id === requested.data.booking.id),
 );
 
 console.log(failures === 0 ? "\nСквозной сценарий пройден." : `\nОшибок: ${failures}`);

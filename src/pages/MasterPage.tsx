@@ -1,0 +1,99 @@
+import { motion } from "framer-motion";
+import { Link, useParams } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext";
+import { AppHeader } from "../components/AppHeader";
+import { Avatar, NailStrip } from "../components/NailUi";
+import { formatRub, masters, services, slots } from "../data/mock";
+
+export function MasterPage() {
+  const { user } = useAuth();
+  const params = useParams();
+  const master = masters.find((item) => item.slug === params.slug) ?? masters[0];
+  const bookingTarget = `/booking?master=${master.slug}&service=s2&date=22%20мая&slot=19:00`;
+  const bookingLink = user ? bookingTarget : `/login?returnTo=${encodeURIComponent(bookingTarget)}`;
+
+  return (
+    <main className="min-h-screen bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
+      <div className="mx-auto max-w-[1280px] rounded-[26px] border border-[#ffe6ef] bg-white p-5 shadow-[0_20px_80px_-40px_rgba(236,72,153,0.45)] sm:p-8">
+        <AppHeader />
+
+        <section className="mt-7 grid gap-6 xl:grid-cols-[1fr_360px]">
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+            <div className="flex items-start gap-4">
+              <Avatar className="h-24 w-24" />
+              <div>
+                <h1 className="text-4xl font-semibold">{master.name}</h1>
+                <p className="mt-1 text-slate-500">{master.tags}</p>
+                <p className="mt-2 text-slate-600">
+                  <span className="font-medium text-yellow-500">★ {master.rating}</span> ({master.reviews} отзывов)
+                </p>
+                <p className="text-sm text-slate-500">{master.metro}</p>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <NailStrip />
+            </div>
+
+            <div className="mt-6 border-b border-[#f2e3ea] pb-2">
+              <nav className="flex gap-6 text-sm">
+                <button className="border-b-2 border-slate-900 pb-2 font-medium">Услуги и цены</button>
+                <button className="pb-2 text-slate-500">Портфолио</button>
+                <button className="pb-2 text-slate-500">Отзывы</button>
+                <button className="pb-2 text-slate-500">О мастере</button>
+              </nav>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {services.map((service) => (
+                <div key={service.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-xl border border-[#f3e3ea] p-3">
+                  <div>
+                    <p className="font-medium">{service.name}</p>
+                    <p className="text-sm text-slate-500">{service.duration}</p>
+                  </div>
+                  <p className="font-semibold">{formatRub(service.price)}</p>
+                  <Link
+                    to={bookingLink}
+                    className="rounded-lg border border-pink-200 px-3 py-1 text-sm text-pink-600 hover:bg-pink-50"
+                  >
+                    Записаться
+                  </Link>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+
+          <motion.aside
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="rounded-2xl border border-[#f1dce6] bg-white p-4 shadow-sm"
+          >
+            <p className="text-lg font-semibold">Свободные окна</p>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+              <button className="rounded-lg border border-pink-500 bg-pink-50 px-3 py-2 text-pink-600">Сегодня</button>
+              <button className="rounded-lg border border-[#f1dde6] px-3 py-2">Завтра</button>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {slots.map((slot, idx) => (
+                <button
+                  key={slot}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+                    idx === 1 ? "border-pink-500 bg-pink-500 text-white" : "border-[#f1dde6]"
+                  }`}
+                >
+                  {slot}
+                </button>
+              ))}
+            </div>
+            <Link
+              to={bookingLink}
+              className="mt-4 block rounded-xl bg-pink-500 py-3 text-center text-sm font-semibold text-white hover:bg-pink-600"
+            >
+              {user ? "Записаться на 19:00" : "Войти и записаться"}
+            </Link>
+          </motion.aside>
+        </section>
+      </div>
+    </main>
+  );
+}

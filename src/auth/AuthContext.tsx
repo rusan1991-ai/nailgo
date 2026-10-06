@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { safeStorage } from "../utils/storage";
 
 type AuthUser = {
   name: string;
@@ -19,12 +20,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
-    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    const raw = safeStorage.get(AUTH_STORAGE_KEY);
     if (!raw) return;
     try {
       setUser(JSON.parse(raw) as AuthUser);
     } catch {
-      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      safeStorage.remove(AUTH_STORAGE_KEY);
     }
   }, []);
 
@@ -33,11 +34,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       signIn: (nextUser) => {
         setUser(nextUser);
-        window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextUser));
+        safeStorage.set(AUTH_STORAGE_KEY, JSON.stringify(nextUser));
       },
       signOut: () => {
         setUser(null);
-        window.localStorage.removeItem(AUTH_STORAGE_KEY);
+        safeStorage.remove(AUTH_STORAGE_KEY);
       },
     }),
     [user],

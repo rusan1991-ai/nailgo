@@ -1,9 +1,42 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Arena Web Dev App</title>
+    <meta
+      name="description"
+      content="NailGo — маркетплейс мастеров маникюра: онлайн-запись, портфолио, поиск рядом и расписание."
+    />
+    <title>NailGo — мастера маникюра рядом</title>
+    <script>
+      // Диагностика запуска: если приложение не смонтировалось, показываем
+      // причину текстом вместо пустого белого экрана.
+      window.__nailgoBootErrors = [];
+      window.addEventListener("error", function (event) {
+        window.__nailgoBootErrors.push(String((event && (event.message || event.error)) || "unknown error"));
+      });
+      window.addEventListener("unhandledrejection", function (event) {
+        window.__nailgoBootErrors.push("Unhandled rejection: " + String((event && event.reason) || ""));
+      });
+
+      setTimeout(function () {
+        var root = document.getElementById("root");
+        if (!root || root.childElementCount > 0) return;
+        var details = window.__nailgoBootErrors.length
+          ? window.__nailgoBootErrors.join("\n")
+          : "Скрипты загрузились, но приложение не отрисовалось.";
+        root.innerHTML =
+          '<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:32px;max-width:720px;margin:0 auto;color:#0f172a">' +
+          '<p style="color:#ec4899;font-weight:600;letter-spacing:.2em;text-transform:uppercase;font-size:12px;margin:0">NailGo</p>' +
+          '<h1 style="font-size:22px;margin:12px 0 8px">Приложение не запустилось</h1>' +
+          '<p style="color:#64748b;font-size:14px;margin:0 0 16px">Страница загрузилась, но React не смонтировался. Ниже — ошибки из браузера.</p>' +
+          '<pre style="background:#020617;color:#fecdd3;padding:16px;border-radius:12px;font-size:12px;white-space:pre-wrap;overflow:auto">' +
+          details.replace(/[<>&]/g, function (c) {
+            return { "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c];
+          }) +
+          "</pre></div>";
+      }, 6000);
+    </script>
   </head>
   <body>
     <div id="root"></div>

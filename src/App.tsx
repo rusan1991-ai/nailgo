@@ -10,11 +10,21 @@ import { LastMinutePage } from "./pages/LastMinutePage";
 import { LoginPage } from "./pages/LoginPage";
 import { MasterPage } from "./pages/MasterPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
-import { ProDashboardPage } from "./pages/ProDashboardPage";
 import { SearchMapPage } from "./pages/SearchMapPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { AccountPage } from "./pages/AccountPage";
 import { ReviewsPage } from "./pages/ReviewsPage";
+import { MasterLayout } from "./master/MasterLayout";
+import { DashboardPage } from "./master/pages/DashboardPage";
+import { SchedulePage } from "./master/pages/SchedulePage";
+import { BookingsPage } from "./master/pages/BookingsPage";
+import { ClientsPage } from "./master/pages/ClientsPage";
+import { ServicesPage } from "./master/pages/ServicesPage";
+import { ReviewsProPage } from "./master/pages/ReviewsProPage";
+import { PromotionPage } from "./master/pages/PromotionPage";
+import { StatsPage } from "./master/pages/StatsPage";
+import { MessagesPage } from "./master/pages/MessagesPage";
+import { SettingsProPage } from "./master/pages/SettingsProPage";
 
 function NotFoundPage() {
   return (
@@ -66,14 +76,20 @@ export default function App() {
                 </RequireAuth>
               }
             />
-            <Route
-              path="/pro"
-              element={
-                <RequireAuth>
-                  <ProDashboardPage />
-                </RequireAuth>
-              }
-            />
+            {/* Кабинет мастера: в прототипе открыт без авторизации, чтобы его
+                можно было смотреть сразу. Гейт RequireAuth вернём вместе с бэкендом. */}
+            <Route path="/pro" element={<MasterLayout />}>
+              <Route index element={<DashboardPage />} />
+              <Route path="schedule" element={<SchedulePage />} />
+              <Route path="bookings" element={<BookingsPage />} />
+              <Route path="clients" element={<ClientsPage />} />
+              <Route path="services" element={<ServicesPage />} />
+              <Route path="reviews" element={<ReviewsProPage />} />
+              <Route path="promotion" element={<PromotionPage />} />
+              <Route path="stats" element={<StatsPage />} />
+              <Route path="messages" element={<MessagesPage />} />
+              <Route path="settings" element={<SettingsProPage />} />
+            </Route>
             <Route
               path="/favorites"
               element={

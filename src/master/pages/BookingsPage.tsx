@@ -12,6 +12,8 @@ import {
   Tabs,
 } from "../components/ui";
 import { bookingRows, bookingTabs, formatRub, type BookingRow } from "../data";
+import { AppointmentModal } from "../components/AppointmentModal";
+import { formatTimeLabel, useBookingsStore, weekdayForDate } from "../../store/bookings";
 import { cn } from "../../utils/cn";
 
 const statusChips: Record<BookingRow["status"], { label: string; tone: "green" | "amber" | "red" | "blue" }> = {
@@ -28,9 +30,35 @@ export function BookingsPage() {
   const [service, setService] = useState("all");
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const stored = useBookingsStore();
+  const seededIds = useMemo(() => new Set(bookingRows.map((row) => row.id)), []);
+
+  /** Записи, созданные в приложении (клиентом или мастером), — они свежее демо-таблицы. */
+  const createdRows = useMemo<BookingRow[]>(
+    () =>
+      stored
+        .filter((booking) => !seededIds.has(booking.id))
+        .map((booking) => ({
+          id: booking.id,
+          date: `${booking.dateLabel}, ${weekdayForDate(booking.dateLabel)}`.trim(),
+          time: `${formatTimeLabel(booking.startMinutes)} – ${formatTimeLabel(
+            booking.startMinutes + booking.durationMinutes,
+          )}`,
+          client: booking.clientName,
+          phone: booking.clientPhone || "—",
+          service: booking.serviceName,
+          duration: `${booking.durationMinutes} мин`,
+          master: booking.masterName,
+          status: booking.status,
+          price: booking.price,
+        })),
+    [stored, seededIds],
+  );
 
   const rows = useMemo(() => {
-    const byTab = bookingRows.filter((row) => {
+    const byTab = [...createdRows, ...bookingRows].filter((row) => {
       if (tab === "upcoming") return row.status === "confirmed" || row.status === "pending";
       if (tab === "done") return row.status === "completed";
       if (tab === "cancelled") return row.status === "cancelled";
@@ -44,7 +72,7 @@ export function BookingsPage() {
     const byMaster = master === "all" ? byQuery : byQuery.filter((row) => row.master === master);
     const byService = service === "all" ? byMaster : byMaster.filter((row) => row.service === service);
     return status === "all" ? byService : byService.filter((row) => row.status === status);
-  }, [tab, query, master, service, status]);
+  }, [tab, query, master, service, status, createdRows]);
 
   const masters = Array.from(new Set(bookingRows.map((row) => row.master)));
   const services = Array.from(new Set(bookingRows.map((row) => row.service)));
@@ -53,7 +81,7 @@ export function BookingsPage() {
     <div>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Записи</h1>
-        <PrimaryButton>
+        <PrimaryButton onClick={() => setModalOpen(true)}>
           <Plus className="h-4 w-4" />
           Добавить запись
         </PrimaryButton>
@@ -164,9 +192,16 @@ export function BookingsPage() {
         label={`Показано ${rows.length ? "1–10" : "0"} из ${bookingTabs[0].count} записей`}
       />
 
-      <div className={cn("mt-2", rows.length === 0 && "hidden")}>
+      <div className={cn("mt-2 flex items-center gap-3", rows.length === 0 && "hidden")}>
         <GhostButton>Экспорт в CSV</GhostButton>
+        <span className="text-xs text-slate-400">
+          {createdRows.length > 0
+            ? `${createdRows.length} записей создано в приложении`
+            : "Новые записи из приложения появятся здесь"}
+        </span>
       </div>
+
+      <AppointmentModal open={modalOpen} onClose={() => setModalOpen(false)} />
     </div>
   );
 }

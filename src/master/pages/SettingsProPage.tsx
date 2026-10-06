@@ -11,6 +11,7 @@ import {
   Toggle,
 } from "../components/ui";
 import { settingsNav, masterProfile } from "../data";
+import { exportBookings, resetBookings, useBookingsStore } from "../../store/bookings";
 import { cn } from "../../utils/cn";
 
 export function SettingsProPage() {
@@ -36,6 +37,7 @@ export function SettingsProPage() {
   const [minDuration, setMinDuration] = useState("15 минут");
   const [onlyAvailable, setOnlyAvailable] = useState(true);
   const [saved, setSaved] = useState(false);
+  const bookings = useBookingsStore();
 
   const sectionTitle = settingsNav
     .flatMap((group) => group.items)
@@ -276,10 +278,31 @@ export function SettingsProPage() {
 
           <Card>
             <CardTitle>Резервное копирование</CardTitle>
-            <p className="text-sm text-slate-500">Экспортируйте данные студии и клиентов.</p>
-            <button className="mt-4 inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600 transition hover:bg-slate-50">
+            <p className="text-sm text-slate-500">
+              Экспортируйте данные студии и клиентов. Сейчас в хранилище {bookings.length} записей.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                const blob = new Blob([exportBookings()], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = `nailgo-bookings-${new Date().toISOString().slice(0, 10)}.json`;
+                link.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="mt-4 inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600 transition hover:bg-slate-50"
+            >
               <Download className="h-4 w-4" />
               Экспорт данных
+            </button>
+            <button
+              type="button"
+              onClick={() => resetBookings()}
+              className="mt-2 block text-xs text-slate-400 underline decoration-dotted transition hover:text-[#e11d48]"
+            >
+              Сбросить демо-данные
             </button>
           </Card>
         </div>

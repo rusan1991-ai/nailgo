@@ -8,6 +8,8 @@ export type ServiceKind = "manicure" | "extension" | "design" | "other";
 
 export type Appointment = {
   id: string;
+  /** Слаг мастера; если не задан — запись принадлежит владельцу кабинета. */
+  masterSlug?: string;
   /** День недели в сетке расписания, 0 = понедельник. */
   day: number;
   /** Начало в минутах от полуночи. */
@@ -47,7 +49,7 @@ export const dayStartHour = 9;
 export const dayEndHour = 21;
 
 export const masterProfile = {
-  name: "Мария Ковалёва",
+  name: "Анна Смирнова",
   studio: "Nail Studio",
   phone: "+7 (999) 123-45-67",
   email: "anna.smirnova@email.com",
@@ -67,11 +69,11 @@ export const weekAppointments: Appointment[] = [
   { id: "a3", day: 0, start: 960, duration: 90, client: "Ольга П.", service: "Маникюр + гель-лак", kind: "manicure", status: "cancelled" },
   { id: "a4", day: 0, start: 1140, duration: 60, client: "Ирина К.", service: "Маникюр", kind: "manicure", status: "confirmed" },
 
-  { id: "a5", day: 1, start: 600, duration: 90, client: "Татьяна Л.", service: "Маникюр + гель-лак", kind: "manicure", status: "confirmed" },
+  { id: "a5", masterSlug: "ekaterina-vlasova", day: 1, start: 600, duration: 90, client: "Татьяна Л.", service: "Маникюр + гель-лак", kind: "manicure", status: "confirmed" },
   { id: "a6", day: 1, start: 900, duration: 60, client: "Наталья Б.", service: "Дизайн ногтей", kind: "design", status: "confirmed" },
   { id: "a7", day: 1, start: 1080, duration: 90, client: "Марина Д.", service: "Наращивание ногтей", kind: "extension", status: "confirmed" },
 
-  { id: "a8", day: 2, start: 600, duration: 90, client: "Ксения Р.", service: "Маникюр + гель-лак", kind: "manicure", status: "confirmed" },
+  { id: "a8", masterSlug: "maria-ivanova", day: 2, start: 600, duration: 90, client: "Ксения Р.", service: "Маникюр + гель-лак", kind: "manicure", status: "confirmed" },
   { id: "a9", day: 2, start: 720, duration: 60, client: "Екатерина В.", service: "Укрепление ногтей", kind: "other", status: "pending" },
   { id: "a10", day: 2, start: 840, duration: 90, client: "Анастасия Т.", service: "Маникюр + гель-лак", kind: "manicure", status: "confirmed" },
   { id: "a11", day: 2, start: 1020, duration: 90, client: "Дарья С.", service: "Наращивание ногтей", kind: "extension", status: "confirmed" },
@@ -80,11 +82,11 @@ export const weekAppointments: Appointment[] = [
   { id: "a13", day: 3, start: 900, duration: 90, client: "Юлия М.", service: "Наращивание ногтей", kind: "extension", status: "confirmed" },
   { id: "a14", day: 3, start: 1140, duration: 60, client: "Свободное окно", service: "", kind: "other", status: "pending" },
 
-  { id: "a15", day: 4, start: 600, duration: 90, client: "Светлана П.", service: "Маникюр + гель-лак", kind: "manicure", status: "confirmed" },
+  { id: "a15", masterSlug: "olga-kravtsova", day: 4, start: 600, duration: 90, client: "Светлана П.", service: "Маникюр + гель-лак", kind: "manicure", status: "confirmed" },
   { id: "a16", day: 4, start: 780, duration: 90, client: "Надежда Т.", service: "Наращивание ногтей", kind: "extension", status: "confirmed" },
   { id: "a17", day: 4, start: 960, duration: 60, client: "Ольга К.", service: "Ремонт ногтя", kind: "other", status: "confirmed" },
 
-  { id: "a18", day: 5, start: 660, duration: 90, client: "Елена С.", service: "Маникюр + гель-лак", kind: "manicure", status: "confirmed" },
+  { id: "a18", masterSlug: "ekaterina-vlasova", day: 5, start: 660, duration: 90, client: "Елена С.", service: "Маникюр + гель-лак", kind: "manicure", status: "confirmed" },
   { id: "a19", day: 5, start: 840, duration: 90, client: "Полина Л.", service: "Маникюр + гель-лак", kind: "manicure", status: "confirmed" },
   { id: "a20", day: 5, start: 1080, duration: 90, client: "Вероника М.", service: "Наращивание ногтей", kind: "extension", status: "confirmed" },
 

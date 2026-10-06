@@ -9,6 +9,7 @@ import {
   SegmentedControl,
   Select,
 } from "../components/ui";
+import { AppointmentModal } from "../components/AppointmentModal";
 import {
   dayEndHour,
   dayStartHour,
@@ -19,6 +20,9 @@ import {
   weekDays,
   type Appointment,
 } from "../data";
+import { useCabinetAppointments } from "../appointments";
+import { masters } from "../../data/mock";
+import { cabinetOwnerSlug } from "../../store/bookings";
 import { cn } from "../../utils/cn";
 
 const hourHeight = 54;
@@ -131,26 +135,32 @@ function AppointmentBlock({ appointment }: { appointment: Appointment }) {
 export function SchedulePage() {
   const [view, setView] = useState("Неделя");
   const [selectedDay, setSelectedDay] = useState(22);
-  const [master, setMaster] = useState("Мария К.");
+  const [master, setMaster] = useState("all");
+  const [modalOpen, setModalOpen] = useState(false);
   const [service, setService] = useState("all");
   const [status, setStatus] = useState("all");
   const [onlyMine, setOnlyMine] = useState(true);
   const [showCancelled, setShowCancelled] = useState(false);
 
+  const appointments = useCabinetAppointments(weekAppointments);
+
   const services = useMemo(
-    () => Array.from(new Set(weekAppointments.map((item) => item.service).filter(Boolean))),
-    [],
+    () => Array.from(new Set(appointments.map((item) => item.service).filter(Boolean))),
+    [appointments],
   );
 
   const visible = useMemo(
     () =>
-      weekAppointments.filter((item) => {
+      appointments.filter((item) => {
+        const owner = item.masterSlug ?? cabinetOwnerSlug;
+        if (onlyMine && owner !== cabinetOwnerSlug) return false;
+        if (master !== "all" && owner !== master) return false;
         if (!showCancelled && item.status === "cancelled") return false;
         if (service !== "all" && item.service !== service) return false;
         if (status !== "all" && item.status !== status) return false;
         return true;
       }),
-    [service, status, showCancelled],
+    [appointments, service, status, showCancelled, master, onlyMine],
   );
 
   const hours = Array.from({ length: dayEndHour - dayStartHour }, (_, index) => dayStartHour + index);
@@ -180,7 +190,7 @@ export function SchedulePage() {
             options={[{ value: "20 – 26 мая 2024", label: "20 – 26 мая 2024" }]}
           />
           <SegmentedControl options={["День", "Неделя", "Месяц"]} value={view} onChange={setView} />
-          <PrimaryButton>
+          <PrimaryButton onClick={() => setModalOpen(true)}>
             <Plus className="h-4 w-4" />
             Добавить запись
           </PrimaryButton>
@@ -196,13 +206,12 @@ export function SchedulePage() {
               <div>
                 <p className="mb-1.5 text-xs font-medium text-slate-500">Мастер</p>
                 <Select
-                  avatarName={master}
+                  avatarName={master === "all" ? undefined : masters.find((item) => item.slug === master)?.name}
                   value={master}
                   onChange={setMaster}
                   options={[
-                    { value: "Мария К.", label: "Мария К." },
-                    { value: "Ксения Р.", label: "Ксения Р." },
-                    { value: "Ольга П.", label: "Ольга П." },
+                    { value: "all", label: "Все мастера" },
+                    ...masters.map((item) => ({ value: item.slug, label: item.name })),
                   ]}
                 />
               </div>
@@ -393,9 +402,13 @@ export function SchedulePage() {
 
       <Card className="mt-4">
         <div className="mb-3 flex items-center gap-3">
-          <PersonAvatar name={master} size={32} />
+          <PersonAvatar
+            name={master === "all" ? masterProfile.name : (masters.find((item) => item.slug === master)?.name ?? masterProfile.name)}
+            size={32}
+          />
           <p className="text-sm font-medium text-slate-700">
-            Записи на {selectedDay} мая · {master}
+            Записи на {selectedDay} мая ·{" "}
+            {master === "all" ? masterProfile.name : (masters.find((item) => item.slug === master)?.name ?? "")}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -420,6 +433,8 @@ export function SchedulePage() {
           )}
         </div>
       </Card>
+
+      <AppointmentModal open={modalOpen} onClose={() => setModalOpen(false)} />
     </div>
   );
 }

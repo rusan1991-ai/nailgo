@@ -1,7 +1,12 @@
-import { createContext, useContext, useMemo, useState } from "react";
-import { masters, services, upcomingBookings } from "../data/mock";
-
-type BookingStatus = "upcoming" | "completed" | "cancelled";
+import { createContext, useContext, useMemo } from "react";
+import {
+  bookingAddress,
+  cancelBooking as cancelStoredBooking,
+  createBooking as createStoredBooking,
+  findMaster,
+  formatTimeLabel,
+  useBookingsStore,
+} from "../store/bookings";
 
 export type BookingItem = {
   id: string;
@@ -11,7 +16,7 @@ export type BookingItem = {
   service: string;
   address: string;
   price: number;
-  status: BookingStatus;
+  status: "upcoming" | "completed" | "cancelled";
 };
 
 type CreateBookingPayload = {
@@ -19,6 +24,9 @@ type CreateBookingPayload = {
   serviceId: string;
   date: string;
   time: string;
+  clientName?: string;
+  clientPhone?: string;
+  comment?: string;
 };
 
 type BookingContextValue = {
@@ -29,47 +37,57 @@ type BookingContextValue = {
 
 const BookingContext = createContext<BookingContextValue | undefined>(undefined);
 
-const seedBookings: BookingItem[] = upcomingBookings.map((item, idx) => ({
-  id: item.id,
-  date: item.date,
-  time: item.time,
-  master: item.master,
-  service: item.service,
-  address: item.address,
-  price: idx === 0 ? 2200 : 2500,
-  status: "upcoming",
-}));
+/** Кабинетные статусы приводим к клиентским: клиенту важно «предстоит / прошло / отменено». */
+function toClientStatus(status: ReturnType<typeof useBookingsStore>[number]["status"]): BookingItem["status"] {
+  if (status === "cancelled") return "cancelled";
+  if (status === "completed") return "completed";
+  return "upcoming";
+}
 
 export function BookingProvider({ children }: { children: React.ReactNode }) {
-  const [bookings, setBookings] = useState<BookingItem[]>(seedBookings);
+  const stored = useBookingsStore();
 
-  const value = useMemo<BookingContextValue>(
-    () => ({
-      bookings,
-      createBooking: ({ masterSlug, serviceId, date, time }) => {
-        const master = masters.find((item) => item.slug === masterSlug) ?? masters[0];
-        const service = services.find((item) => item.id === serviceId) ?? services[1];
+  const value = useMemo<BookingContextValue>(() => {
+    const items: BookingItem[] = stored.map((booking) => ({
+      id: booking.id,
+      date: booking.dateLabel,
+      time: formatTimeLabel(booking.startMinutes),
+      master: booking.masterName,
+      service: booking.serviceName,
+      address: bookingAddress(booking),
+      price: booking.price,
+      status: toClientStatus(booking.status),
+    }));
 
-        const next: BookingItem = {
-          id: `nb-${Date.now()}`,
-          date,
-          time,
-          master: master.name,
-          service: service.name,
-          address: `${master.metro}, ${master.distance}`,
-          price: service.price,
-          status: "upcoming",
+    return {
+      bookings: items,
+      createBooking: ({ masterSlug, serviceId, date, time, clientName, clientPhone, comment }) => {
+        const booking = createStoredBooking({
+          masterSlug,
+          serviceId,
+          dateLabel: date,
+          startMinutes: Number.parseInt(time.split(":")[0] ?? "0", 10) * 60 + Number.parseInt(time.split(":")[1] ?? "0", 10),
+          clientName: clientName ?? "Мария Петрова",
+          clientPhone: clientPhone ?? "+7 (999) 111-22-33",
+          comment,
+          source: "client",
+          status: "confirmed",
+        });
+
+        return {
+          id: booking.id,
+          date: booking.dateLabel,
+          time: formatTimeLabel(booking.startMinutes),
+          master: booking.masterName,
+          service: booking.serviceName,
+          address: bookingAddress(booking),
+          price: booking.price,
+          status: toClientStatus(booking.status),
         };
-
-        setBookings((prev) => [next, ...prev]);
-        return next;
       },
-      cancelBooking: (id) => {
-        setBookings((prev) => prev.map((booking) => (booking.id === id ? { ...booking, status: "cancelled" } : booking)));
-      },
-    }),
-    [bookings],
-  );
+      cancelBooking: cancelStoredBooking,
+    };
+  }, [stored]);
 
   return <BookingContext.Provider value={value}>{children}</BookingContext.Provider>;
 }
@@ -81,3 +99,5 @@ export function useBookings() {
   }
   return context;
 }
+
+export { findMaster };

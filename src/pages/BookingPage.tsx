@@ -16,17 +16,29 @@ export function BookingPage() {
   const serviceId = params.get("service") ?? "s2";
   const date = params.get("date") ?? "22 мая";
   const [selectedSlot, setSelectedSlot] = useState(params.get("slot") ?? "19:00");
+  const [clientName, setClientName] = useState(user?.name ?? "");
+  const [clientPhone, setClientPhone] = useState(user?.phone ?? "");
+  const [comment, setComment] = useState("");
+  const [error, setError] = useState("");
 
   const service = useMemo(() => services.find((item) => item.id === serviceId) ?? services[1], [serviceId]);
   const master = useMemo(() => masters.find((item) => item.slug === masterSlug) ?? masters[0], [masterSlug]);
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
+    if (!clientName.trim() || !clientPhone.trim()) {
+      setError("Заполните имя и телефон — мастеру нужно знать, к кому обращаться.");
+      return;
+    }
+    setError("");
     createBooking({
       masterSlug,
       serviceId: service.id,
       date,
       time: selectedSlot,
+      clientName,
+      clientPhone,
+      comment,
     });
     navigate("/account");
   };
@@ -71,19 +83,26 @@ export function BookingPage() {
             <h2 className="text-2xl font-semibold">Ваши данные</h2>
             <form className="mt-4 space-y-3" onSubmit={onSubmit}>
               <input
-                defaultValue={user?.name ?? ""}
+                value={clientName}
+                onChange={(event) => setClientName(event.target.value)}
                 className="w-full rounded-xl border border-[#f1dde6] px-3 py-3 text-sm outline-none"
                 placeholder="Имя"
               />
               <input
-                defaultValue={user?.phone ?? ""}
+                value={clientPhone}
+                onChange={(event) => setClientPhone(event.target.value)}
                 className="w-full rounded-xl border border-[#f1dde6] px-3 py-3 text-sm outline-none"
                 placeholder="Телефон"
               />
               <textarea
+                value={comment}
+                onChange={(event) => setComment(event.target.value)}
                 className="h-28 w-full rounded-xl border border-[#f1dde6] px-3 py-3 text-sm outline-none"
                 placeholder="Комментарий для мастера"
               />
+              {error && (
+                <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</p>
+              )}
               <div className="rounded-xl border border-[#f1dde6] bg-[#fff8fb] p-3 text-sm text-slate-600">
                 Подтверждение: {date}, {selectedSlot}, {service.name}
               </div>

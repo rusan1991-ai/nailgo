@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
-import { Eye, MoreHorizontal, Plus, SlidersHorizontal } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { CalendarPlus, Eye, MessageSquare, MoreHorizontal, Plus, SlidersHorizontal } from "lucide-react";
 import {
   Card,
   Chip,
   GhostButton,
+  Modal,
   Pagination,
   PersonAvatar,
   PrimaryButton,
@@ -12,7 +14,9 @@ import {
   Tabs,
   type ChipTone,
 } from "../components/ui";
-import { clientRows, clientTabs, formatRub, type ClientRow } from "../data";
+import { AppointmentModal } from "../components/AppointmentModal";
+import { clientRows, clientTabs, formatMinutes, formatRub, type ClientRow } from "../data";
+import { useBookingsStore } from "../../store/bookings";
 
 const statusMeta: Record<ClientRow["status"], { label: string; tone: ChipTone }> = {
   regular: { label: "Постоянный", tone: "green" },
@@ -37,6 +41,22 @@ export function ClientsPage() {
   const [status, setStatus] = useState("all");
   const [source, setSource] = useState("all");
   const [page, setPage] = useState(1);
+  const [activeClient, setActiveClient] = useState<ClientRow | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const navigate = useNavigate();
+  const stored = useBookingsStore();
+
+  const clientBookings = useMemo(
+    () =>
+      activeClient
+        ? stored.filter(
+            (booking) =>
+              booking.clientName === activeClient.name ||
+              (booking.clientPhone && booking.clientPhone === activeClient.phone),
+          )
+        : [],
+    [activeClient, stored],
+  );
 
   const rows = useMemo(() => {
     let result = clientRows;
@@ -115,7 +135,13 @@ export function ClientsPage() {
                   <td className="px-5 py-3.5">
                     <div className="flex items-center gap-3">
                       <PersonAvatar name={row.name} size={34} />
-                      <span className="text-slate-700">{row.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setActiveClient(row)}
+                        className="text-left text-slate-700 transition hover:text-[#e11d48]"
+                      >
+                        {row.name}
+                      </button>
                     </div>
                   </td>
                   <td className="px-5 py-3.5 text-slate-500">{row.phone}</td>
@@ -136,7 +162,11 @@ export function ClientsPage() {
                   </td>
                   <td className="px-5 py-3.5">
                     <div className="flex items-center justify-end gap-1.5">
-                      <button className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-white">
+                      <button
+                        type="button"
+                        onClick={() => setActiveClient(row)}
+                        className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-white"
+                      >
                         <Eye className="h-4 w-4" />
                       </button>
                       <button className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-white">
@@ -156,6 +186,88 @@ export function ClientsPage() {
         page={page}
         onPage={setPage}
         label={`Показано 1–${rows.length} из ${clientTabs[0].count} клиентов`}
+      />
+
+      <Modal
+        open={activeClient !== null}
+        onClose={() => setActiveClient(null)}
+        title="Карточка клиента"
+        width="max-w-2xl"
+        footer={
+          <>
+            <GhostButton onClick={() => navigate("/pro/messages")}>
+              <MessageSquare className="h-4 w-4" />
+              Написать в чат
+            </GhostButton>
+            <PrimaryButton onClick={() => setModalOpen(true)}>
+              <CalendarPlus className="h-4 w-4" />
+              Создать запись
+            </PrimaryButton>
+          </>
+        }
+      >
+        {activeClient && (
+          <div className="space-y-5">
+            <div className="flex items-center gap-4">
+              <PersonAvatar name={activeClient.name} size={56} />
+              <div className="min-w-0">
+                <p className="font-medium text-slate-800">{activeClient.name}</p>
+                <p className="text-sm text-slate-500">{activeClient.phone}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Chip tone={statusMeta[activeClient.status].tone}>{statusMeta[activeClient.status].label}</Chip>
+                  <Chip tone={sourceTone[activeClient.source] ?? "gray"}>{activeClient.source}</Chip>
+                </div>
+              </div>
+            </div>
+
+            <dl className="grid gap-3 sm:grid-cols-3">
+              {[
+                ["Мастер", activeClient.master],
+                ["Последнее посещение", activeClient.lastVisit],
+                ["Всего записей", String(activeClient.visits)],
+                ["Средний чек", formatRub(activeClient.avgCheck)],
+                ["Записей в приложении", String(clientBookings.length)],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-xl border border-slate-200 px-4 py-3">
+                  <dt className="text-xs text-slate-400">{label}</dt>
+                  <dd className="mt-1 truncate text-sm text-slate-700">{value}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <div>
+              <p className="mb-2 text-sm font-semibold text-slate-900">История визитов</p>
+              {clientBookings.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-400">
+                  Новых записей через приложение пока нет — создайте первую.
+                </p>
+              ) : (
+                <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+                  {clientBookings.map((booking) => (
+                    <li key={booking.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                      <div>
+                        <p className="text-slate-700">{booking.serviceName}</p>
+                        <p className="text-xs text-slate-400">
+                          {booking.dateLabel}, {formatMinutes(booking.startMinutes)} · {booking.masterName}
+                        </p>
+                      </div>
+                      <Chip tone={booking.status === "cancelled" ? "red" : "green"}>
+                        {booking.status === "cancelled" ? "Отменена" : "Подтверждена"}
+                      </Chip>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <AppointmentModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        presetClient={activeClient?.name}
+        presetPhone={activeClient?.phone}
       />
     </div>
   );

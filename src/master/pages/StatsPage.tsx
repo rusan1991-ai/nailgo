@@ -11,18 +11,7 @@ import {
 } from "../components/ui";
 import { AreaLineChart, DonutChart, Funnel, MultiLineChart, Sparkline } from "../components/charts";
 import { useCabinetStats } from "../../api/cabinet";
-import {
-  formatNumber,
-  formatRub,
-  funnelStages,
-  months,
-  multiLineDynamics,
-  sourceBreakdown,
-  statisticsDynamics,
-  statisticsKpis,
-  statusBreakdown,
-  topServices,
-} from "../data";
+import { formatNumber, formatRub, funnelStages, multiLineDynamics, months } from "../data";
 import { demoWeek } from "../../store/bookings";
 
 const kpiIcons = [Eye, UserPlus, Wallet, TrendingUp];
@@ -45,7 +34,60 @@ const tabs = [
 export function StatsPage() {
   const [tab, setTab] = useState("overview");
   const [scale, setScale] = useState("По дням");
-  const { data: stats } = useCabinetStats(STATS_MONTH);
+  const { data: stats, error: statsError } = useCabinetStats(STATS_MONTH);
+
+  /** Дни месяца из базы: график, подписи и мини-тренды в карточках. */
+  const days = stats?.byDay ?? [];
+
+  /** «По неделям» — та же выборка, свёрнутая по неделям месяца. */
+  const dynamics =
+    scale === "По неделям"
+      ? days.reduce<{ label: string; bookings: number }[]>((weeks, day, index) => {
+          const week = Math.floor(index / 7);
+          const bucket = (weeks[week] ??= { label: `Нед. ${week + 1}`, bookings: 0 });
+          bucket.bookings += day.bookings;
+          return weeks;
+        }, [])
+      : days.map((day) => ({ label: day.label, bookings: day.bookings }));
+
+  const statusColors: Record<string, string> = {
+    completed: "#22c55e",
+    confirmed: "#3b82f6",
+    pending: "#f59e0b",
+    cancelled: "#f43f5e",
+  };
+  const statusLabels: Record<string, string> = {
+    completed: "Завершены",
+    confirmed: "Подтверждены",
+    pending: "Ожидают",
+    cancelled: "Отменены",
+  };
+  const statusTotal = stats
+    ? stats.byStatus.completed + stats.byStatus.confirmed + stats.byStatus.pending + stats.byStatus.cancelled
+    : 0;
+  const statusDonut = stats
+    ? Object.entries(stats.byStatus)
+        .filter(([, value]) => value > 0)
+        .map(([key, value]) => ({
+          label: statusLabels[key] ?? key,
+          value,
+          percent: statusTotal > 0 ? Math.round((value / statusTotal) * 100) : 0,
+          color: statusColors[key] ?? "#94a3b8",
+        }))
+    : [];
+
+  const sourceDonut = stats
+    ? [
+        { label: "Онлайн-запись", value: stats.bySource.client, color: "#e11d48" },
+        { label: "Кабинет мастера", value: stats.bySource.master, color: "#3b82f6" },
+      ]
+        .filter((item) => item.value > 0)
+        .map((item) => ({
+          ...item,
+          percent:
+            stats.bookingsThisMonth > 0 ? Math.round((item.value / stats.bookingsThisMonth) * 100) : 0,
+        }))
+    : [];
 
   /**
    * Четыре верхние карточки считаются по реальным записям и клиентам из API.
@@ -59,7 +101,7 @@ export function StatsPage() {
       delta: stats ? `в этом месяце ${formatInt(stats.bookingsThisMonth)}` : "",
       caption: stats ? `отменено ${stats.cancelled}` : "",
       color: "#3b82f6",
-      spark: statisticsKpis[0]!.spark,
+      spark: days.map((day) => day.bookings),
     },
     {
       label: "Клиенты",
@@ -67,7 +109,7 @@ export function StatsPage() {
       delta: stats ? `новых за месяц ${formatInt(stats.newClientsThisMonth)}` : "",
       caption: "считаем по номеру телефона",
       color: "#22c55e",
-      spark: statisticsKpis[1]!.spark,
+      spark: days.map((day) => day.bookings),
     },
     {
       label: "Выручка за месяц",
@@ -75,7 +117,7 @@ export function StatsPage() {
       delta: stats?.incomeDeltaLabel ?? "",
       caption: "по сравнению с прошлым месяцем",
       color: "#a855f7",
-      spark: statisticsKpis[2]!.spark,
+      spark: days.map((day) => day.revenue),
     },
     {
       label: "Средний чек",
@@ -86,7 +128,7 @@ export function StatsPage() {
       delta: "",
       caption: "выручка / записи за месяц",
       color: "#f59e0b",
-      spark: statisticsKpis[3]!.spark,
+      spark: days.map((day) => (day.bookings > 0 ? Math.round(day.revenue / day.bookings) : 0)),
     },
   ];
 
@@ -107,6 +149,12 @@ export function StatsPage() {
           </PrimaryButton>
         </div>
       </div>
+
+      {statsError && (
+        <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600">
+          Не удалось загрузить цифры из базы: {statsError}
+        </div>
+      )}
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
@@ -153,12 +201,21 @@ export function StatsPage() {
               >
                 Записи по дням
               </CardTitle>
-              <AreaLineChart points={statisticsDynamics} labels={months} color="#3b82f6" />
+              <AreaLineChart
+                points={dynamics.map((item) => item.bookings)}
+                labels={dynamics.map((item) => item.label)}
+                color="#3b82f6"
+              />
             </Card>
 
             <Card>
               <CardTitle>Записи по статусам</CardTitle>
-              <DonutChart data={statusBreakdown} centerValue="4 856" centerLabel="всего записей" size={190} />
+              <DonutChart
+                data={statusDonut}
+                centerValue={stats ? formatInt(statusTotal) : "—"}
+                centerLabel="записей за месяц"
+                size={190}
+              />
             </Card>
           </div>
 
@@ -176,7 +233,7 @@ export function StatsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {topServices.map((service) => (
+                  {(stats?.topServices ?? []).map((service) => (
                     <tr key={service.name} className="border-b border-slate-50 last:border-0">
                       <td className="px-5 py-3 text-slate-600">{service.name}</td>
                       <td className="px-5 py-3 text-slate-500">{formatNumber(service.bookings)}</td>
@@ -195,11 +252,19 @@ export function StatsPage() {
 
             <Card>
               <CardTitle>Записи по источникам</CardTitle>
-              <DonutChart data={sourceBreakdown} centerValue="4 856" centerLabel="всего записей" size={170} />
+              <DonutChart
+                data={sourceDonut}
+                centerValue={stats ? formatInt(stats.bookingsThisMonth) : "—"}
+                centerLabel="записей за месяц"
+                size={170}
+              />
             </Card>
 
             <Card>
               <CardTitle>Конверсия по этапам</CardTitle>
+              <p className="mb-3 text-xs text-amber-600">
+                Демо-данные рекламных каналов: интеграция не подключена, на реальные записи не влияет.
+              </p>
               <Funnel stages={funnelStages} />
             </Card>
           </div>
@@ -212,6 +277,9 @@ export function StatsPage() {
             >
               Динамика показателей
             </CardTitle>
+            <p className="mb-3 text-xs text-amber-600">
+              Показы и клики — демо-данные: рекламные кабинеты не подключены. Записи и выручка выше считаются по базе.
+            </p>
             <MultiLineChart series={multiLineDynamics} labels={months} />
           </Card>
         </>

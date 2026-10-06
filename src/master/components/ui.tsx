@@ -62,18 +62,25 @@ export function PrimaryButton({
   onClick,
   type = "button",
   className,
+  disabled,
+  title,
 }: {
   children: ReactNode;
   onClick?: () => void;
   type?: "button" | "submit";
   className?: string;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type={type}
       onClick={onClick}
+      disabled={disabled}
+      title={title}
       className={cn(
         "inline-flex items-center gap-2 rounded-xl bg-[#e11d48] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#be123c] active:scale-[0.99]",
+        disabled && "cursor-not-allowed opacity-60 hover:bg-[#e11d48]",
         className,
       )}
     >

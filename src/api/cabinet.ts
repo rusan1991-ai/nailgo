@@ -15,6 +15,15 @@ export type CabinetStats = {
   clientsTotal: number;
   totalBookings: number;
   cancelled: number;
+  avgCheckThisMonth: number;
+  clientsThisMonth: number;
+  repeatClientsThisMonth: number;
+  /** Топ услуг месяца по выручке. */
+  topServices: { name: string; bookings: number; revenue: number }[];
+  byStatus: { pending: number; confirmed: number; completed: number; cancelled: number };
+  bySource: { client: number; master: number };
+  /** Дни месяца: график «Записи по дням». */
+  byDay: { dateISO: string; label: string; bookings: number; revenue: number }[];
 };
 
 export type CabinetClient = {
@@ -27,6 +36,8 @@ export type CabinetClient = {
   lastService: string;
   masterName: string;
   cancelled: number;
+  /** Чем чаще приходил клиент: онлайн-записью или через кабинет. */
+  source: "client" | "master";
 };
 
 type State<T> = { data: T | null; loading: boolean; error: string | null };

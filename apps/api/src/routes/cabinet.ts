@@ -150,6 +150,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
         lastService: string;
         masterName: string;
         cancelled: number;
+        sources: string[];
       }
     >();
 
@@ -169,9 +170,12 @@ export async function cabinetRoutes(app: FastifyInstance) {
           lastService: service.name,
           masterName: master.name,
           cancelled: active ? 0 : 1,
+          sources: [booking.source],
         });
         continue;
       }
+
+      entry.sources.push(booking.source);
 
       if (!active) {
         entry.cancelled += 1;
@@ -190,7 +194,11 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
     const items = [...byPhone.values()]
       .filter((client) => (needle ? `${client.name} ${client.phone}`.toLowerCase().includes(needle) : true))
-      .sort((a, b) => (a.lastVisitISO < b.lastVisitISO ? 1 : -1));
+      .sort((a, b) => (a.lastVisitISO < b.lastVisitISO ? 1 : -1))
+      .map(({ sources, ...client }) => ({
+        ...client,
+        source: sources.filter((item) => item === "master").length > sources.length / 2 ? "master" : "client",
+      }));
 
     return { items, total: items.length };
   });
@@ -245,7 +253,63 @@ export async function cabinetRoutes(app: FastifyInstance) {
           : "0%"
         : `${current >= previous ? "+" : ""}${Math.round(((current - previous) / previous) * 100)}%`;
 
+    // Топ услуг и источники записей — по фактическим записям месяца.
+    const topServicesMap = new Map<string, { bookings: number; revenue: number }>();
+    for (const booking of thisMonth) {
+      const entry = topServicesMap.get(booking.serviceId) ?? { bookings: 0, revenue: 0 };
+      entry.bookings += 1;
+      entry.revenue += booking.price;
+      topServicesMap.set(booking.serviceId, entry);
+    }
+    const serviceNames = new Map<string, string>();
+    for (const row of await db.select({ id: services.id, name: services.name }).from(services)) {
+      serviceNames.set(row.id, row.name);
+    }
+    const topServices = [...topServicesMap.entries()]
+      .map(([serviceId, entry]) => ({ name: serviceNames.get(serviceId) ?? serviceId, ...entry }))
+      .sort((a, b) => b.revenue - a.revenue);
+
+    const byStatus = {
+      pending: thisMonth.filter((booking) => booking.status === "pending").length,
+      confirmed: thisMonth.filter((booking) => booking.status === "confirmed").length,
+      completed: thisMonth.filter((booking) => booking.status === "completed").length,
+      cancelled: rows.filter((booking) => booking.status === "cancelled" && inRange(booking.startAt, monthStart)).length,
+    };
+
+    const bySource = {
+      client: thisMonth.filter((booking) => booking.source === "client").length,
+      master: thisMonth.filter((booking) => booking.source === "master").length,
+    };
+
+    // Динамика по дням месяца: и график, и подписи берутся отсюда.
+    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+    const byDay = Array.from({ length: daysInMonth }, (_, index) => {
+      const day = new Date(year, monthIndex, index + 1);
+      const next = new Date(year, monthIndex, index + 2);
+      const dayBookings = thisMonth.filter((booking) => inRange(booking.startAt, day, next));
+      return {
+        dateISO: toISODate(day),
+        label: String(index + 1),
+        bookings: dayBookings.length,
+        revenue: dayBookings.reduce((sum, booking) => sum + booking.price, 0),
+      };
+    });
+
+    // Клиенты месяца: новые (первый визит в этом месяце) и повторные.
+    const monthClients = new Set(thisMonth.map((booking) => booking.clientPhone));
+    const repeatClients = [...monthClients].filter((phone) => {
+      const first = firstSeen.get(phone);
+      return first ? !inRange(first, monthStart) : false;
+    }).length;
+
     return {
+      avgCheckThisMonth: thisMonth.length > 0 ? Math.round(income / thisMonth.length) : 0,
+      topServices,
+      byStatus,
+      bySource,
+      byDay,
+      clientsThisMonth: monthClients.size,
+      repeatClientsThisMonth: repeatClients,
       todayISO: toISODate(today),
       monthISO: `${year}-${String(monthIndex + 1).padStart(2, "0")}`,
       bookingsToday: active.filter((booking) => inRange(booking.startAt, dayStart, dayEnd)).length,

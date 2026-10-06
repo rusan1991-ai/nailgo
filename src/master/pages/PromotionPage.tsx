@@ -1,36 +1,23 @@
-import { useState } from "react";
-import { ArrowRight, Camera, MapPin, Megaphone, MessageCircle, MousePointerClick, Plus, TrendingUp, Users2, Eye } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowRight, MapPin, Megaphone, MousePointerClick, Plus, TrendingUp, Users2, Eye } from "lucide-react";
 import {
   Card,
   CardTitle,
   Chip,
   GhostButton,
-  Pagination,
   PrimaryButton,
   Select,
-  SegmentedControl,
   Tabs,
 } from "../components/ui";
 import { AreaLineChart, DonutChart, Sparkline } from "../components/charts";
-import {
-  campaignRows,
-  formatNumber,
-  formatRub,
-  months,
-  promotionDynamics,
-  promotionEvents,
-  promotionKpis,
-  sourceBreakdown,
-} from "../data";
+import { formatNumber, formatRub } from "../data";
+import { useCabinetStats } from "../../api/cabinet";
+import { demoWeek } from "../../store/bookings";
 
-const kpiIcons = [Eye, MousePointerClick, Users2, TrendingUp];
+const kpiIcons = [Eye, Users2, MousePointerClick, TrendingUp];
 
-const eventIcons: Record<string, typeof Camera> = {
-  instagram: Camera,
-  maps: MapPin,
-  vk: MessageCircle,
-  ads: Megaphone,
-};
+/** Месяц демо-недели: записи лежат на 20–26 мая 2024. */
+const STATS_MONTH = demoWeek[0].iso.slice(0, 7);
 
 const tabs = [
   { id: "overview", label: "Обзор" },
@@ -42,8 +29,61 @@ const tabs = [
 
 export function PromotionPage() {
   const [tab, setTab] = useState("overview");
-  const [period, setPeriod] = useState("По месяцам");
-  const [page, setPage] = useState(1);
+  const { data: stats, error } = useCabinetStats(STATS_MONTH);
+
+  const days = stats?.byDay ?? [];
+  const sources = useMemo(
+    () =>
+      stats
+        ? [
+            { label: "Онлайн-запись", value: stats.bySource.client, color: "#e11d48" },
+            { label: "Кабинет мастера", value: stats.bySource.master, color: "#3b82f6" },
+          ]
+            .filter((item) => item.value > 0)
+            .map((item) => ({
+              ...item,
+              percent:
+                stats.bookingsThisMonth > 0 ? Math.round((item.value / stats.bookingsThisMonth) * 100) : 0,
+            }))
+        : [],
+    [stats],
+  );
+
+  /**
+   * Показов и кликов по рекламе у нас нет — интеграция с рекламными кабинетами
+   * не подключена. Поэтому в карточках только то, что действительно есть в базе:
+   * записи, клиенты и средний чек.
+   */
+  const kpis = [
+    {
+      label: "Записей за месяц",
+      value: stats ? formatNumber(stats.bookingsThisMonth) : "—",
+      delta: stats ? `всего в базе ${formatNumber(stats.totalBookings)}` : "",
+      tone: "up" as const,
+      spark: days.map((day) => day.bookings),
+    },
+    {
+      label: "Клиентов за месяц",
+      value: stats ? formatNumber(stats.clientsThisMonth) : "—",
+      delta: stats ? `новых ${formatNumber(stats.newClientsThisMonth)}` : "",
+      tone: "up" as const,
+      spark: days.map((day) => day.bookings),
+    },
+    {
+      label: "Повторные визиты",
+      value: stats ? formatNumber(stats.repeatClientsThisMonth) : "—",
+      delta: stats ? `всего клиентов ${formatNumber(stats.clientsTotal)}` : "",
+      tone: "up" as const,
+      spark: days.map((day) => day.bookings),
+    },
+    {
+      label: "Средний чек",
+      value: stats ? formatRub(stats.avgCheckThisMonth) : "—",
+      delta: stats?.incomeDeltaLabel ?? "",
+      tone: "up" as const,
+      spark: days.map((day) => (day.bookings > 0 ? Math.round(day.revenue / day.bookings) : 0)),
+    },
+  ];
 
   return (
     <div>
@@ -52,15 +92,26 @@ export function PromotionPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Select
             className="w-[210px]"
-            value="2024"
+            value={STATS_MONTH}
             onChange={() => undefined}
-            options={[{ value: "2024", label: "01.01.2024 – 31.12.2024" }]}
+            options={[{ value: STATS_MONTH, label: "20.05.2024 – 26.05.2024" }]}
           />
-          <PrimaryButton>
+          <PrimaryButton disabled title="Рекламные кабинеты ещё не подключены">
             <Plus className="h-4 w-4" />
             Создать рекламную кампанию
           </PrimaryButton>
         </div>
+      </div>
+
+      {error && (
+        <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600">
+          Не удалось загрузить цифры из базы: {error}
+        </div>
+      )}
+
+      <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+        Рекламные кабинеты (Instagram, Яндекс Карты, ВКонтакте) не подключены: показов, кликов и расходов
+        в системе нет. Ниже — только данные записей из базы. Метрики рекламы появятся после интеграции.
       </div>
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
@@ -68,7 +119,7 @@ export function PromotionPage() {
       {tab === "overview" ? (
         <>
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {promotionKpis.map((kpi, index) => {
+            {kpis.map((kpi, index) => {
               const Icon = kpiIcons[index] ?? Eye;
               return (
                 <Card key={kpi.label}>
@@ -81,12 +132,13 @@ export function PromotionPage() {
                   <p className="mt-3 text-2xl font-semibold text-slate-900">{kpi.value}</p>
                   <div className="mt-2 flex items-end justify-between gap-3">
                     <div>
-                      <p className={kpi.tone === "up" ? "text-sm text-emerald-500" : "text-sm text-rose-500"}>
-                        {kpi.delta}
-                      </p>
-                      <p className="text-xs text-slate-400">по сравнению с прошлым периодом</p>
+                      <p className="text-sm text-emerald-500">{kpi.delta}</p>
+                      <p className="text-xs text-slate-400">за месяц демо-данных</p>
                     </div>
-                    <Sparkline points={kpi.spark} color={index === 0 ? "#3b82f6" : index === 1 ? "#22c55e" : index === 2 ? "#a855f7" : "#f59e0b"} />
+                    <Sparkline
+                      points={kpi.spark}
+                      color={index === 0 ? "#3b82f6" : index === 1 ? "#22c55e" : index === 2 ? "#a855f7" : "#f59e0b"}
+                    />
                   </div>
                 </Card>
               );
@@ -95,30 +147,20 @@ export function PromotionPage() {
 
           <div className="mt-4 grid gap-4 xl:grid-cols-[1.5fr_1fr]">
             <Card>
-              <CardTitle
-                action={
-                  <Select
-                    className="w-[150px]"
-                    value={period}
-                    onChange={setPeriod}
-                    options={[
-                      { value: "По месяцам", label: "По месяцам" },
-                      { value: "По неделям", label: "По неделям" },
-                    ]}
-                  />
-                }
-              >
-                Динамика записей
-              </CardTitle>
-              <AreaLineChart points={promotionDynamics} labels={months} color="#e11d48" />
+              <CardTitle>Записи по дням месяца</CardTitle>
+              <AreaLineChart
+                points={days.map((day) => day.bookings)}
+                labels={days.map((day) => day.label)}
+                color="#e11d48"
+              />
             </Card>
 
             <Card>
-              <CardTitle>Источники записей</CardTitle>
+              <CardTitle>Откуда пришли записи</CardTitle>
               <DonutChart
-                data={sourceBreakdown}
-                centerValue="612"
-                centerLabel="всего записей"
+                data={sources}
+                centerValue={stats ? formatNumber(stats.bookingsThisMonth) : "—"}
+                centerLabel="записей за месяц"
                 size={190}
               />
             </Card>
@@ -128,100 +170,69 @@ export function PromotionPage() {
             <Card padded={false}>
               <div className="flex items-center justify-between px-5 py-4">
                 <h2 className="text-[15px] font-semibold text-slate-900">Рекламные кампании</h2>
+                <Chip tone="amber">Не подключено</Chip>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[860px] text-sm">
-                  <thead>
-                    <tr className="border-y border-slate-100 text-left text-xs text-slate-400">
-                      <th className="px-5 py-3 font-medium">Кампания</th>
-                      <th className="px-5 py-3 font-medium">Канал</th>
-                      <th className="px-5 py-3 font-medium">Показы</th>
-                      <th className="px-5 py-3 font-medium">Клики</th>
-                      <th className="px-5 py-3 font-medium">Записи</th>
-                      <th className="px-5 py-3 font-medium">Расходы</th>
-                      <th className="px-5 py-3 font-medium">ROI</th>
-                      <th className="px-5 py-3 font-medium">Статус</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {campaignRows.map((row) => (
-                      <tr key={row.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
-                        <td className="px-5 py-3.5">
-                          <p className="text-slate-700">{row.name}</p>
-                          <p className="text-xs text-slate-400">{row.period}</p>
-                        </td>
-                        <td className="px-5 py-3.5 text-slate-500">{row.channel}</td>
-                        <td className="px-5 py-3.5 text-slate-500">{formatNumber(row.impressions)}</td>
-                        <td className="px-5 py-3.5 text-slate-500">{formatNumber(row.clicks)}</td>
-                        <td className="px-5 py-3.5 font-medium text-emerald-600">{row.bookings}</td>
-                        <td className="px-5 py-3.5 text-slate-500">{formatRub(row.spend)}</td>
-                        <td className="px-5 py-3.5 font-medium text-emerald-600">{row.roi}%</td>
-                        <td className="px-5 py-3.5">
-                          <Chip tone={row.status === "active" ? "green" : "gray"}>
-                            {row.status === "active" ? "Активна" : "Завершена"}
-                          </Chip>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-4">
-                <p className="text-sm text-slate-400">Показано 1–4 из 4 кампаний</p>
-                <button className="inline-flex items-center gap-2 text-sm font-medium text-[#e11d48]">
-                  Все кампании
-                  <ArrowRight className="h-4 w-4" />
-                </button>
+              <div className="px-5 pb-6">
+                <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
+                  Кампаний пока нет: система не подключена к рекламным кабинетам, поэтому показы, клики и
+                  расходы не собираются. Когда интеграция появится, кампании и их ROI будут здесь.
+                </div>
               </div>
             </Card>
 
             <Card>
-              <CardTitle>Последние события</CardTitle>
-              <ul className="space-y-4">
-                {promotionEvents.map((event) => {
-                  const Icon = eventIcons[event.tone] ?? Megaphone;
-                  return (
-                    <li key={event.title} className="flex items-start gap-3">
-                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-500">
-                        <Icon className="h-4 w-4" />
-                      </span>
-                      <div>
-                        <p className="text-sm text-slate-700">{event.title}</p>
-                        <p className="text-xs text-slate-400">{event.desc}</p>
-                        <p className="mt-0.5 text-xs text-slate-300">{event.time}</p>
-                      </div>
-                    </li>
-                  );
-                })}
+              <CardTitle>Что уже можно сделать</CardTitle>
+              <ul className="space-y-3 text-sm text-slate-600">
+                <li>• Показывать свободные окна на этой неделе — записи из базы уже видны клиентам.</li>
+                <li>• Возвращать клиентов из вкладки «Давно не были»: у них есть телефон в карточке.</li>
+                <li>• Просить оставить отзыв после визита — раздел «Отзывы» работает на данных базы.</li>
               </ul>
-              <button className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-[#e11d48]">
-                Все события
+              <GhostButton className="mt-4" onClick={() => setTab("sources")}>
                 <ArrowRight className="h-4 w-4" />
-              </button>
+                Смотреть источники
+              </GhostButton>
             </Card>
           </div>
-
-          <Pagination total={1} page={page} onPage={setPage} label="Показано 1–4 из 4 кампаний" />
         </>
       ) : (
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
           <Card>
             <CardTitle>Раздел «{tabs.find((item) => item.id === tab)?.label}»</CardTitle>
             <p className="text-sm text-slate-500">
-              Здесь появится подробная аналитика раздела: динамика, кампании и рекомендации для мастера.
+              {tab === "sources"
+                ? "Источники записей считаются по базе: видно, сколько записей пришло онлайн и сколько внёс мастер."
+                : "Раздел появится после подключения рекламных кабинетов: показы, клики, расходы и ROI."}
             </p>
-            <div className="mt-4">
-              <SegmentedControl options={["Неделя", "Месяц", "Год"]} value="Месяц" onChange={() => undefined} />
-            </div>
+            {tab === "sources" && stats && (
+              <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 px-4 py-3">
+                  <dt className="text-xs text-slate-400">Онлайн-запись</dt>
+                  <dd className="mt-1 text-lg font-semibold text-slate-800">
+                    {formatNumber(stats.bySource.client)}
+                  </dd>
+                </div>
+                <div className="rounded-xl border border-slate-200 px-4 py-3">
+                  <dt className="text-xs text-slate-400">Из кабинета мастера</dt>
+                  <dd className="mt-1 text-lg font-semibold text-slate-800">
+                    {formatNumber(stats.bySource.master)}
+                  </dd>
+                </div>
+              </dl>
+            )}
           </Card>
           <Card>
-            <CardTitle>Что можно улучшить</CardTitle>
+            <CardTitle>Состояние интеграций</CardTitle>
             <ul className="space-y-3 text-sm text-slate-600">
-              <li>• Подключите виджет записи на сайт — это +12% к конверсии.</li>
-              <li>• Запустите акцию «Приведи подругу» для постоянных клиентов.</li>
-              <li>• Добавьте фото работ за последний месяц в портфолио.</li>
+              <li className="flex items-center gap-2">
+                <MapPin className="h-4 w-4 text-slate-400" /> Яндекс Карты — не подключено
+              </li>
+              <li className="flex items-center gap-2">
+                <Megaphone className="h-4 w-4 text-slate-400" /> Реклама — не подключено
+              </li>
+              <li className="flex items-center gap-2">
+                <Users2 className="h-4 w-4 text-emerald-500" /> Записи и клиенты — данные из базы
+              </li>
             </ul>
-            <GhostButton className="mt-4">Открыть рекомендации</GhostButton>
           </Card>
         </div>
       )}

@@ -15,6 +15,7 @@ export function Sparkline({
 }) {
   const width = 120;
   const height = 36;
+  if (points.length === 0) return null;
   const max = Math.max(...points);
   const min = Math.min(...points);
   const span = max - min || 1;
@@ -65,7 +66,18 @@ export function AreaLineChart({
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
 
-  const max = Math.max(...points) * 1.15;
+  if (points.length === 0) {
+    return (
+      <div
+        className="grid place-items-center rounded-xl border border-dashed border-slate-200 text-sm text-slate-400"
+        style={{ height }}
+      >
+        Нет данных за период
+      </div>
+    );
+  }
+
+  const max = Math.max(...points) * 1.15 || 1;
   const step = plotWidth / Math.max(1, points.length - 1);
   const coords = points.map((value, index) => ({
     x: padding.left + index * step,

@@ -83,6 +83,27 @@ export function rowByText(dom, ...parts) {
   });
 }
 
+/**
+ * Клик по кнопке действия внутри самой узкой карточки с указанным текстом.
+ * Нужен там, где на странице несколько одинаковых кнопок (например, «Опубликовать»).
+ */
+export function clickActionIn(dom, text, actionLabel) {
+  const scopes = [...dom.window.document.querySelectorAll("div")]
+    .filter((node) => (node.textContent ?? "").includes(text))
+    .reverse();
+
+  for (const scope of scopes) {
+    const button = [...scope.querySelectorAll("button")].find((candidate) =>
+      (candidate.textContent ?? "").includes(actionLabel),
+    );
+    if (button) {
+      button.click();
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Клик по кнопке внутри конкретного элемента (например, внутри строки таблицы). */
 export function clickIn(scope, text) {
   if (!scope) throw new Error(`нет элемента, внутри которого ищем «${text}»`);

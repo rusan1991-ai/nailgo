@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "../db/index.js";
 import { bookings, masters, services, workingHours } from "../db/schema.js";
 import { requireAuth } from "../lib/auth.js";
+import { notifyBookingEvent } from "../lib/notify.js";
 import { env } from "../env.js";
 import { atMinutes, parseISODate, weekdayIndex } from "../lib/time.js";
 import { serializeBooking } from "../lib/serialize.js";
@@ -95,7 +96,8 @@ export async function createBooking(
     })
     .returning();
 
-  return serializeBooking(booking!, master, service);
+  // Возвращаем и строку записи: по ней строятся уведомления участникам.
+  return { row: booking!, service, payload: serializeBooking(booking!, master, service) };
 }
 
 async function withRelations(bookingId: string) {
@@ -113,8 +115,9 @@ export async function bookingRoutes(app: FastifyInstance) {
   /** Клиент записывается к мастеру. */
   app.post("/bookings", async (request, reply) => {
     const input = createBookingSchema.parse(request.body ?? {});
-    const booking = await createBooking(input, { source: "client", status: "pending" });
-    return reply.code(201).send({ booking });
+    const { row, service, payload } = await createBooking(input, { source: "client", status: "pending" });
+    await notifyBookingEvent(row, service, "created_by_client");
+    return reply.code(201).send({ booking: payload });
   });
 
   /**
@@ -156,6 +159,8 @@ export async function bookingRoutes(app: FastifyInstance) {
     if (booking.status === "cancelled") return { ok: true };
 
     await db.update(bookings).set({ status: "cancelled" }).where(eq(bookings.id, id));
+    const [service] = await db.select().from(services).where(eq(services.id, booking.serviceId)).limit(1);
+    await notifyBookingEvent(booking, service ?? { name: "Услуга" }, "cancelled_by_client");
     return { booking: await withRelations(id) };
   });
 }

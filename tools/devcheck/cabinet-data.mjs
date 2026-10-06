@@ -5,7 +5,7 @@
  * Запуск (из корня репозитория, при живых Vite и API):
  *   node tools/devcheck/cabinet-data.mjs
  */
-import { api, apiAs, check, login, loginMaster, makeDom, rootText, wait } from "./harness.mjs";
+import { api, apiAs, check, clickActionIn, login, loginMaster, makeDom, rootText, wait } from "./harness.mjs";
 
 const MONTH = "2024-05";
 
@@ -103,13 +103,8 @@ const moderated = { ...toModerate, status: "moderation" };
 if (moderated) {
   const page = makeDom("/pro/reviews", { session: master });
   await wait(1800);
-  const row = [...page.dom.window.document.querySelectorAll("div")].find((node) =>
-    (node.textContent ?? "").includes(moderated.text),
-  );
-  const publish = row
-    ? [...row.querySelectorAll("button")].find((button) => button.textContent.includes("Опубликовать"))
-    : null;
-  publish?.click();
+  const clicked = clickActionIn(page.dom, moderated.text, "Опубликовать");
+  assert("кнопка «Опубликовать» найдена в карточке отзыва", clicked, moderated.clientName);
   await wait(1500);
   const after = await apiAs(master, "/cabinet/reviews");
   const updated = after.data.items.find((review) => review.id === moderated.id);

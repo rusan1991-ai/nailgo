@@ -155,6 +155,35 @@ const confirmed = confirmedInDb.data.items.find((item) => item.id === requested.
 assert("подтверждение дошло до базы", confirmed?.status === "confirmed", confirmed?.status);
 cabinetForConfirm.dom.window.close();
 
+/* 3.7 Уведомления: заявка клиента дошла до мастера, подтверждение — до клиента */
+const masterFeed = await apiAs(masterSession, "/notifications");
+assert(
+  "мастер получил уведомление о новой заявке",
+  masterFeed.data.items.some((item) => item.type === "booking_created" && item.bookingId === requested.data.booking.id),
+  `непрочитанных: ${masterFeed.data.unread}`,
+);
+
+const clientFeed = await apiAs(session, "/notifications");
+assert(
+  "клиент получил подтверждение записи",
+  clientFeed.data.items.some((item) => item.type === "booking_confirmed"),
+  `непрочитанных: ${clientFeed.data.unread}`,
+);
+
+// Колокольчик кабинета: счётчик и список внутри попапа
+const bell = makeDom("/pro/bookings", { session: masterSession });
+await wait(1800);
+const bellText = rootText(bell.dom);
+assert("в кабинете виден счётчик непрочитанных", /Уведомления\s*\d+/.test(bellText), bellText.slice(0, 80));
+click(bell.dom, "Уведомления");
+await wait(300);
+assert("попап показывает новую заявку", rootText(bell.dom).includes("Новая заявка на запись"));
+click(bell.dom, "Прочитано");
+await wait(1200);
+const afterRead = await apiAs(masterSession, "/notifications/count");
+assert("отметка «прочитано» дошла до сервера", afterRead.data.unread === 0, `осталось ${afterRead.data.unread}`);
+bell.dom.window.close();
+
 /* 4. Клиент видит запись у себя */
 const account = makeDom("/account", { session });
 await wait(1800);
@@ -179,6 +208,19 @@ const sameBooking = (element) => {
 };
 click(account.dom, "Предстоящие");
 await wait(600);
+
+/* 4.2 Лента уведомлений клиента */
+const feedPage = makeDom("/notifications", { session });
+await wait(1600);
+const feedText = rootText(feedPage.dom);
+assert("клиент видит подтверждение в ленте", feedText.includes("Запись подтверждена"), feedText.slice(0, 120));
+assert("лента показывает заявку клиента", feedText.includes("Заявка отправлена мастеру"));
+assert(
+  "лента без ошибок",
+  feedPage.errors.length === 0 && feedPage.consoleErrors.length === 0,
+  feedPage.errors[0] ?? "",
+);
+feedPage.dom.window.close();
 const article = [...account.dom.window.document.querySelectorAll("article")].find(sameBooking);
 const cancelButton = article
   ? [...article.querySelectorAll("button")].find((button) => button.textContent.includes("Отменить"))
@@ -196,6 +238,15 @@ account.dom.window.close();
 const afterCancel = await apiAs(session, `/bookings?phone=${encodeURIComponent(PHONE)}`);
 const cancelled = afterCancel.data.items.find((item) => item.id === requested.data.booking.id);
 assert("отмена дошла до базы", cancelled?.status === "cancelled", cancelled?.status);
+
+const masterAfterCancel = await apiAs(masterSession, "/notifications");
+assert(
+  "мастер узнал об отмене",
+  masterAfterCancel.data.items.some(
+    (item) => item.type === "booking_cancelled" && item.bookingId === requested.data.booking.id,
+  ),
+  "уведомление об отмене",
+);
 
 const cabinetAfter = await apiAs(
   masterSession,

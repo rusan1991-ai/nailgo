@@ -100,6 +100,30 @@ export const reviews = pgTable("reviews", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Уведомления в приложении. Клиенту адресуем по телефону (вход по номеру,
+ * отдельного профиля до первого визита может не быть), мастеру — по user_id.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: id(),
+    audience: text("audience").notNull(), // client | master
+    phone: text("phone"), // получатель-клиент
+    userId: text("user_id"), // получатель-мастер
+    type: text("type").notNull(), // booking_created | booking_confirmed | booking_cancelled | booking_completed
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    bookingId: text("booking_id"),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("notifications_phone_created").on(table.phone, table.createdAt),
+    index("notifications_user_created").on(table.userId, table.createdAt),
+  ],
+);
+
 export const otpCodes = pgTable(
   "otp_codes",
   {

@@ -8,6 +8,7 @@ import { atMinutes, parseISODate, toISODate } from "../lib/time.js";
 import { serializeBooking } from "../lib/serialize.js";
 import { requireAuth, requireMaster } from "../lib/auth.js";
 import { createBooking, createBookingSchema } from "./bookings.js";
+import { notifyBookingEvent } from "../lib/notify.js";
 
 const listQuery = z.object({
   status: z.enum(["all", "pending", "confirmed", "completed", "cancelled"]).optional(),
@@ -16,6 +17,12 @@ const listQuery = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
 });
+
+/** Услуга записи — нужна для текста уведомления. */
+async function serviceOf(serviceId: string) {
+  const [service] = await db.select().from(services).where(eq(services.id, serviceId)).limit(1);
+  return service ?? { name: "Услуга" };
+}
 
 /** Кабинет мастера: доступен только владельцу кабинета (роль master). */
 const masterOnly = { preHandler: [requireAuth, requireMaster] };
@@ -58,8 +65,9 @@ export async function cabinetRoutes(app: FastifyInstance) {
   /** Мастер создаёт запись вручную. */
   app.post("/cabinet/bookings", masterOnly, async (request, reply) => {
     const input = createBookingSchema.parse(request.body ?? {});
-    const booking = await createBooking(input, { source: "master", status: "confirmed" });
-    return reply.code(201).send({ booking });
+    const { row, service, payload } = await createBooking(input, { source: "master", status: "confirmed" });
+    await notifyBookingEvent(row, service, "created_by_master");
+    return reply.code(201).send({ booking: payload });
   });
 
   /** Мастер отменяет запись. */
@@ -69,6 +77,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
     if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
 
     await db.update(bookings).set({ status: "cancelled" }).where(eq(bookings.id, id));
+    await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "cancelled_by_master");
     return { ok: true };
   });
 
@@ -79,6 +88,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
     if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
 
     await db.update(bookings).set({ status: "confirmed" }).where(eq(bookings.id, id));
+    await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "confirmed");
     return { ok: true };
   });
 
@@ -89,6 +99,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
     if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
 
     await db.update(bookings).set({ status: "completed" }).where(eq(bookings.id, id));
+    await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "completed");
     return { ok: true };
   });
 

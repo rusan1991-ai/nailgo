@@ -1,25 +1,23 @@
 #!/usr/bin/env bash
+# Обновление прод-стека: бэкап → пересборка → рестарт.
+# Миграции применяет API при старте.
 set -euo pipefail
 
 COMPOSE_FILE="docker-compose.prod.yml"
 ENV_FILE=".env"
 
 if [ ! -f "${ENV_FILE}" ]; then
-  echo "${ENV_FILE} not found"
+  echo "${ENV_FILE} не найден"
   exit 1
 fi
 
 ./scripts/backup.sh
 
-echo "Pulling and building latest images"
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" pull postgres redis caddy || true
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build web api admin worker
+echo "Собираем новые образы"
+docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build web api
 
-echo "Applying migrations"
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" run --rm api pnpm db:deploy
-
-echo "Rolling restart"
+echo "Поднимаем стек"
 docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --remove-orphans
 
-echo "Update complete"
+echo "Готово"
 docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps

@@ -38,16 +38,35 @@ export async function authRoutes(app: FastifyInstance) {
       expiresAt: new Date(Date.now() + env.otpTtlSeconds * 1000),
     });
 
-    app.log.info({ phone }, "OTP: код сгенерирован");
+    // Куда уходит код — определяет OTP_DELIVERY (см. env.ts).
+    if (env.otpDelivery === "sms") {
+      app.log.error(
+        "OTP_DELIVERY=sms, но SMS-провайдер не подключён: код никуда не отправлен. " +
+          "Укажите OTP_DELIVERY=log для закрытого стенда или подключите провайдера.",
+      );
+      return reply.code(503).send({
+        error: "sms_not_configured",
+        message: "Отправка SMS ещё не подключена",
+      });
+    }
+
+    if (env.otpDelivery === "log") {
+      app.log.warn({ phone }, `SMS не подключён — код подтверждения: ${code}`);
+    } else {
+      app.log.info({ phone }, "OTP: код сгенерирован");
+    }
 
     return reply.send({
       ok: true,
       phone,
       expiresInSeconds: env.otpTtlSeconds,
-      devCode: env.devOtpEnabled ? code : undefined,
-      message: isDev
-        ? "Код подтверждения создан. В dev-режиме он возвращается в ответе."
-        : "Код отправлен по SMS",
+      devCode: env.otpDelivery === "response" ? code : undefined,
+      message:
+        env.otpDelivery === "response"
+          ? "Код подтверждения создан. В dev-режиме он возвращается в ответе."
+          : env.otpDelivery === "log"
+            ? "Код подтверждения создан. SMS не подключён — код ищите в логе сервера."
+            : "Код отправлен по SMS",
     });
   });
 

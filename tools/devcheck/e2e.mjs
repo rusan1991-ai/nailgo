@@ -13,6 +13,7 @@ import {
   loginMaster,
   makeDom,
   rootText,
+  resetDemo,
   rowByText,
   setField,
   wait,
@@ -37,6 +38,10 @@ function setSelect(dom, index, value) {
 
 const session = await login(PHONE, "Тест Клиент");
 const masterSession = await loginMaster();
+// Начинаем с чистого демо-состояния: прогон создаёт записи, и без сброса
+// свободные окна демо-дня закончатся на следующем запуске.
+const reset = await resetDemo(masterSession);
+console.log(`Демо-данные сброшены: ${JSON.stringify(reset.counts)}`);
 console.log(`Сессия клиента: ${session.user.name} ${session.user.phone}`);
 console.log(`Сессия мастера: ${masterSession.user.name} ${masterSession.user.phone} (${masterSession.user.role})`);
 

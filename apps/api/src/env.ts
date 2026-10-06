@@ -21,6 +21,17 @@ export const env = {
   refreshTtlSeconds: num(process.env.JWT_REFRESH_TTL_SECONDS, 2592000),
 
   devOtpEnabled: (process.env.DEV_OTP_ENABLED ?? "true") === "true",
+  /**
+   * Как доставляется код подтверждения:
+   * - response — возвращаем в ответе (только dev);
+   * - log — пишем в лог сервера (закрытый стенд, пока нет SMS-провайдера);
+   * - sms — провайдер (ещё не подключён: старт с этим значением завершится ошибкой).
+   */
+  otpDelivery: (process.env.OTP_DELIVERY ??
+    ((process.env.DEV_OTP_ENABLED ?? "true") === "true" ? "response" : "log")) as
+    | "response"
+    | "log"
+    | "sms",
   otpTtlSeconds: num(process.env.OTP_TTL_SECONDS, 300),
 
   slotStepMinutes: num(process.env.SLOT_STEP_MINUTES, 30),

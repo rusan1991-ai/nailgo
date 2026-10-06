@@ -139,10 +139,13 @@ export function check(label, ok, extra = "") {
 }
 
 export async function api(path, init) {
+  const hasBody = init?.body !== undefined;
   const response = await fetch(`${ORIGIN}/api${path}`, {
-    headers: { "content-type": "application/json" },
     ...init,
-    body: init?.body ? JSON.stringify(init.body) : undefined,
+    // content-type ставим только при теле: пустой POST с JSON-заголовком
+    // Fastify отвергает (400 empty_body).
+    headers: { ...(hasBody ? { "content-type": "application/json" } : {}), ...(init?.headers ?? {}) },
+    body: hasBody ? JSON.stringify(init.body) : undefined,
   });
   const text = await response.text();
   return { status: response.status, data: text ? JSON.parse(text) : null };
@@ -155,7 +158,7 @@ export async function api(path, init) {
 export async function apiAs(session, path, init) {
   return api(path, {
     ...init,
-    headers: { "content-type": "application/json", authorization: `Bearer ${session.accessToken}` },
+    headers: { ...(init?.headers ?? {}), authorization: `Bearer ${session.accessToken}` },
   });
 }
 
@@ -171,4 +174,17 @@ export async function login(phone, name = "Тест Клиент") {
   const verified = await api("/auth/verify-otp", { method: "POST", body: { phone, code, name } });
   if (verified.status !== 200) throw new Error(`login failed: ${JSON.stringify(verified.data)}`);
   return { user: verified.data.user, accessToken: verified.data.accessToken };
+}
+
+/**
+ * Сброс демо-данных через API (только dev-окружение). Сквозные проверки
+ * начинают с одного и того же состояния: иначе повторные прогоны забивают
+ * свободные окна демо-дня и проверка «есть свободный слот» падает.
+ */
+export async function resetDemo(masterSession) {
+  const result = await apiAs(masterSession, "/cabinet/demo/reset", { method: "POST" });
+  if (result.status !== 200) {
+    throw new Error(`Сброс демо-данных не удался: HTTP ${result.status} ${JSON.stringify(result.data)}`);
+  }
+  return result.data;
 }

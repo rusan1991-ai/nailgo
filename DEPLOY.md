@@ -1,92 +1,124 @@
-# NailMarket Production Deployment (Bootstrap)
+# Прод-деплой NailGo
 
-This repository now includes a production deployment skeleton for VPS-based hosting.
+Стек на VPS: **Caddy со статикой сайта**, **API (Fastify + Drizzle)** и **Postgres 17**.
+Всё поднимается одним `docker compose -f docker-compose.prod.yml`.
 
-## What Is Included
+## Что входит
 
-- `docker-compose.prod.yml` with:
-  - caddy (TLS + reverse proxy)
-  - web
-  - api
-  - admin
-  - worker
-  - postgres/postgis
-  - redis
-- `infrastructure/caddy/Caddyfile` for domain routing
-- `.env.production.example` template
-- Operational scripts:
-  - `scripts/install.sh`
-  - `scripts/update.sh`
-  - `scripts/backup.sh`
-  - `scripts/restore.sh`
+| Файл | Назначение |
+| --- | --- |
+| `Dockerfile.web` | сборка фронтенда (Vite) и отдача статики через Caddy |
+| `apps/api/Dockerfile` | сборка API и запуск `dist/server.js` |
+| `docker-compose.prod.yml` | сервисы `web`, `api`, `postgres` |
+| `infrastructure/caddy/Caddyfile.web` | домен, статика, прокси `/api` → API |
+| `infrastructure/caddy/Caddyfile` | вариант с отдельным доменом `api.<домен>` |
+| `.env.production.example` | шаблон окружения |
+| `scripts/install.sh`, `update.sh`, `backup.sh`, `restore.sh` | установка, обновление, бэкап, восстановление |
 
-## Important
+Сервисов `admin`, `worker` и `redis` в compose нет: кода, который бы их использовал,
+в репозитории пока нет. Они появятся вместе с реализацией (админка, фоновые задачи, кеш).
 
-The compose file expects a monorepo structure with the following Dockerfiles:
+## 1. Подготовка сервера
 
-- `apps/web/Dockerfile`
-- `apps/api/Dockerfile`
-- `apps/admin/Dockerfile`
-- `apps/worker/Dockerfile`
+- Ubuntu 24.04 LTS, Docker Engine + плагин `docker compose`
+- A-запись домена (например, `nailmarket.ru`) на IP сервера — Caddy сам получит
+  сертификат Let's Encrypt, нужны открытые порты 80 и 443
 
-If these files are not present yet, complete Build 0.1 application scaffolding first.
-
-## 1. Prepare Server
-
-- Ubuntu 24.04 LTS recommended
-- Docker Engine + Docker Compose plugin installed
-- DNS A records configured:
-  - `nailmarket.ru`
-  - `api.nailmarket.ru`
-  - `admin.nailmarket.ru`
-
-## 2. Prepare Environment
+## 2. Окружение
 
 ```bash
 cp .env.production.example .env
 nano .env
 ```
 
-Update all `change_me_*` values before first run.
+Обязательно замените все `change_me_*`. Секреты токенов удобно генерировать так:
 
-## 3. First Install
+```bash
+openssl rand -hex 32   # для JWT_ACCESS_SECRET и JWT_REFRESH_SECRET
+```
+
+Про доставку кодов входа (`OTP_DELIVERY`):
+
+- `log` — код подтверждения пишется в лог API. Так работает закрытый стенд,
+  пока не подключён SMS-провайдер: `docker compose --env-file .env -f docker-compose.prod.yml logs -f api`
+- `sms` — вариант для боевого запуска, но провайдер ещё не подключён:
+  API ответит `503 sms_not_configured`, а не «код отправлен»
+- `response` — код возвращается прямо в ответе API, только для локальной разработки
+
+## 3. Первый запуск
 
 ```bash
 chmod +x scripts/*.sh
 ./scripts/install.sh
 ```
 
-## 4. Update
+Миграции API накатывает сам при старте (`runMigrations()` в `apps/api/src/server.ts`),
+отдельного шага с `db:deploy` не нужно. Повторный запуск безопасен.
+
+## 4. Проверка
+
+```bash
+curl -fsS http://127.0.0.1:4000/api/health
+# {"ok":true,"service":"nailgo-api","storage":"postgres","masters":…,"bookings":…}
+
+docker compose --env-file .env -f docker-compose.prod.yml ps
+curl -fsS -o /dev/null -w '%{http_code}\n' https://ваш-домен/
+```
+
+`storage: postgres` в ответе подтверждает, что API работает с серверной базой,
+а не с локальной PGlite.
+
+## 5. Демо-данные (только для стенда)
+
+```bash
+docker compose --env-file .env -f docker-compose.prod.yml \
+  run --rm api node -e "import('./dist/db/seed.js').then((m) => m.seed())"
+```
+
+На боевой базе сиды не запускайте: они перезапишут записи и отзывы демо-набором.
+
+## 6. Обновление
 
 ```bash
 ./scripts/update.sh
 ```
 
-`update.sh` runs backup first, then migrations, then restart.
+Скрипт делает бэкап, пересобирает образы `web` и `api`, поднимает стек заново.
+Миграции применяются при старте API.
 
-## 5. Backup
-
-```bash
-./scripts/backup.sh
-```
-
-Output goes to `backups/postgres_YYYYMMDD_HHMMSS.sql`.
-
-## 6. Restore
+## 7. Бэкап и восстановление
 
 ```bash
-./scripts/restore.sh backups/postgres_YYYYMMDD_HHMMSS.sql
+./scripts/backup.sh                                  # backups/postgres_YYYYMMDD_HHMMSS.sql
+./scripts/restore.sh backups/postgres_20240101_120000.sql
 ```
 
-## 7. Health Check
+Данные Postgres и сертификаты Caddy живут в томах `postgres_data`, `caddy_data`,
+`caddy_config` — они переживают пересборку контейнеров.
+
+## Проверка прод-пути без Docker
+
+Docker в песочнице разработки недоступен, поэтому сборка и серверный драйвер
+проверяются локально:
 
 ```bash
-docker compose --env-file .env -f docker-compose.prod.yml ps
+cd apps/api
+npm run build                       # tsc → dist
+npm run db:bridge                   # Postgres по проводу (PGlite) на 127.0.0.1:5432
+
+# во втором терминале
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres PG_POOL_MAX=1 \
+  node dist/server.js
+curl -fsS http://127.0.0.1:4000/api/health   # storage: postgres
 ```
 
-## Security Notes
+`PG_POOL_MAX=1` нужен только для этого моста: он закрывает idle-соединения,
+и обычный пул получил бы `ECONNRESET`. Настоящему Postgres ограничение не требуется.
 
-- Keep DB and Redis internal (no public port exposure in production).
-- Store production secrets in a secret manager when possible.
-- Keep admin access protected by strong auth and 2FA.
-- Use separate staging and production environments.
+## Безопасность
+
+- Порт Postgres наружу не публикуется: база доступна только внутри docker-сети.
+- `OTP_DELIVERY=log` — режим закрытого стенда: код входа виден в логах, не давайте
+  к ним доступ посторонним.
+- Прод-образ API собирается без PGlite: при `DATABASE_URL=postgres://` локальный
+  WASM-драйвер не загружается и из образа удалён.

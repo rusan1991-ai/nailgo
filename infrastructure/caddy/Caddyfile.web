@@ -1,0 +1,21 @@
+# Прод-конфигурация сайта: статика NailGo и прокси на API.
+# Домен подставляется переменной APP_DOMAIN, адрес API — API_UPSTREAM.
+# Сборка фронтенда кладёт всё приложение в один index.html
+# (vite-plugin-singlefile), поэтому SPA-роутинг отдаётся через try_files.
+
+{$APP_DOMAIN:localhost} {
+	encode zstd gzip
+	root * /srv/www
+	try_files {path} /index.html
+	file_server
+
+	# Проверка живости контейнера без обращения к API.
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	# Браузер обращается только к своему домену: /api уходит в контейнер API.
+	handle /api/* {
+		reverse_proxy {$API_UPSTREAM:api:4000}
+	}
+}

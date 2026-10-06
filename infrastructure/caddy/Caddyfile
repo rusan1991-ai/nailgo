@@ -1,14 +1,23 @@
+# Прод-маршрутизация NailGo.
+#
+# Используется в docker-compose.prod.yml (образ web из Dockerfile.web —
+# Caddy и статика в одном контейнере). Здесь описан полный набор доменов,
+# если сайт и API разводятся по отдельным адресам.
+
+# Сайт: статика из образа web + /api в контейнер API.
 {$APP_DOMAIN} {
-  encode zstd gzip
-  reverse_proxy web:{$WEB_PORT}
+	encode zstd gzip
+	root * /srv/www
+	try_files {path} /index.html
+	file_server
+
+	handle /api/* {
+		reverse_proxy {$API_UPSTREAM:api:4000}
+	}
 }
 
-{$API_DOMAIN} {
-  encode zstd gzip
-  reverse_proxy api:{$API_PORT}
-}
-
-{$ADMIN_DOMAIN} {
-  encode zstd gzip
-  reverse_proxy admin:{$ADMIN_PORT}
+# Отдельный адрес API (если нужен api.<домен>) — без статики.
+{$API_DOMAIN:api.localhost} {
+	encode zstd gzip
+	reverse_proxy api:{$API_PORT:4000}
 }

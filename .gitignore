@@ -13,6 +13,7 @@ backups
 *.log
 .DS_Store
 apps/api/.pglite
+apps/api/.pglite-pg
 apps/api/dist
 tools/devcheck/bundle.js
 shots

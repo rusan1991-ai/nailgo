@@ -5,7 +5,7 @@
  * Запуск (из корня репозитория, при живых Vite и API):
  *   node tools/devcheck/cabinet-data.mjs
  */
-import { api, apiAs, check, clickActionIn, login, loginMaster, makeDom, rootText, wait } from "./harness.mjs";
+import { api, apiAs, check, clickActionIn, login, loginMaster, makeDom, resetDemo, rootText, wait } from "./harness.mjs";
 
 const MONTH = "2024-05";
 
@@ -21,6 +21,11 @@ const assert = (label, ok, extra = "") => {
 };
 
 const master = await loginMaster();
+// Сравнивать цифры страниц с базой можно только на известном состоянии:
+// сбрасываем демо-данные, иначе записи прошлых прогонов меняют суммы.
+const reset = await resetDemo(master);
+console.log(`Демо-данные сброшены: ${JSON.stringify(reset.counts)}`);
+
 const stats = await apiAs(master, `/cabinet/stats?month=${MONTH}`);
 const clients = await apiAs(master, "/cabinet/clients");
 

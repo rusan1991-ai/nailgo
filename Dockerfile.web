@@ -1,0 +1,22 @@
+# Прод-образ сайта: собираем фронтенд и отдаём его Caddy.
+#
+# Сборка Vite кладёт всё приложение в один dist/index.html
+# (vite-plugin-singlefile), поэтому контейнеру достаточно статики и прокси
+# на API. Собирается из корня: docker build -f Dockerfile.web .
+
+FROM node:22-alpine AS build
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY tsconfig.json vite.config.ts index.html ./
+COPY src ./src
+# Сборка идёт без обращения к API: адрес запросов задаётся относительным путём /api.
+RUN npm run build
+
+# --- runtime: Caddy отдаёт статику и проксирует /api ---
+FROM caddy:2.8-alpine AS runtime
+COPY --from=build /app/dist /srv/www
+COPY infrastructure/caddy/Caddyfile.web /etc/caddy/Caddyfile
+EXPOSE 80 443

@@ -1,27 +1,79 @@
+import { useMemo } from "react";
 import { ClientShell } from "../components/ClientShell";
 import { reviewFeed } from "../data/mock";
+import { usePublishedReviews } from "../api/reviews";
+
+const monthNames = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+
+/** «2024-05-22» → «22 мая» */
+function shortDate(iso: string): string {
+  const [, month, day] = iso.split("-").map(Number);
+  return `${day} ${monthNames[(month ?? 1) - 1] ?? ""}`.trim();
+}
 
 export function ReviewsPage() {
+  const { data, loading, error } = usePublishedReviews();
+
+  const reviews = useMemo(() => {
+    if (data && data.items.length > 0) return data.items;
+    return reviewFeed.map((item) => ({
+      id: item.id,
+      clientName: item.client,
+      score: item.score,
+      text: item.text,
+      dateISO: "2024-05-22",
+      dateLabel: item.date,
+      masterName: "Мастер NailGo",
+    }));
+  }, [data]);
+
+  const live = Boolean(data && data.items.length > 0);
+  const average = live && data ? data.average.toFixed(1) : "—";
+
   return (
     <ClientShell title="Отзывы о мастерах">
       <section className="max-w-3xl">
         <div className="rounded-2xl border border-[#f1dde6] p-4">
-          <p className="text-4xl font-semibold">4.9</p>
-          <p className="text-sm text-slate-500">128 отзывов</p>
+          <p className="text-4xl font-semibold">{average}</p>
+          <p className="text-sm text-slate-500">
+            {live && data ? `${data.total} отзывов` : "пока нет отзывов из базы"}
+          </p>
         </div>
 
+        {error && (
+          <div className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">
+            Не удалось загрузить отзывы: {error}
+          </div>
+        )}
+
         <div className="mt-3 space-y-2">
-          {reviewFeed.map((review) => (
+          {reviews.map((review) => (
             <article key={review.id} className="rounded-2xl border border-[#f1dde6] p-4">
-              <div className="flex items-center justify-between">
-                <p className="font-medium">{review.client}</p>
-                <p className="text-sm text-slate-500">{review.date}</p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-medium">{review.clientName}</p>
+                <p className="text-sm text-slate-500">
+                  {"dateLabel" in review ? review.dateLabel : shortDate(review.dateISO)}
+                </p>
               </div>
               <p className="mt-1 text-sm text-yellow-500">{"★".repeat(review.score)}</p>
               <p className="mt-2 text-sm text-slate-600">{review.text}</p>
+              <p className="mt-2 text-xs text-slate-400">{review.masterName}</p>
             </article>
           ))}
+          {reviews.length === 0 && (
+            <p className="rounded-2xl border border-dashed border-[#f1dde6] p-5 text-sm text-slate-500">
+              {loading ? "Загружаем отзывы…" : "Опубликованных отзывов пока нет."}
+            </p>
+          )}
         </div>
+
+        <p className="mt-3 text-xs text-slate-400">
+          {live
+            ? "Отзывы опубликованы мастерами после модерации — их видно и в кабинете мастера."
+            : loading
+              ? "Загружаем отзывы из базы…"
+              : "API недоступен — показаны демонстрационные отзывы"}
+        </p>
       </section>
     </ClientShell>
   );

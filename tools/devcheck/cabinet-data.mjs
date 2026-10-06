@@ -5,7 +5,7 @@
  * Запуск (из корня репозитория, при живых Vite и API):
  *   node tools/devcheck/cabinet-data.mjs
  */
-import { apiAs, check, loginMaster, makeDom, rootText, wait } from "./harness.mjs";
+import { api, apiAs, check, login, loginMaster, makeDom, rootText, wait } from "./harness.mjs";
 
 const MONTH = "2024-05";
 
@@ -74,6 +74,81 @@ assert(
 );
 assert("на странице нет ошибок", clientsPage.errors.length === 0 && clientsPage.consoleErrors.length === 0, clientsPage.errors[0] ?? "");
 clientsPage.dom.window.close();
+
+/* --- «Отзывы»: реальные отзывы и модерация --- */
+const reviews = await apiAs(master, "/cabinet/reviews");
+assert("API отдал отзывы", reviews.status === 200, String(reviews.status));
+
+const reviewsPage = makeDom("/pro/reviews", { session: master });
+await wait(1600);
+const reviewsText = normalize(rootText(reviewsPage.dom));
+const firstReview = reviews.data.items[0];
+assert("отзыв из базы виден в кабинете", Boolean(firstReview) && reviewsText.includes(firstReview.text), firstReview?.clientName ?? "нет");
+assert(
+  "средняя оценка совпадает с базой",
+  reviewsText.includes(reviews.data.average.toFixed(1)),
+  reviews.data.average.toFixed(1),
+);
+assert("на странице нет ошибок", reviewsPage.errors.length === 0 && reviewsPage.consoleErrors.length === 0, reviewsPage.errors[0] ?? "");
+reviewsPage.dom.window.close();
+
+// Модерация проверяется на любом отзыве: сначала возвращаем его на модерацию
+// через API, затем публикуем из интерфейса — проверка не зависит от прошлых прогонов.
+const toModerate = reviews.data.items[0];
+await apiAs(master, `/cabinet/reviews/${toModerate.id}/moderate`, {
+  method: "POST",
+  body: { status: "moderation" },
+});
+const moderated = { ...toModerate, status: "moderation" };
+if (moderated) {
+  const page = makeDom("/pro/reviews", { session: master });
+  await wait(1800);
+  const row = [...page.dom.window.document.querySelectorAll("div")].find((node) =>
+    (node.textContent ?? "").includes(moderated.text),
+  );
+  const publish = row
+    ? [...row.querySelectorAll("button")].find((button) => button.textContent.includes("Опубликовать"))
+    : null;
+  publish?.click();
+  await wait(1500);
+  const after = await apiAs(master, "/cabinet/reviews");
+  const updated = after.data.items.find((review) => review.id === moderated.id);
+  assert("публикация отзыва дошла до базы", updated?.status === "published", updated?.status);
+  page.dom.window.close();
+} else {
+  assert("есть отзыв на модерации для проверки", false, "в сидах нет отзыва со статусом moderation");
+}
+
+/* --- Клиентская витрина отзывов: только опубликованные --- */
+const publicReviews = await api("/reviews?limit=20");
+assert("публичный список отзывов отвечает", publicReviews.status === 200, String(publicReviews.status));
+
+// Витрина отзывов — клиентская страница, она открывается после входа.
+const client = await login("+79990001122", "Тест Клиент");
+const clientReviewsPage = makeDom("/reviews", { session: client });
+await wait(1600);
+const clientReviewsText = normalize(rootText(clientReviewsPage.dom));
+const published = publicReviews.data.items[0];
+assert(
+  "клиент видит опубликованный отзыв",
+  Boolean(published) && clientReviewsText.includes(published.text),
+  published?.clientName ?? "нет",
+);
+assert(
+  "средняя оценка витрины совпадает с API",
+  clientReviewsText.includes(publicReviews.data.average.toFixed(1)),
+  publicReviews.data.average.toFixed(1),
+);
+assert(
+  "на витрине нет отзывов со скрытым статусом",
+  !publicReviews.data.items.some((review) => (review.status ?? "published") !== "published"),
+);
+assert(
+  "страница витрины без ошибок",
+  clientReviewsPage.errors.length === 0 && clientReviewsPage.consoleErrors.length === 0,
+  clientReviewsPage.errors[0] ?? "",
+);
+clientReviewsPage.dom.window.close();
 
 /* --- «Продвижение»: честно помеченные демо-данные --- */
 const promoPage = makeDom("/pro/promotion", { session: master });

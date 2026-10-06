@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import { and, asc, eq, gte, lt, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { bookings, masters, services } from "../db/schema.js";
+import { bookings, masters, reviews, services } from "../db/schema.js";
 import { isDev } from "../env.js";
 import { atMinutes, parseISODate, toISODate } from "../lib/time.js";
 import { serializeBooking } from "../lib/serialize.js";
@@ -201,6 +201,76 @@ export async function cabinetRoutes(app: FastifyInstance) {
       }));
 
     return { items, total: items.length };
+  });
+
+  /**
+   * Отзывы мастера. Мастер видит только свои отзывы (владелец кабинета),
+   * фильтр по статусу — как в макете: опубликованные, на модерации, скрытые.
+   */
+  app.get("/cabinet/reviews", masterOnly, async (request) => {
+    const { status } = z
+      .object({ status: z.enum(["all", "published", "moderation", "hidden"]).optional() })
+      .parse(request.query ?? {});
+
+    const masterSlug = request.currentUser!.masterSlug;
+    const [master] = masterSlug
+      ? await db.select().from(masters).where(eq(masters.slug, masterSlug)).limit(1)
+      : [];
+    if (!master) return { items: [], total: 0, average: 0, byStatus: { published: 0, moderation: 0, hidden: 0 } };
+
+    const rows = await db
+      .select()
+      .from(reviews)
+      .where(eq(reviews.masterId, master.id))
+      .orderBy(desc(reviews.createdAt));
+
+    const items = rows
+      .filter((review) => (status && status !== "all" ? review.status === status : true))
+      .map((review) => ({
+        id: review.id,
+        clientName: review.clientName,
+        score: review.score,
+        text: review.text,
+        service: review.service,
+        status: review.status,
+        createdAt: review.createdAt.toISOString(),
+        dateISO: toISODate(review.createdAt),
+      }));
+
+    const average =
+      rows.length > 0 ? Number((rows.reduce((sum, review) => sum + review.score, 0) / rows.length).toFixed(1)) : 0;
+
+    return {
+      items,
+      total: items.length,
+      average,
+      masterName: master.name,
+      byStatus: {
+        published: rows.filter((review) => review.status === "published").length,
+        moderation: rows.filter((review) => review.status === "moderation").length,
+        hidden: rows.filter((review) => review.status === "hidden").length,
+      },
+    };
+  });
+
+  /** Модерация отзыва: опубликовать, скрыть или вернуть на модерацию. */
+  app.post("/cabinet/reviews/:id/moderate", masterOnly, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { status } = z.object({ status: z.enum(["published", "moderation", "hidden"]) }).parse(request.body ?? {});
+
+    const masterSlug = request.currentUser!.masterSlug;
+    const [master] = masterSlug
+      ? await db.select().from(masters).where(eq(masters.slug, masterSlug)).limit(1)
+      : [];
+
+    const [review] = await db.select().from(reviews).where(eq(reviews.id, id)).limit(1);
+    if (!review) return reply.code(404).send({ error: "not_found", message: "Отзыв не найден" });
+    if (!master || review.masterId !== master.id) {
+      return reply.code(403).send({ error: "forbidden", message: "Это отзыв другого мастера" });
+    }
+
+    await db.update(reviews).set({ status }).where(eq(reviews.id, id));
+    return { ok: true, id, status };
   });
 
   /** Пересоздать демо-данные (только вне прода). */

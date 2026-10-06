@@ -1,6 +1,6 @@
 /** Запросы кабинета мастера: доступны только владельцу кабинета (роль master). */
-import { useEffect, useState } from "react";
 import { api } from "./client";
+import { useApiResource, type Resource } from "./resource";
 
 export type CabinetStats = {
   todayISO: string;
@@ -40,41 +40,44 @@ export type CabinetClient = {
   source: "client" | "master";
 };
 
-type State<T> = { data: T | null; loading: boolean; error: string | null };
+export type CabinetReview = {
+  id: string;
+  clientName: string;
+  score: number;
+  text: string;
+  service: string;
+  status: "published" | "moderation" | "hidden";
+  createdAt: string;
+  dateISO: string;
+};
 
-function useApiResource<T>(path: string | null): State<T> {
-  const [state, setState] = useState<State<T>>({ data: null, loading: Boolean(path), error: null });
-
-  useEffect(() => {
-    if (!path) {
-      setState({ data: null, loading: false, error: null });
-      return;
-    }
-    let alive = true;
-    setState((current) => ({ ...current, loading: true }));
-    void (async () => {
-      try {
-        const data = await api.get<T>(path);
-        if (alive) setState({ data, loading: false, error: null });
-      } catch (error) {
-        if (alive) {
-          setState({ data: null, loading: false, error: error instanceof Error ? error.message : "Ошибка запроса" });
-        }
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [path]);
-
-  return state;
-}
+export type CabinetReviews = {
+  items: CabinetReview[];
+  total: number;
+  average: number;
+  masterName?: string;
+  byStatus: { published: number; moderation: number; hidden: number };
+};
 
 /** Сводка кабинета. `month` в формате YYYY-MM — иначе берётся текущий месяц. */
-export function useCabinetStats(month?: string): State<CabinetStats> {
+export function useCabinetStats(month?: string): Resource<CabinetStats> {
   return useApiResource<CabinetStats>(`/cabinet/stats${month ? `?month=${month}` : ""}`);
 }
 
-export function useCabinetClients(): State<{ items: CabinetClient[]; total: number }> {
+export function useCabinetClients(): Resource<{ items: CabinetClient[]; total: number }> {
   return useApiResource<{ items: CabinetClient[]; total: number }>("/cabinet/clients");
+}
+
+/** Отзывы мастера: список с фильтром по статусу. */
+export function useCabinetReviews(status?: string): Resource<CabinetReviews> {
+  const query = status && status !== "all" ? `?status=${status}` : "";
+  return useApiResource<CabinetReviews>(`/cabinet/reviews${query}`);
+}
+
+/** Модерация отзыва: опубликовать, скрыть или отправить на модерацию. */
+export async function moderateReview(
+  id: string,
+  status: CabinetReview["status"],
+): Promise<void> {
+  await api.post(`/cabinet/reviews/${id}/moderate`, { status });
 }

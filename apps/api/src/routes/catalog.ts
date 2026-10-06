@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "../db/index.js";
 import { masters, reviews, services, workingHours, bookings } from "../db/schema.js";
 import { env } from "../env.js";
-import { atMinutes, freeSlots, minutesOfDay, parseISODate, weekdayIndex } from "../lib/time.js";
+import { atMinutes, freeSlots, minutesOfDay, parseISODate, toISODate, weekdayIndex } from "../lib/time.js";
 
 const listQuery = z.object({
   query: z.string().trim().optional(),
@@ -93,6 +93,40 @@ export async function catalogRoutes(app: FastifyInstance) {
   });
 
   /** Каталог услуг студии. */
+  /** Опубликованные отзывы для клиентской витрины: только status = published. */
+  app.get("/reviews", async (request) => {
+    const { limit } = z
+      .object({ limit: z.coerce.number().int().min(1).max(50).default(20) })
+      .parse(request.query ?? {});
+
+    const rows = await db
+      .select({ review: reviews, master: masters })
+      .from(reviews)
+      .innerJoin(masters, eq(reviews.masterId, masters.id))
+      .where(eq(reviews.status, "published"))
+      .orderBy(desc(reviews.createdAt))
+      .limit(limit);
+
+    const all = await db.select({ score: reviews.score }).from(reviews).where(eq(reviews.status, "published"));
+    const average =
+      all.length > 0 ? Number((all.reduce((sum, row) => sum + row.score, 0) / all.length).toFixed(1)) : 0;
+
+    return {
+      average,
+      total: all.length,
+      items: rows.map(({ review, master }) => ({
+        id: review.id,
+        clientName: review.clientName,
+        score: review.score,
+        text: review.text,
+        service: review.service,
+        dateISO: toISODate(review.createdAt),
+        masterName: master.name,
+        masterSlug: master.slug,
+      })),
+    };
+  });
+
   app.get("/services", async () => {
     const rows = await db.select().from(services).where(eq(services.active, true)).orderBy(asc(services.price));
     return {

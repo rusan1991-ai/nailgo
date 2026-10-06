@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { Eye, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Eye, MessageSquare, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import {
   Card,
   Chip,
   GhostButton,
+  Modal,
   Pagination,
   PersonAvatar,
   PrimaryButton,
@@ -12,13 +13,38 @@ import {
   Stars,
   type ChipTone,
 } from "../components/ui";
-import { reviewRows, type ReviewRow } from "../data";
+import { reviewRows } from "../data";
+import { moderateReview, useCabinetReviews, type CabinetReview } from "../../api/cabinet";
+import { formatDateLabel } from "../../store/bookings";
+import { cn } from "../../utils/cn";
 
-const reviewStatus: Record<ReviewRow["status"], { label: string; tone: ChipTone }> = {
+type ReviewStatus = CabinetReview["status"];
+
+const reviewStatus: Record<ReviewStatus, { label: string; tone: ChipTone }> = {
   published: { label: "Опубликован", tone: "green" },
   moderation: { label: "На модерации", tone: "amber" },
   hidden: { label: "Скрыт", tone: "red" },
 };
+
+/** Кнопки зависят от статуса: то, что уже сделано, повторять не предлагаем. */
+function actionsFor(status: ReviewStatus): { status: ReviewStatus; label: string; tone: "primary" | "ghost" | "danger" }[] {
+  if (status === "moderation") {
+    return [
+      { status: "published", label: "Опубликовать", tone: "primary" },
+      { status: "hidden", label: "Скрыть", tone: "danger" },
+    ];
+  }
+  if (status === "published") {
+    return [
+      { status: "hidden", label: "Скрыть", tone: "danger" },
+      { status: "moderation", label: "На модерацию", tone: "ghost" },
+    ];
+  }
+  return [
+    { status: "published", label: "Опубликовать", tone: "primary" },
+    { status: "moderation", label: "На модерацию", tone: "ghost" },
+  ];
+}
 
 export function ReviewsProPage() {
   const [query, setQuery] = useState("");
@@ -26,22 +52,68 @@ export function ReviewsProPage() {
   const [score, setScore] = useState("all");
   const [service, setService] = useState("all");
   const [page, setPage] = useState(1);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [details, setDetails] = useState<CabinetReview | null>(null);
 
-  const services = useMemo(() => Array.from(new Set(reviewRows.map((row) => row.service))), []);
+  const { data, loading, error, reload } = useCabinetReviews();
+  const live = Boolean(data && data.items.length > 0);
+
+  /** Реальные отзывы из базы; если API недоступен — строки макета. */
+  const allReviews = useMemo<CabinetReview[]>(() => {
+    if (data && data.items.length > 0) return data.items;
+    return reviewRows.map((row) => ({
+      id: row.id,
+      clientName: row.client,
+      score: row.score,
+      text: row.text,
+      service: row.service,
+      status: row.status as ReviewStatus,
+      createdAt: "2024-05-22T12:00:00.000Z",
+      dateISO: "2024-05-22",
+    }));
+  }, [data]);
 
   const rows = useMemo(() => {
-    let result = reviewRows;
+    let result = allReviews;
     if (query) {
       const needle = query.trim().toLowerCase();
-      result = result.filter((row) => `${row.client} ${row.text}`.toLowerCase().includes(needle));
+      result = result.filter((row) => `${row.clientName} ${row.text}`.toLowerCase().includes(needle));
     }
     if (status !== "all") result = result.filter((row) => row.status === status);
     if (score !== "all") result = result.filter((row) => String(row.score) === score);
     if (service !== "all") result = result.filter((row) => row.service === service);
     return result;
-  }, [query, status, score, service]);
+  }, [allReviews, query, status, score, service]);
 
-  const average = (reviewRows.reduce((acc, row) => acc + row.score, 0) / reviewRows.length).toFixed(1);
+  const services = Array.from(new Set(allReviews.map((row) => row.service)));
+  const average = live && data ? data.average.toFixed(1) : "—";
+  const counts = data?.byStatus ?? {
+    published: allReviews.filter((row) => row.status === "published").length,
+    moderation: allReviews.filter((row) => row.status === "moderation").length,
+    hidden: allReviews.filter((row) => row.status === "hidden").length,
+  };
+
+  const runModeration = async (review: CabinetReview, next: ReviewStatus) => {
+    const labels: Record<ReviewStatus, string> = {
+      published: "Опубликовать",
+      moderation: "Вернуть на модерацию",
+      hidden: "Скрыть",
+    };
+    setActionError(null);
+    setBusyId(review.id);
+    try {
+      await moderateReview(review.id, next);
+      reload();
+    } catch (caught) {
+      setActionError(
+        `${labels[next]} не получилось: ${caught instanceof Error ? caught.message : "ошибка сервера"}`,
+      );
+    } finally {
+      setBusyId(null);
+      setDetails(null);
+    }
+  };
 
   return (
     <div>
@@ -49,14 +121,20 @@ export function ReviewsProPage() {
         <div className="flex items-baseline gap-3">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Отзывы</h1>
           <span className="text-sm text-slate-500">
-            Средняя оценка <span className="font-medium text-slate-700">{average}</span> · {reviewRows.length} отзыва
+            Средняя оценка <span className="font-medium text-slate-700">{average}</span> · {allReviews.length} отзывов
           </span>
         </div>
-        <PrimaryButton>
+        <PrimaryButton disabled title="Клиент оставляет отзыв после визита — вручную добавить пока нельзя">
           <Plus className="h-4 w-4" />
           Добавить отзыв
         </PrimaryButton>
       </div>
+
+      {(actionError || error) && (
+        <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600">
+          {actionError ?? `Не удалось загрузить отзывы: ${error}`}
+        </div>
+      )}
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <SearchInput
@@ -65,9 +143,16 @@ export function ReviewsProPage() {
           value={query}
           onChange={setQuery}
         />
-        <GhostButton>
+        <GhostButton
+          onClick={() => {
+            setQuery("");
+            setStatus("all");
+            setScore("all");
+            setService("all");
+          }}
+        >
           <SlidersHorizontal className="h-4 w-4" />
-          Ещё фильтры
+          Сбросить
         </GhostButton>
       </div>
 
@@ -77,9 +162,9 @@ export function ReviewsProPage() {
           onChange={setStatus}
           options={[
             { value: "all", label: "Все статусы" },
-            { value: "published", label: "Опубликованные" },
-            { value: "moderation", label: "На модерации" },
-            { value: "hidden", label: "Скрытые" },
+            { value: "published", label: `Опубликованные (${counts.published})` },
+            { value: "moderation", label: `На модерации (${counts.moderation})` },
+            { value: "hidden", label: `Скрытые (${counts.hidden})` },
           ]}
         />
         <Select
@@ -98,44 +183,51 @@ export function ReviewsProPage() {
           onChange={setService}
           options={[{ value: "all", label: "Все услуги" }, ...services.map((item) => ({ value: item, label: item }))]}
         />
-        <Select
-          value="all-masters"
-          onChange={() => undefined}
-          options={[{ value: "all-masters", label: "Все мастера" }]}
-        />
-        <Select
-          value="2024"
-          onChange={() => undefined}
-          options={[{ value: "2024", label: "01.01.2024 – 31.12.2024" }]}
-        />
+        <Select value="all-masters" onChange={() => undefined} options={[{ value: "all-masters", label: "Все мастера" }]} />
+        <Select value="2024" onChange={() => undefined} options={[{ value: "2024", label: "01.01.2024 – 31.12.2024" }]} />
       </div>
 
       <div className="space-y-3">
         {rows.map((row) => (
           <Card key={row.id}>
             <div className="flex flex-wrap items-start gap-4">
-              <PersonAvatar name={row.client} size={44} />
+              <PersonAvatar name={row.clientName} size={44} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-3">
-                  <p className="font-medium text-slate-800">{row.client}</p>
+                  <p className="font-medium text-slate-800">{row.clientName}</p>
                   <Stars score={row.score} />
-                  <span className="text-xs text-slate-400">{row.date}</span>
+                  <span className="text-xs text-slate-400">{formatDateLabel(row.dateISO)}</span>
                 </div>
                 <p className="mt-1 text-xs text-slate-400">
-                  {row.service} · Мастер: {row.master}
+                  {row.service} · Мастер: {data?.masterName ?? "Анна Смирнова"}
                 </p>
                 <p className="mt-2 text-sm text-slate-600">{row.text}</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <Chip tone={reviewStatus[row.status].tone}>{reviewStatus[row.status].label}</Chip>
-                <button className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50">
+                {actionsFor(row.status).map((action) => (
+                  <button
+                    key={action.status}
+                    type="button"
+                    disabled={!live || busyId === row.id}
+                    onClick={() => void runModeration(row, action.status)}
+                    className={cn(
+                      "rounded-lg border px-3 py-1.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-50",
+                      action.tone === "primary" && "border-emerald-200 text-emerald-600 hover:bg-emerald-50",
+                      action.tone === "ghost" && "border-slate-200 text-slate-500 hover:bg-slate-50",
+                      action.tone === "danger" && "border-rose-200 text-rose-500 hover:bg-rose-50",
+                    )}
+                  >
+                    {action.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setDetails(row)}
+                  className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50"
+                >
                   <Eye className="h-4 w-4" />
-                </button>
-                <button className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50">
-                  <Pencil className="h-4 w-4" />
-                </button>
-                <button className="grid h-8 w-8 place-items-center rounded-lg border border-rose-200 text-rose-400 transition hover:bg-rose-50">
-                  <Trash2 className="h-4 w-4" />
+                  <span className="sr-only">Открыть отзыв</span>
                 </button>
               </div>
             </div>
@@ -143,17 +235,80 @@ export function ReviewsProPage() {
         ))}
         {rows.length === 0 && (
           <Card>
-            <p className="py-6 text-center text-sm text-slate-400">Отзывов по выбранным фильтрам нет</p>
+            <p className="py-6 text-center text-sm text-slate-400">
+              {loading ? "Загружаем отзывы…" : "Отзывов по выбранным фильтрам нет"}
+            </p>
           </Card>
         )}
       </div>
 
       <Pagination
-        total={4}
+        total={1}
         page={page}
         onPage={setPage}
-        label={`Показано 1–${rows.length} из 36 отзывов`}
+        label={`Показано ${rows.length} из ${allReviews.length} отзывов`}
       />
+
+      <p className="mt-2 text-xs text-slate-400">
+        {live
+          ? "Отзывы из базы: публикация и скрытие сразу сохраняются на сервере."
+          : loading
+            ? "Загружаем отзывы из базы…"
+            : "API недоступен — показаны строки макета"}
+      </p>
+
+      <Modal
+        open={details !== null}
+        onClose={() => setDetails(null)}
+        title="Отзыв"
+        subtitle={details ? `${details.clientName} · ${details.service}` : undefined}
+        footer={
+          details ? (
+            <>
+              {actionsFor(details.status).map((action) => (
+                <button
+                  key={action.status}
+                  type="button"
+                  disabled={!live || busyId === details.id}
+                  onClick={() => void runModeration(details, action.status)}
+                  className={cn(
+                    "rounded-xl px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
+                    action.tone === "primary" && "bg-emerald-500 text-white hover:bg-emerald-600",
+                    action.tone === "ghost" && "border border-slate-200 text-slate-600 hover:bg-slate-50",
+                    action.tone === "danger" && "border border-rose-200 text-rose-500 hover:bg-rose-50",
+                  )}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </>
+          ) : undefined
+        }
+      >
+        {details && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <Stars score={details.score} />
+              <Chip tone={reviewStatus[details.status].tone}>{reviewStatus[details.status].label}</Chip>
+              <span className="text-xs text-slate-400">{formatDateLabel(details.dateISO)}</span>
+            </div>
+            <p className="text-sm text-slate-700">{details.text}</p>
+            <div className="flex items-center gap-3 text-xs text-slate-400">
+              <MessageSquare className="h-4 w-4" />
+              Ответ клиенту появится, когда подключим переписку в разделе «Сообщения».
+            </div>
+            <button
+              type="button"
+              disabled
+              className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-rose-200 px-4 py-2 text-sm text-rose-400 opacity-60"
+              title="Удаление отзывов появится вместе с правилами модерации"
+            >
+              <Trash2 className="h-4 w-4" />
+              Удалить отзыв
+            </button>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

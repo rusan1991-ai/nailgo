@@ -9,6 +9,7 @@ const links = [
   { to: "/last-minute/moscow", label: "Горящие окна" },
   { to: "/booking", label: "Запись" },
   { to: "/favorites", label: "Избранное" },
+  { to: "/messages", label: "Сообщения" },
   { to: "/notifications", label: "Уведомления" },
   { to: "/journal", label: "Журнал" },
   { to: "/account", label: "Профиль" },

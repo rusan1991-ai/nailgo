@@ -22,6 +22,7 @@ import {
 } from "../data";
 import { useCabinetAppointments } from "../appointments";
 import { useCatalog } from "../../catalog/store";
+import { minutesToLabel, useCabinetHours } from "../../api/profile";
 import { cabinetOwnerSlug } from "../../store/bookings";
 import { cn } from "../../utils/cn";
 
@@ -145,6 +146,17 @@ export function SchedulePage() {
 
   const appointments = useCabinetAppointments(weekAppointments);
 
+  // Часы работы берём из базы: их мастер правит в настройках, они же
+  // определяют свободные окна для клиентов.
+  const hoursResource = useCabinetHours();
+  const workDays = (hoursResource.data?.items ?? []).filter((day) => day.enabled);
+  const hoursLabel =
+    workDays.length === 0
+      ? "не задано"
+      : `${workDays.map((day) => day.label).join(", ")} · ${minutesToLabel(
+          Math.min(...workDays.map((day) => day.startMinute)),
+        )}–${minutesToLabel(Math.max(...workDays.map((day) => day.endMinute)))}`;
+
   const services = useMemo(
     () => Array.from(new Set(appointments.map((item) => item.service).filter(Boolean))),
     [appointments],
@@ -265,7 +277,7 @@ export function SchedulePage() {
               <div className="flex items-center gap-3">
                 <Clock className="h-4 w-4 text-slate-400" />
                 <span className="flex-1 text-slate-500">Рабочее время</span>
-                <span className="font-medium text-slate-800">{masterProfile.workingHours}</span>
+                <span className="font-medium text-slate-800">{hoursLabel}</span>
               </div>
             </div>
             <GhostButton className="mt-4 w-full justify-center">

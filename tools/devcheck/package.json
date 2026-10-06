@@ -7,7 +7,9 @@
     "bundle": "node bundle.mjs",
     "routes": "node routes.mjs",
     "e2e": "node e2e.mjs",
-    "data": "node cabinet-data.mjs"
+    "data": "node cabinet-data.mjs",
+    "messages": "node messages.mjs",
+    "stats": "node stats-settings.mjs"
   },
   "dependencies": {
     "jsdom": "^30.1.2"

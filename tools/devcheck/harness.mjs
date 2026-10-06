@@ -131,6 +131,8 @@ export function setField(dom, placeholder, value) {
   const prototype = input.tagName === "TEXTAREA" ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype;
   Object.getOwnPropertyDescriptor(prototype, "value").set.call(input, value);
   input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  // Возвращаем поле: проверкам нужно до-отправить значение (например, Enter-ом).
+  return input;
 }
 
 export function check(label, ok, extra = "") {
@@ -187,4 +189,20 @@ export async function resetDemo(masterSession) {
     throw new Error(`Сброс демо-данных не удался: HTTP ${result.status} ${JSON.stringify(result.data)}`);
   }
   return result.data;
+}
+
+/**
+ * Поле без placeholder ищем по текущему значению: в формах кабинета поля
+ * подписаны label-ом, а не placeholder-ом. Возвращает новое значение.
+ */
+export function setFieldByValue(dom, currentValue, value) {
+  const input = [...dom.window.document.querySelectorAll("input, textarea")].find(
+    (element) => element.value === currentValue,
+  );
+  if (!input) throw new Error(`не найдено поле со значением «${currentValue}»`);
+  const prototype =
+    input.tagName === "TEXTAREA" ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(prototype, "value").set.call(input, value);
+  input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  return input;
 }

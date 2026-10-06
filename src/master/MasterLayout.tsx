@@ -19,6 +19,8 @@ import { cn } from "../utils/cn";
 import { PersonAvatar } from "./components/ui";
 import { NotificationsBell } from "./components/NotificationsBell";
 import { useStoreStatus } from "../store/bookings";
+import { useUnreadMessages } from "../api/messages";
+import { useCabinetProfile } from "../api/profile";
 import { masterProfile } from "./data";
 
 const navItems = [
@@ -50,6 +52,12 @@ function Logo() {
 }
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+  // Живой счётчик непрочитанных сообщений: приходит из базы, а не из макета.
+  const { unread } = useUnreadMessages();
+  // Имя и студия — из профиля кабинета: правки в настройках видны в сайдбаре.
+  const { data: cabinet } = useCabinetProfile();
+  const profileName = cabinet?.profile.name ?? masterProfile.name;
+
   return (
     <div className="flex h-full flex-col px-4 py-6">
       <Logo />
@@ -74,6 +82,11 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             >
               <Icon className="h-[18px] w-[18px] shrink-0" />
               <span className="flex-1">{item.label}</span>
+              {item.to === "/pro/messages" && unread > 0 && (
+                <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[#e11d48] px-1.5 text-[11px] font-semibold text-white">
+                  {unread}
+                </span>
+              )}
             </NavLink>
           );
         })}
@@ -82,10 +95,12 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <div className="mt-6 border-t border-white/10 pt-4">
         <NotificationsBell tone="dark" />
         <div className="mt-3 flex items-center gap-3 px-1">
-          <PersonAvatar name={masterProfile.name} size={36} />
+          <PersonAvatar name={profileName} size={36} />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-white">{masterProfile.name}</p>
-            <p className="truncate text-xs text-slate-400">{masterProfile.studio}</p>
+            <p className="truncate text-sm font-medium text-white">{profileName}</p>
+            <p className="truncate text-xs text-slate-400">
+              {cabinet?.profile.metro ? `Студия · ${cabinet.profile.metro}` : masterProfile.studio}
+            </p>
           </div>
         </div>
         <Link
@@ -105,6 +120,9 @@ export function MasterLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { pathname } = useLocation();
   const { status, error } = useStoreStatus();
+  // Имя для мобильной шапки — то же, что в сайдбаре: из профиля кабинета.
+  const { data: layoutProfile } = useCabinetProfile();
+  const profileName = layoutProfile?.profile.name ?? masterProfile.name;
 
   return (
     <div className="min-h-screen bg-[#f5f6f8] text-slate-800">
@@ -134,7 +152,7 @@ export function MasterLayout() {
             <span className="text-sm font-medium text-slate-500">Кабинет мастера</span>
             <div className="flex items-center gap-2">
               <NotificationsBell tone="light" />
-              <PersonAvatar name={masterProfile.name} size={32} />
+              <PersonAvatar name={profileName} size={32} />
             </div>
           </div>
 

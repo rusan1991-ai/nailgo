@@ -25,7 +25,10 @@ export default defineConfig({
   },
   server: {
     host: true,
-    allowedHosts,
+    // Если список хостов не задан, отвечаем на любой Host: окно предпросмотра
+    // открывается по адресу вида <порт>-<id>.e2b.app, и точный хост заранее
+    // неизвестен. Нужен строгий список — задайте VITE_ALLOWED_HOSTS.
+    allowedHosts: allowedHosts.length > 0 ? allowedHosts : true,
     // Браузер в окне предпросмотра обращается только к этому серверу,
     // запросы к API уходят через прокси — без localhost из клиента.
     proxy: {

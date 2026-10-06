@@ -8,6 +8,7 @@ import { authRoutes } from "./routes/auth.js";
 import { BookingError, bookingRoutes } from "./routes/bookings.js";
 import { cabinetRoutes } from "./routes/cabinet.js";
 import { catalogRoutes } from "./routes/catalog.js";
+import { messageRoutes } from "./routes/messages.js";
 import { notificationRoutes } from "./routes/notifications.js";
 
 export async function buildServer() {
@@ -63,6 +64,7 @@ export async function buildServer() {
       await instance.register(cabinetRoutes);
       await instance.register(authRoutes);
       await instance.register(notificationRoutes);
+      await instance.register(messageRoutes);
     },
     { prefix: "/api" },
   );

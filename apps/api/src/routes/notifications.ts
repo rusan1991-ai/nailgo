@@ -8,6 +8,7 @@ import { z } from "zod";
 import { db } from "../db/index.js";
 import { notifications } from "../db/schema.js";
 import { requireAuth } from "../lib/auth.js";
+import { normalizePhone } from "../lib/phone.js";
 
 const readSchema = z.object({
   ids: z.array(z.string().min(1)).optional(),
@@ -25,7 +26,7 @@ export async function notificationRoutes(app: FastifyInstance) {
     const scope =
       me.role === "master" || me.role === "admin"
         ? eq(notifications.userId, me.id)
-        : eq(notifications.phone, me.phone);
+        : eq(notifications.phone, normalizePhone(me.phone));
 
     const rows = await db
       .select()
@@ -56,7 +57,9 @@ export async function notificationRoutes(app: FastifyInstance) {
     const { ids, all } = readSchema.parse(request.body ?? {});
 
     const isMaster = me.role === "master" || me.role === "admin";
-    const scope = isMaster ? eq(notifications.userId, me.id) : eq(notifications.phone, me.phone);
+    const scope = isMaster
+      ? eq(notifications.userId, me.id)
+      : eq(notifications.phone, normalizePhone(me.phone));
     const unreadOnly = isNull(notifications.readAt);
 
     if (ids && ids.length > 0) {

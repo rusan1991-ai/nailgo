@@ -1,14 +1,18 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AppHeader } from "../components/AppHeader";
 import { Avatar, NailStrip } from "../components/NailUi";
 import { formatRub, slots } from "../data/mock";
 import { useCatalog, durationLabel } from "../catalog/store";
 import { demoWeek } from "../store/bookings";
+import { openThread } from "../api/messages";
 
 export function MasterPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [messageError, setMessageError] = useState<string | null>(null);
   const params = useParams();
   const { masters, services } = useCatalog();
   const master = masters.find((item) => item.slug === params.slug) ?? masters[0];
@@ -125,6 +129,25 @@ export function MasterPage() {
             >
               {user ? "Записаться на 19:00" : "Войти и записаться"}
             </Link>
+            <button
+              type="button"
+              onClick={() => {
+                if (!user) {
+                  navigate(`/login?returnTo=${encodeURIComponent(`/master/${master.slug}`)}`);
+                  return;
+                }
+                setMessageError(null);
+                void openThread({ masterSlug: master.slug })
+                  .then(() => navigate("/messages"))
+                  .catch((cause: unknown) =>
+                    setMessageError(cause instanceof Error ? cause.message : "Не удалось открыть переписку"),
+                  );
+              }}
+              className="mt-2 block w-full rounded-xl border border-[#f1dde6] py-3 text-center text-sm font-medium text-slate-600 transition hover:bg-pink-50"
+            >
+              Написать мастеру
+            </button>
+            {messageError && <p className="mt-2 text-xs text-rose-500">{messageError}</p>}
           </motion.aside>
         </section>
       </div>

@@ -137,7 +137,7 @@ export function AreaLineChart({
 
       {labels.map((label, index) => (
         <text
-          key={label}
+          key={`${label}-${index}`}
           x={padding.left + index * step}
           y={height - 8}
           textAnchor="middle"
@@ -177,7 +177,7 @@ export function MultiLineChart({
         {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
           const y = padding.top + plotHeight * ratio;
           return (
-            <g key={ratio}>
+            <g key={`grid-${ratio}`}>
               <line
                 x1={padding.left}
                 x2={width - padding.right}
@@ -217,7 +217,7 @@ export function MultiLineChart({
 
         {labels.map((label, index) => (
           <text
-            key={label}
+            key={`${label}-${index}`}
             x={padding.left + index * step}
             y={height - 8}
             textAnchor="middle"
@@ -320,27 +320,36 @@ export function DonutChart({
 /* Воронка конверсии                                                   */
 /* ------------------------------------------------------------------ */
 
-export function Funnel({ stages }: { stages: { label: string; value: string; percent: string | null }[] }) {
-  const widths = ["100%", "78%", "66%", "56%", "46%"];
+/**
+ * Воронка по фактическим шагам: ширина полосы пропорциональна значению,
+ * поэтому картинка честно показывает, где теряются записи.
+ */
+export function Funnel({ stages }: { stages: { label: string; value: number; percent: string | null }[] }) {
+  const max = stages.reduce((peak, stage) => Math.max(peak, stage.value), 0);
 
   return (
     <div className="space-y-2.5">
-      {stages.map((stage, index) => (
-        <div key={stage.label} className="relative">
-          <div
-            className="flex items-center justify-between gap-4 rounded-lg bg-slate-50 px-4 py-3"
-            style={{ width: widths[index] ?? "100%", minWidth: "60%" }}
-          >
-            <span className="text-sm text-slate-600">{stage.label}</span>
-            <span className="text-sm font-medium text-slate-900">{stage.value}</span>
+      {stages.map((stage) => {
+        const width = max > 0 ? Math.max((stage.value / max) * 100, 12) : 12;
+        return (
+          <div key={stage.label} className="relative">
+            <div
+              className="flex items-center justify-between gap-4 rounded-lg bg-slate-50 px-4 py-3"
+              style={{ width: `${width}%` }}
+            >
+              <span className="truncate text-sm text-slate-600">{stage.label}</span>
+              <span className="shrink-0 text-sm font-medium text-slate-900">
+                {new Intl.NumberFormat("ru-RU").format(stage.value)}
+              </span>
+            </div>
+            {stage.percent && (
+              <span className="absolute inset-y-0 right-0 flex items-center pl-2 text-xs text-slate-400">
+                {stage.percent}
+              </span>
+            )}
           </div>
-          {stage.percent && (
-            <span className="absolute inset-y-0 right-0 flex items-center pr-1 text-xs text-slate-400">
-              {stage.percent}
-            </span>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

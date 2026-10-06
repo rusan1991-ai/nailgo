@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { and, asc, desc, eq, gte, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { bookings, masters, reviews, services } from "../db/schema.js";
+import { bookings, masters, reviews, services, users, workingHours } from "../db/schema.js";
 import { isDev } from "../env.js";
 import { atMinutes, parseISODate, toISODate } from "../lib/time.js";
 import { serializeBooking } from "../lib/serialize.js";
@@ -27,7 +27,160 @@ async function serviceOf(serviceId: string) {
 /** Кабинет мастера: доступен только владельцу кабинета (роль master). */
 const masterOnly = { preHandler: [requireAuth, requireMaster] };
 
+/** Короткие названия месяцев для подписей графиков динамики. */
+const monthShort = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
+
+/** Кабинет текущего пользователя: ищем по slug мастера из сессии. */
+async function currentMaster(slug: string | null) {
+  if (!slug) return null;
+  const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
+  return master ?? null;
+}
+
 export async function cabinetRoutes(app: FastifyInstance) {
+  /**
+   * Профиль кабинета: то, что мастер редактирует в настройках.
+   * Телефон лежит в аккаунте (users) и служит логином, поэтому только для чтения.
+   */
+  app.get("/cabinet/profile", masterOnly, async (request, reply) => {
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const [account] = master.userId
+      ? await db.select().from(users).where(eq(users.id, master.userId)).limit(1)
+      : [];
+
+    return {
+      profile: {
+        slug: master.slug,
+        name: master.name,
+        phone: account?.phone ?? request.currentUser?.phone ?? "",
+        email: master.email ?? "",
+        site: master.site ?? "",
+        address: master.address ?? "",
+        about: master.about ?? "",
+        tags: master.tags,
+        metro: master.metro,
+        distance: master.distance,
+        priceFrom: master.priceFrom,
+        experience: master.experience,
+        rating: master.rating,
+        reviewsCount: master.reviewsCount,
+      },
+    };
+  });
+
+  /** Сохранение профиля: имя уходит и в аккаунт, чтобы совпадало в уведомлениях. */
+  app.patch("/cabinet/profile", masterOnly, async (request, reply) => {
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const input = z
+      .object({
+        name: z.string().trim().min(2, "Имя слишком короткое").max(120).optional(),
+        email: z.string().trim().email("Некорректный email").max(160).or(z.literal("")).optional(),
+        site: z.string().trim().max(160).optional(),
+        address: z.string().trim().max(200).optional(),
+        about: z.string().trim().max(1000).optional(),
+        tags: z.string().trim().max(200).optional(),
+        metro: z.string().trim().max(80).optional(),
+        experience: z.string().trim().max(40).optional(),
+        priceFrom: z.number().int().min(0).max(1_000_000).optional(),
+      })
+      .parse(request.body ?? {});
+
+    await db
+      .update(masters)
+      .set({
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.email !== undefined ? { email: input.email || null } : {}),
+        ...(input.site !== undefined ? { site: input.site || null } : {}),
+        ...(input.address !== undefined ? { address: input.address || null } : {}),
+        ...(input.about !== undefined ? { about: input.about || null } : {}),
+        ...(input.tags !== undefined ? { tags: input.tags } : {}),
+        ...(input.metro !== undefined ? { metro: input.metro } : {}),
+        ...(input.experience !== undefined ? { experience: input.experience } : {}),
+        ...(input.priceFrom !== undefined ? { priceFrom: input.priceFrom } : {}),
+      })
+      .where(eq(masters.id, master.id));
+
+    if (input.name && master.userId) {
+      await db.update(users).set({ name: input.name }).where(eq(users.id, master.userId));
+    }
+
+    return { ok: true, savedAt: new Date().toISOString() };
+  });
+
+  /**
+   * Часы работы: какие дни мастер принимает и с какого по какое время.
+   * Именно они определяют, какие окна показываются клиентам при записи.
+   */
+  app.get("/cabinet/hours", masterOnly, async (request, reply) => {
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const rows = await db.select().from(workingHours).where(eq(workingHours.masterId, master.id));
+    const weekdays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+
+    return {
+      items: weekdays.map((label, weekday) => {
+        const row = rows.find((item) => item.weekday === weekday);
+        return {
+          weekday,
+          label,
+          enabled: Boolean(row),
+          startMinute: row?.startMinute ?? 600,
+          endMinute: row?.endMinute ?? 1200,
+        };
+      }),
+    };
+  });
+
+  /** Сохранение часов работы: список дней заменяем целиком. */
+  app.put("/cabinet/hours", masterOnly, async (request, reply) => {
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const { items } = z
+      .object({
+        items: z
+          .array(
+            z.object({
+              weekday: z.number().int().min(0).max(6),
+              enabled: z.boolean(),
+              startMinute: z.number().int().min(0).max(24 * 60),
+              endMinute: z.number().int().min(0).max(24 * 60),
+            }),
+          )
+          .min(1),
+      })
+      .parse(request.body ?? {});
+
+    for (const item of items) {
+      if (item.enabled && item.endMinute <= item.startMinute) {
+        return reply.code(400).send({
+          error: "bad_hours",
+          message: `День ${item.weekday + 1}: конец смены должен быть позже начала`,
+        });
+      }
+    }
+
+    await db.delete(workingHours).where(eq(workingHours.masterId, master.id));
+    const enabled = items.filter((item) => item.enabled);
+    if (enabled.length > 0) {
+      await db.insert(workingHours).values(
+        enabled.map((item) => ({
+          masterId: master.id,
+          weekday: item.weekday,
+          startMinute: item.startMinute,
+          endMinute: item.endMinute,
+        })),
+      );
+    }
+
+    return { ok: true, days: enabled.length };
+  });
+
   /** Все записи студии с фильтрами — источник данных для таблицы «Записи». */
   app.get("/cabinet/bookings", masterOnly, async (request) => {
     const { status, query, masterSlug, from, to } = listQuery.parse(request.query ?? {});
@@ -376,6 +529,50 @@ export async function cabinetRoutes(app: FastifyInstance) {
       };
     });
 
+    // Динамика по месяцам: последние 12 месяцев, включая выбранный.
+    const monthly = Array.from({ length: 12 }, (_, index) => {
+      const offset = index - 11;
+      const start = new Date(year, monthIndex + offset, 1);
+      const end = new Date(year, monthIndex + offset + 1, 1);
+      const monthBookings = active.filter((booking) => inRange(booking.startAt, start, end));
+      const monthClients = new Set(monthBookings.map((booking) => booking.clientPhone));
+      return {
+        monthISO: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}`,
+        label: monthShort[start.getMonth()]!,
+        bookings: monthBookings.length,
+        revenue: monthBookings.reduce((sum, booking) => sum + booking.price, 0),
+        newClients: [...monthClients].filter((phone) => {
+          const first = firstSeen.get(phone);
+          return first ? inRange(first, start, end) : false;
+        }).length,
+        cancelled: rows.filter(
+          (booking) => booking.status === "cancelled" && inRange(booking.startAt, start, end),
+        ).length,
+      };
+    });
+
+    // Воронка по фактическим записям месяца: без рекламных показов и клик.
+    const monthTotal = thisMonth.length + byStatus.cancelled;
+    const confirmedTotal = byStatus.confirmed + byStatus.completed;
+    const funnel = [
+      { label: "Записи за месяц", value: monthTotal, percent: null as string | null },
+      {
+        label: "Подтверждённые",
+        value: confirmedTotal,
+        percent: monthTotal > 0 ? `${Math.round((confirmedTotal / monthTotal) * 100)}%` : "0%",
+      },
+      {
+        label: "Завершённые визиты",
+        value: byStatus.completed,
+        percent: confirmedTotal > 0 ? `${Math.round((byStatus.completed / confirmedTotal) * 100)}%` : "0%",
+      },
+      {
+        label: "Отменённые",
+        value: byStatus.cancelled,
+        percent: monthTotal > 0 ? `${Math.round((byStatus.cancelled / monthTotal) * 100)}%` : "0%",
+      },
+    ];
+
     // Клиенты месяца: новые (первый визит в этом месяце) и повторные.
     const monthClients = new Set(thisMonth.map((booking) => booking.clientPhone));
     const repeatClients = [...monthClients].filter((phone) => {
@@ -389,6 +586,8 @@ export async function cabinetRoutes(app: FastifyInstance) {
       byStatus,
       bySource,
       byDay,
+      monthly,
+      funnel,
       clientsThisMonth: monthClients.size,
       repeatClientsThisMonth: repeatClients,
       todayISO: toISODate(today),

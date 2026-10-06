@@ -6,8 +6,9 @@
  * `POST /api/cabinet/demo/reset`, поэтому живут внутри src.
  */
 import { eq } from "drizzle-orm";
+import { normalizePhone } from "../lib/phone.js";
 import { db } from "./index.js";
-import { bookings, masters, otpCodes, reviews, services, users, workingHours } from "./schema.js";
+import { bookings, conversations, masters, messages, otpCodes, reviews, services, users, workingHours } from "./schema.js";
 
 const mastersSeed = [
   {
@@ -127,7 +128,42 @@ const reviewsSeed = [
   ["olga-kravtsova", "Светлана К.", 5, "Авторский дизайн — просто восторг!", "Дизайн ногтей", "published"],
 ] as const;
 
+/**
+ * Демо-переписка: клиенты пишут мастеру до визита.
+ * Часть сообщений оставлена непрочитанной — в кабинете видно значок.
+ */
+const threadsSeed: { slug: string; clientPhone: string; clientName: string; messages: [author: "client" | "master", text: string, minutesAfter: number][] }[] = [
+  {
+    slug: "anna-smirnova",
+    clientPhone: "+7 (999) 111-11-02",
+    clientName: "Елена М.",
+    messages: [
+      ["client", "Здравствуйте! Можно к вам в среду на маникюр с покрытием?", 0],
+      ["master", "Здравствуйте! Да, есть окно в 13:30 — записала вас.", 12],
+      ["client", "Спасибо! А покрытие держится три недели?", 40],
+      ["client", "И ещё: можно прийти с подругой?", 41],
+    ],
+  },
+  {
+    slug: "anna-smirnova",
+    clientPhone: "+7 (999) 111-22-33",
+    clientName: "Мария Петрова",
+    messages: [
+      ["client", "Добрый день! Хочу перенести запись на час позже.", 0],
+      ["master", "Добрый день! Перенесла на 19:00, подтверждение придёт в приложение.", 20],
+    ],
+  },
+  {
+    slug: "ekaterina-vlasova",
+    clientPhone: "+7 (999) 111-11-05",
+    clientName: "Татьяна Л.",
+    messages: [["client", "Подскажите, педикюр с покрытием сколько по времени?", 0]],
+  },
+];
+
 export async function seed() {
+  await db.delete(messages);
+  await db.delete(conversations);
   await db.delete(bookings);
   await db.delete(reviews);
   await db.delete(workingHours);
@@ -136,6 +172,15 @@ export async function seed() {
   await db.delete(otpCodes);
 
   const masterRows = await db.insert(masters).values(mastersSeed).returning();
+
+  // Контакты кабинета: показываются в настройках профиля.
+  const ownerRow = masterRows.find((row) => row.slug === "anna-smirnova");
+  if (ownerRow) {
+    await db
+      .update(masters)
+      .set({ email: "studio@nailgo.ru", site: "nailgo.ru/anna-smirnova" })
+      .where(eq(masters.id, ownerRow.id));
+  }
 
   // Аккаунт хозяйки кабинета: вход по телефону с ролью master.
   const [masterUser] = await db
@@ -169,7 +214,8 @@ export async function seed() {
         masterId: masterBySlug.get(masterSlug)!,
         serviceId,
         clientName,
-        clientPhone,
+        // Канонический вид телефона — как при записи через приложение.
+        clientPhone: normalizePhone(clientPhone),
         startAt: at(day, start),
         endAt: at(day, start + duration),
         price: price ?? service.price,
@@ -190,10 +236,40 @@ export async function seed() {
   }));
   await db.insert(reviews).values(reviewRows);
 
+  // Переписка: время сообщений отсчитываем от конца демо-недели.
+  let messageCount = 0;
+  for (const thread of threadsSeed) {
+    const startedAt = at(4, 720);
+    const [conversation] = await db
+      .insert(conversations)
+      .values({
+        masterId: masterBySlug.get(thread.slug)!,
+        clientPhone: normalizePhone(thread.clientPhone),
+        clientName: thread.clientName,
+        lastMessageAt: new Date(startedAt.getTime() + thread.messages.at(-1)![2] * 60_000),
+        createdAt: startedAt,
+      })
+      .returning();
+
+    const rows = thread.messages.map(([author, text, minutesAfter]) => ({
+      conversationId: conversation!.id,
+      author,
+      authorName: author === "master" ? "Анна Смирнова" : thread.clientName,
+      text,
+      createdAt: new Date(startedAt.getTime() + minutesAfter * 60_000),
+      // Отвеченные сообщения клиента считаем прочитанными, последние — нет.
+      readAt: author === "client" && minutesAfter < thread.messages.at(-1)![2] ? startedAt : null,
+    }));
+    await db.insert(messages).values(rows);
+    messageCount += rows.length;
+  }
+
   return {
     masters: masterRows.length,
     services: servicesSeed.length,
     bookings: bookingRows.length,
     reviews: reviewRows.length,
+    conversations: threadsSeed.length,
+    messages: messageCount,
   };
 }

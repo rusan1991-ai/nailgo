@@ -17,6 +17,7 @@ const clientRoutes = [
   "/master/anna-smirnova",
   "/booking?master=anna-smirnova&service=s3&date=2024-05-22",
   "/favorites",
+  "/messages",
   "/notifications",
   "/reviews",
   "/journal",

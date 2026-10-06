@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "../db/index.js";
 import { masters, reviews, services, workingHours, bookings } from "../db/schema.js";
 import { env } from "../env.js";
+import { scheduleForDay } from "../lib/schedule.js";
 import { atMinutes, freeSlots, minutesOfDay, parseISODate, toISODate, weekdayIndex } from "../lib/time.js";
 
 const listQuery = z.object({
@@ -159,14 +160,21 @@ export async function catalogRoutes(app: FastifyInstance) {
       : (await db.select().from(services).where(eq(services.active, true)).orderBy(asc(services.durationMinutes)).limit(1))[0];
     if (!service) return reply.code(404).send({ error: "not_found", message: "Услуга не найдена" });
 
-    const hours = (
-      await db.select().from(workingHours).where(eq(workingHours.masterId, master.id))
-    ).find((item) => item.weekday === weekdayIndex(day));
+    // Выходной день: окон нет вовсе.
+    const schedule = await scheduleForDay(master.id, day);
+    const working = { start: schedule.start, end: schedule.end };
 
-    const working = {
-      start: hours?.startMinute ?? env.defaultDayStartMinute,
-      end: hours?.endMinute ?? env.defaultDayEndMinute,
-    };
+    if (!schedule.working) {
+      return {
+        date,
+        masterSlug: master.slug,
+        serviceId: service.id,
+        durationMinutes: service.durationMinutes,
+        workingHours: working,
+        dayOff: true,
+        slots: [],
+      };
+    }
 
     const booked = await db
       .select({ startAt: bookings.startAt, endAt: bookings.endAt, status: bookings.status })

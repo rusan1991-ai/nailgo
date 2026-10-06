@@ -31,6 +31,8 @@ export const masters = pgTable("masters", {
   metro: text("metro").notNull(),
   distance: text("distance").notNull(),
   address: text("address"),
+  email: text("email"),
+  site: text("site"),
   priceFrom: integer("price_from").notNull(),
   experience: text("experience").notNull(),
   rating: doublePrecision("rating").notNull().default(5),
@@ -104,6 +106,46 @@ export const reviews = pgTable("reviews", {
  * Уведомления в приложении. Клиенту адресуем по телефону (вход по номеру,
  * отдельного профиля до первого визита может не быть), мастеру — по user_id.
  */
+/**
+ * Переписка клиента с мастером внутри приложения.
+ *
+ * Один диалог на пару «мастер + телефон клиента»: так переписка не зависит от
+ * того, зарегистрирован клиент или нет — телефон берётся из записи.
+ */
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: id(),
+    masterId: text("master_id")
+      .notNull()
+      .references(() => masters.id, { onDelete: "cascade" }),
+    clientPhone: text("client_phone").notNull(),
+    clientName: text("client_name").notNull(),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("conversations_master_client").on(table.masterId, table.clientPhone),
+    index("conversations_last_message").on(table.lastMessageAt),
+  ],
+);
+
+export const messages = pgTable(
+  "messages",
+  {
+    id: id(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    author: text("author").notNull(), // client | master
+    authorName: text("author_name").notNull(),
+    text: text("text").notNull(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("messages_conversation_created").on(table.conversationId, table.createdAt)],
+);
+
 export const notifications = pgTable(
   "notifications",
   {

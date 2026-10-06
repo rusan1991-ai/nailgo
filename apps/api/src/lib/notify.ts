@@ -9,12 +9,14 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "../db/index.js";
 import { masters, notifications } from "../db/schema.js";
 import { formatMinutes, toISODate } from "./time.js";
+import { normalizePhone } from "./phone.js";
 
 export type NotificationType =
   | "booking_created"
   | "booking_confirmed"
   | "booking_cancelled"
-  | "booking_completed";
+  | "booking_completed"
+  | "message";
 
 type BookingRow = typeof schema.bookings.$inferSelect;
 
@@ -52,7 +54,7 @@ export async function notifyClient(
 ): Promise<void> {
   await db.insert(notifications).values({
     audience: "client",
-    phone,
+    phone: normalizePhone(phone),
     type: input.type,
     title: input.title,
     body: input.body,

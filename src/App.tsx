@@ -9,6 +9,7 @@ import { JournalPage } from "./pages/JournalPage";
 import { LastMinutePage } from "./pages/LastMinutePage";
 import { LoginPage } from "./pages/LoginPage";
 import { MasterPage } from "./pages/MasterPage";
+import { MessagesClientPage } from "./pages/MessagesClientPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { SearchMapPage } from "./pages/SearchMapPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -127,6 +128,14 @@ export default function App() {
               element={
                 <RequireAuth>
                   <FavoritesPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/messages"
+              element={
+                <RequireAuth>
+                  <MessagesClientPage />
                 </RequireAuth>
               }
             />

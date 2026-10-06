@@ -2,10 +2,12 @@ import type { FastifyInstance } from "fastify";
 import { and, desc, eq, gt, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { bookings, masters, services, workingHours } from "../db/schema.js";
+import { bookings, masters, services } from "../db/schema.js";
 import { requireAuth } from "../lib/auth.js";
 import { notifyBookingEvent } from "../lib/notify.js";
 import { env } from "../env.js";
+import { scheduleForDay } from "../lib/schedule.js";
+import { normalizePhone, samePhone } from "../lib/phone.js";
 import { atMinutes, parseISODate, weekdayIndex } from "../lib/time.js";
 import { serializeBooking } from "../lib/serialize.js";
 
@@ -15,7 +17,14 @@ export const createBookingSchema = z.object({
   dateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата в формате YYYY-MM-DD"),
   startMinutes: z.number().int().min(0).max(24 * 60 - 1),
   clientName: z.string().trim().min(2, "Укажите имя").max(80),
-  clientPhone: z.string().trim().min(6, "Укажите телефон").max(25),
+  // Телефон сразу приводим к каноническому виду: иначе «+7 (999) 111-22-33»
+  // и «+79991112233» — это два разных клиента в базе.
+  clientPhone: z
+    .string()
+    .trim()
+    .max(25)
+    .transform((value) => normalizePhone(value))
+    .refine((value) => value.length >= 12, "Укажите телефон полностью"),
   comment: z.string().trim().max(500).optional(),
 });
 
@@ -48,11 +57,13 @@ export async function createBooking(
   const day = parseISODate(input.dateISO);
   if (!day) throw new BookingError(400, "bad_date", "Некорректная дата");
 
-  const hours = (await db.select().from(workingHours).where(eq(workingHours.masterId, master.id))).find(
-    (item) => item.weekday === weekdayIndex(day),
-  );
-  const dayStart = hours?.startMinute ?? env.defaultDayStartMinute;
-  const dayEnd = hours?.endMinute ?? env.defaultDayEndMinute;
+  const schedule = await scheduleForDay(master.id, day);
+  if (!schedule.working) {
+    throw new BookingError(409, "day_off", "В этот день мастер не принимает");
+  }
+
+  const dayStart = schedule.start;
+  const dayEnd = schedule.end;
 
   if (input.startMinutes < dayStart || input.startMinutes + service.durationMinutes > dayEnd) {
     throw new BookingError(
@@ -130,7 +141,7 @@ export async function bookingRoutes(app: FastifyInstance) {
       .object({ phone: z.string().trim().min(6).optional() })
       .parse(request.query ?? {});
 
-    if (askedPhone && askedPhone !== me.phone && me.role !== "admin") {
+    if (askedPhone && !samePhone(askedPhone, me.phone) && me.role !== "admin") {
       return reply.code(403).send({ error: "forbidden", message: "Это не ваш номер телефона" });
     }
     const phone = me.phone;
@@ -140,7 +151,7 @@ export async function bookingRoutes(app: FastifyInstance) {
       .from(bookings)
       .innerJoin(masters, eq(bookings.masterId, masters.id))
       .innerJoin(services, eq(bookings.serviceId, services.id))
-      .where(eq(bookings.clientPhone, phone))
+      .where(eq(bookings.clientPhone, normalizePhone(phone)))
       .orderBy(desc(bookings.startAt));
 
     return { items: rows.map((row) => serializeBooking(row.booking, row.master, row.service)) };
@@ -153,7 +164,7 @@ export async function bookingRoutes(app: FastifyInstance) {
 
     const [booking] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
     if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
-    if (booking.clientPhone !== me.phone && me.role !== "admin") {
+    if (!samePhone(booking.clientPhone, me.phone) && me.role !== "admin") {
       return reply.code(403).send({ error: "forbidden", message: "Это не ваша запись" });
     }
     if (booking.status === "cancelled") return { ok: true };

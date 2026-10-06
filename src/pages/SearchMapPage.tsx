@@ -3,12 +3,14 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ClientShell } from "../components/ClientShell";
 import { Avatar } from "../components/NailUi";
-import { formatRub, masters } from "../data/mock";
+import { formatRub } from "../data/mock";
+import { useCatalog } from "../catalog/store";
 
 export function SearchMapPage() {
   const [mode, setMode] = useState<"list" | "map">("list");
 
-  const cards = useMemo(() => masters.slice(0, 4), []);
+  const { masters } = useCatalog();
+  const cards = useMemo(() => masters.slice(0, 4), [masters]);
 
   return (
     <ClientShell title="Карта мастеров">

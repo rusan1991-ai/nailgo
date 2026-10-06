@@ -1,14 +1,12 @@
 /**
- * Хранилище записей — единственный источник правды для прототипа.
+ * Хранилище записей. Источник правды — API (Fastify + Postgres/PGlite).
  *
- * Пока бэкенда нет, данные живут в localStorage и переживают перезагрузку.
- * Когда появится API, достаточно переписать четыре функции ниже
- * (createBooking, cancelBooking, setStatus, load) на вызовы сервера —
- * компоненты работают через хук useBookingsStore и ничего не заметят.
+ * Если API недоступен, включается демо-режим: показываем последнюю кэшированную
+ * копию из localStorage, а мутации честно падают с ошибкой — никакой тихой подмены.
  */
 
 import { useSyncExternalStore } from "react";
-import { masters, services, upcomingBookings } from "../data/mock";
+import { api, ApiError } from "../api/client";
 import { safeStorage } from "../utils/storage";
 
 export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled";
@@ -16,7 +14,6 @@ export type BookingSource = "client" | "master";
 
 export type Booking = {
   id: string;
-  createdAt: number;
   source: BookingSource;
   masterSlug: string;
   masterName: string;
@@ -24,43 +21,46 @@ export type Booking = {
   serviceName: string;
   durationMinutes: number;
   price: number;
-  /** Дата как её видит клиент: «22 мая». */
+  /** «2024-05-22» */
+  dateISO: string;
+  /** «22 мая» — как показывает интерфейс */
   dateLabel: string;
   /** День в демо-неделе 20–26 мая (0 = понедельник) или null, если дата вне неё. */
   dayIndex: number | null;
-  /** Начало в минутах от полуночи. */
   startMinutes: number;
   clientName: string;
   clientPhone: string;
-  comment?: string;
+  comment?: string | null;
   status: BookingStatus;
+  createdAt?: string;
+  address?: string;
 };
 
 export type NewBookingInput = {
   masterSlug: string;
   serviceId: string;
-  dateLabel: string;
+  dateISO: string;
   startMinutes: number;
   clientName: string;
   clientPhone: string;
   comment?: string;
   source?: BookingSource;
-  status?: BookingStatus;
 };
 
-const STORAGE_KEY = "nailgo_bookings_v2";
+const CACHE_KEY = "nailgo_bookings_cache_v3";
 
-/** Даты демо-недели, по которым раскладывается расписание кабинета. */
+/** Демо-неделя, на которую наложена сетка расписания. */
 export const demoWeek = [
-  { label: "22 мая", dayIndex: 2, weekday: "ср" },
-  { label: "23 мая", dayIndex: 3, weekday: "чт" },
-  { label: "24 мая", dayIndex: 4, weekday: "пт" },
-  { label: "25 мая", dayIndex: 5, weekday: "сб" },
+  { label: "22 мая", iso: "2024-05-22", dayIndex: 2, weekday: "ср" },
+  { label: "23 мая", iso: "2024-05-23", dayIndex: 3, weekday: "чт" },
+  { label: "24 мая", iso: "2024-05-24", dayIndex: 4, weekday: "пт" },
+  { label: "25 мая", iso: "2024-05-25", dayIndex: 5, weekday: "сб" },
 ];
 
+export const demoWeekStartISO = "2024-05-20";
 export const cabinetOwnerSlug = "anna-smirnova";
 
-/* ----------------------------- утилиты времени ---------------------------- */
+/* ------------------------------- утилиты -------------------------------- */
 
 export function parseTimeLabel(label: string): number {
   const [hours, minutes] = label.split(":").map((part) => Number.parseInt(part, 10));
@@ -73,145 +73,205 @@ export function formatTimeLabel(minutes: number): string {
   return `${String(hours).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
 }
 
-export function parseDuration(duration: string): number {
-  const hours = /(\d+)\s*ч/.exec(duration);
-  const minutes = /(\d+)\s*мин/.exec(duration);
-  const total = (hours ? Number(hours[1]) * 60 : 0) + (minutes ? Number(minutes[1]) : 0);
-  return total > 0 ? total : 60;
+export function parseISODateParts(iso: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
 }
 
-export function dayIndexForDate(label: string): number | null {
-  return demoWeek.find((day) => day.label === label)?.dayIndex ?? null;
+export function formatDateLabel(iso: string): string {
+  const date = parseISODateParts(iso);
+  if (!date) return iso;
+  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long" }).format(date);
 }
 
-export function weekdayForDate(label: string): string {
-  return demoWeek.find((day) => day.label === label)?.weekday ?? "";
+export function dayIndexForDate(iso: string): number | null {
+  const date = parseISODateParts(iso);
+  const start = parseISODateParts(demoWeekStartISO);
+  if (!date || !start) return null;
+  const diff = Math.round((date.getTime() - start.getTime()) / 86_400_000);
+  return diff >= 0 && diff <= 6 ? diff : null;
 }
 
-export function findMaster(slug: string) {
-  return masters.find((master) => master.slug === slug) ?? masters[0];
+export function weekdayForDate(iso: string): string {
+  const date = parseISODateParts(iso);
+  if (!date) return "";
+  return ["вс", "пн", "вт", "ср", "чт", "пт", "сб"][date.getDay()] ?? "";
 }
 
-export function findService(id: string) {
-  return services.find((service) => service.id === id) ?? services[1];
+export function isoForDemoLabel(label: string): string {
+  return demoWeek.find((day) => day.label === label)?.iso ?? demoWeek[0].iso;
 }
 
-export function bookingAddress(booking: Booking): string {
-  const master = findMaster(booking.masterSlug);
-  return `${master.metro}, ${master.distance}`;
+/* ------------------------- преобразование ответов ------------------------ */
+
+type ApiBooking = {
+  id: string;
+  masterSlug: string;
+  masterName: string;
+  serviceId: string;
+  serviceName: string;
+  durationMinutes: number;
+  price: number;
+  dateISO: string;
+  startMinutes: number;
+  clientName: string;
+  clientPhone: string;
+  comment: string | null;
+  status: BookingStatus;
+  source: BookingSource;
+  createdAt: string;
+  address: string;
+};
+
+function mapBooking(item: ApiBooking): Booking {
+  return {
+    id: item.id,
+    source: item.source,
+    masterSlug: item.masterSlug,
+    masterName: item.masterName,
+    serviceId: item.serviceId,
+    serviceName: item.serviceName,
+    durationMinutes: item.durationMinutes,
+    price: item.price,
+    dateISO: item.dateISO,
+    dateLabel: formatDateLabel(item.dateISO),
+    dayIndex: dayIndexForDate(item.dateISO),
+    startMinutes: item.startMinutes,
+    clientName: item.clientName,
+    clientPhone: item.clientPhone,
+    comment: item.comment,
+    status: item.status,
+    createdAt: item.createdAt,
+    address: item.address,
+  };
 }
 
-/* --------------------------------- сиды ---------------------------------- */
+/* ------------------------------- состояние ------------------------------- */
 
-function seedBookings(): Booking[] {
-  return upcomingBookings.map((item, index) => {
-    const master = masters.find((entry) => entry.name === item.master) ?? masters[0];
-    const service = services.find((entry) => entry.name === item.service) ?? services[1];
-    const dateLabel = item.date.split(",")[0].trim();
+export type StoreStatus = "idle" | "loading" | "ready" | "offline";
 
-    return {
-      id: item.id,
-      createdAt: Date.now() - (index + 1) * 86_400_000,
-      source: "client",
-      masterSlug: master.slug,
-      masterName: master.name,
-      serviceId: service.id,
-      serviceName: service.name,
-      durationMinutes: parseDuration(service.duration),
-      price: index === 0 ? 2200 : 2500,
-      dateLabel,
-      dayIndex: dayIndexForDate(dateLabel),
-      startMinutes: parseTimeLabel(item.time),
-      clientName: "Мария Петрова",
-      clientPhone: "+7 (999) 111-22-33",
-      status: "confirmed",
-    } satisfies Booking;
-  });
-}
+type State = {
+  bookings: Booking[];
+  status: StoreStatus;
+  error: string | null;
+};
 
-/* -------------------------------- состояние ------------------------------ */
-
-let bookings: Booking[] = load();
-const listeners = new Set<() => void>();
-
-function load(): Booking[] {
-  const raw = safeStorage.get(STORAGE_KEY);
-  if (!raw) return seedBookings();
+function loadCache(): Booking[] {
+  const raw = safeStorage.get(CACHE_KEY);
+  if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return seedBookings();
-    return parsed as Booking[];
+    return Array.isArray(parsed) ? (parsed as Booking[]) : [];
   } catch {
-    return seedBookings();
+    return [];
   }
 }
 
-function commit(next: Booking[]) {
-  bookings = next;
-  safeStorage.set(STORAGE_KEY, JSON.stringify(next));
+let state: State = { bookings: loadCache(), status: "idle", error: null };
+const listeners = new Set<() => void>();
+let inFlight: Promise<void> | null = null;
+
+function emit(next: State) {
+  state = next;
+  if (next.bookings.length > 0) {
+    safeStorage.set(CACHE_KEY, JSON.stringify(next.bookings));
+  }
   listeners.forEach((listener) => listener());
 }
 
-/* ------------------------------- публичный API --------------------------- */
+export async function refresh(): Promise<void> {
+  if (inFlight) return inFlight;
+
+  inFlight = (async () => {
+    emit({ ...state, status: state.bookings.length ? state.status : "loading" });
+    try {
+      const data = await api.get<{ items: ApiBooking[] }>("/cabinet/bookings");
+      emit({ bookings: data.items.map(mapBooking), status: "ready", error: null });
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : "Не удалось загрузить записи";
+      emit({ ...state, status: "offline", error: message });
+    } finally {
+      inFlight = null;
+    }
+  })();
+
+  return inFlight;
+}
+
+function ensureLoaded() {
+  if (state.status === "idle") void refresh();
+}
+
+/* ------------------------------ публичный API ---------------------------- */
 
 export function subscribe(listener: () => void): () => void {
   listeners.add(listener);
+  ensureLoaded();
   return () => listeners.delete(listener);
 }
 
-export function getBookings(): Booking[] {
-  return bookings;
+export function getSnapshot(): State {
+  return state;
 }
 
-export function createBooking(input: NewBookingInput): Booking {
-  const master = findMaster(input.masterSlug);
-  const service = findService(input.serviceId);
-
-  const booking: Booking = {
-    id: `bk-${Date.now()}`,
-    createdAt: Date.now(),
-    source: input.source ?? "client",
-    masterSlug: master.slug,
-    masterName: master.name,
-    serviceId: service.id,
-    serviceName: service.name,
-    durationMinutes: parseDuration(service.duration),
-    price: service.price,
-    dateLabel: input.dateLabel,
-    dayIndex: dayIndexForDate(input.dateLabel),
+export async function createBooking(input: NewBookingInput): Promise<Booking> {
+  const path = input.source === "master" ? "/cabinet/bookings" : "/bookings";
+  const response = await api.post<{ booking: ApiBooking }>(path, {
+    masterSlug: input.masterSlug,
+    serviceId: input.serviceId,
+    dateISO: input.dateISO,
     startMinutes: input.startMinutes,
-    clientName: input.clientName.trim() || "Гость",
-    clientPhone: input.clientPhone.trim(),
-    comment: input.comment?.trim() || undefined,
-    status: input.status ?? "pending",
-  };
+    clientName: input.clientName,
+    clientPhone: input.clientPhone,
+    comment: input.comment,
+  });
 
-  commit([booking, ...bookings]);
+  const booking = mapBooking(response.booking);
+  emit({ bookings: [booking, ...state.bookings.filter((item) => item.id !== booking.id)], status: "ready", error: null });
   return booking;
 }
 
-export function cancelBooking(id: string): void {
-  commit(bookings.map((booking) => (booking.id === id ? { ...booking, status: "cancelled" } : booking)));
+export async function cancelBooking(id: string, phone?: string): Promise<void> {
+  if (phone) {
+    await api.post(`/bookings/${id}/cancel`, { phone });
+  } else {
+    await api.post(`/cabinet/bookings/${id}/cancel`);
+  }
+  emit({
+    ...state,
+    bookings: state.bookings.map((booking) => (booking.id === id ? { ...booking, status: "cancelled" } : booking)),
+  });
 }
 
-export function setBookingStatus(id: string, status: BookingStatus): void {
-  commit(bookings.map((booking) => (booking.id === id ? { ...booking, status } : booking)));
-}
-
-export function removeBooking(id: string): void {
-  commit(bookings.filter((booking) => booking.id !== id));
-}
-
-export function resetBookings(): void {
-  commit(seedBookings());
+export async function confirmBooking(id: string): Promise<void> {
+  await api.post(`/cabinet/bookings/${id}/confirm`);
+  emit({
+    ...state,
+    bookings: state.bookings.map((booking) => (booking.id === id ? { ...booking, status: "confirmed" } : booking)),
+  });
 }
 
 export function exportBookings(): string {
-  return JSON.stringify({ exportedAt: new Date().toISOString(), bookings }, null, 2);
+  return JSON.stringify(
+    { exportedAt: new Date().toISOString(), source: state.status === "ready" ? "api" : "cache", bookings: state.bookings },
+    null,
+    2,
+  );
+}
+
+export async function resetDemoData(): Promise<void> {
+  await api.post("/cabinet/demo/reset");
+  await refresh();
 }
 
 /* ---------------------------------- хуки --------------------------------- */
 
 export function useBookingsStore(): Booking[] {
-  return useSyncExternalStore(subscribe, getBookings, getBookings);
+  return useSyncExternalStore(subscribe, () => getSnapshot().bookings, () => getSnapshot().bookings);
+}
+
+export function useStoreStatus(): { status: StoreStatus; error: string | null } {
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  return { status: snapshot.status, error: snapshot.error };
 }

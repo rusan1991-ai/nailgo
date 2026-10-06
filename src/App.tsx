@@ -64,6 +64,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/search" element={<SearchMapPage />} />
+            <Route path="/last-minute" element={<Navigate to="/last-minute/moskva" replace />} />
             <Route path="/last-minute/:city" element={<LastMinutePage />} />
             <Route path="/journal" element={<JournalPage />} />
             <Route path="/login" element={<LoginPage />} />

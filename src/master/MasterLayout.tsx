@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { cn } from "../utils/cn";
 import { PersonAvatar } from "./components/ui";
+import { useStoreStatus } from "../store/bookings";
 import { masterProfile } from "./data";
 
 const navItems = [
@@ -106,6 +107,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 export function MasterLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { pathname } = useLocation();
+  const { status, error } = useStoreStatus();
 
   return (
     <div className="min-h-screen bg-[#f5f6f8] text-slate-800">
@@ -135,6 +137,12 @@ export function MasterLayout() {
             <span className="text-sm font-medium text-slate-500">Кабинет мастера</span>
             <PersonAvatar name={masterProfile.name} size={32} />
           </div>
+
+          {status === "offline" && (
+            <div className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 sm:px-6 lg:px-8">
+              Нет связи с API — показываем последние загруженные данные. {error}
+            </div>
+          )}
 
           <main key={pathname} className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             <Outlet />

@@ -42,7 +42,7 @@ export function BookingsPage() {
         .filter((booking) => !seededIds.has(booking.id))
         .map((booking) => ({
           id: booking.id,
-          date: `${booking.dateLabel}, ${weekdayForDate(booking.dateLabel)}`.trim(),
+          date: `${booking.dateLabel}, ${weekdayForDate(booking.dateISO)}`.trim(),
           time: `${formatTimeLabel(booking.startMinutes)} – ${formatTimeLabel(
             booking.startMinutes + booking.durationMinutes,
           )}`,

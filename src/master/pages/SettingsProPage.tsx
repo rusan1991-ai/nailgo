@@ -11,7 +11,7 @@ import {
   Toggle,
 } from "../components/ui";
 import { settingsNav, masterProfile } from "../data";
-import { exportBookings, resetBookings, useBookingsStore } from "../../store/bookings";
+import { exportBookings, resetDemoData, useBookingsStore, useStoreStatus } from "../../store/bookings";
 import { cn } from "../../utils/cn";
 
 export function SettingsProPage() {
@@ -38,6 +38,8 @@ export function SettingsProPage() {
   const [onlyAvailable, setOnlyAvailable] = useState(true);
   const [saved, setSaved] = useState(false);
   const bookings = useBookingsStore();
+  const { status: apiStatus } = useStoreStatus();
+  const [resetting, setResetting] = useState(false);
 
   const sectionTitle = settingsNav
     .flatMap((group) => group.items)
@@ -279,7 +281,8 @@ export function SettingsProPage() {
           <Card>
             <CardTitle>Резервное копирование</CardTitle>
             <p className="text-sm text-slate-500">
-              Экспортируйте данные студии и клиентов. Сейчас в хранилище {bookings.length} записей.
+              Экспортируйте данные студии и клиентов. Сейчас в базе {bookings.length} записей, источник данных:{" "}
+              {apiStatus === "ready" ? "API" : apiStatus === "offline" ? "локальный кэш (нет связи с API)" : "загрузка"}.
             </p>
             <button
               type="button"
@@ -299,10 +302,18 @@ export function SettingsProPage() {
             </button>
             <button
               type="button"
-              onClick={() => resetBookings()}
-              className="mt-2 block text-xs text-slate-400 underline decoration-dotted transition hover:text-[#e11d48]"
+              disabled={resetting}
+              onClick={async () => {
+                setResetting(true);
+                try {
+                  await resetDemoData();
+                } finally {
+                  setResetting(false);
+                }
+              }}
+              className="mt-2 block text-xs text-slate-400 underline decoration-dotted transition hover:text-[#e11d48] disabled:opacity-50"
             >
-              Сбросить демо-данные
+              {resetting ? "Пересоздаём демо-данные..." : "Сбросить демо-данные"}
             </button>
           </Card>
         </div>

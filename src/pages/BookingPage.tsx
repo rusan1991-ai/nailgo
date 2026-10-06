@@ -1,46 +1,106 @@
-import { FormEvent, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { useBookings } from "../bookings/BookingContext";
 import { AppHeader } from "../components/AppHeader";
-import { formatRub, masters, services, slots } from "../data/mock";
+import { useCatalog, durationLabel } from "../catalog/store";
+import { api } from "../api/client";
+import { formatRub } from "../data/mock";
+import { demoWeek, formatDateLabel } from "../store/bookings";
+
+type SlotResponse = {
+  date: string;
+  durationMinutes: number;
+  workingHours: { start: number; end: number };
+  slots: Array<{ startMinute: number; label: string }>;
+};
 
 export function BookingPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const { user } = useAuth();
   const { createBooking } = useBookings();
+  const { masters, services, status: catalogStatus } = useCatalog();
 
   const masterSlug = params.get("master") ?? "anna-smirnova";
-  const serviceId = params.get("service") ?? "s2";
-  const date = params.get("date") ?? "22 мая";
-  const [selectedSlot, setSelectedSlot] = useState(params.get("slot") ?? "19:00");
+  const serviceId = params.get("service") ?? "";
+  const [dateISO, setDateISO] = useState(params.get("date") ?? demoWeek[0].iso);
+  const [slots, setSlots] = useState<SlotResponse["slots"]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState("");
+  const [selectedSlot, setSelectedSlot] = useState(params.get("slot") ?? "");
   const [clientName, setClientName] = useState(user?.name ?? "");
   const [clientPhone, setClientPhone] = useState(user?.phone ?? "");
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
 
-  const service = useMemo(() => services.find((item) => item.id === serviceId) ?? services[1], [serviceId]);
-  const master = useMemo(() => masters.find((item) => item.slug === masterSlug) ?? masters[0], [masterSlug]);
+  const service = useMemo(
+    () => services.find((item) => item.id === serviceId) ?? services[0],
+    [serviceId, services],
+  );
+  const master = useMemo(
+    () => masters.find((item) => item.slug === masterSlug) ?? masters[0],
+    [masterSlug, masters],
+  );
 
-  const onSubmit = (event: FormEvent) => {
+  /** Свободные окна считает сервер: занятые записи в список не попадают. */
+  useEffect(() => {
+    if (!service) return;
+    let alive = true;
+    setSlotsLoading(true);
+    setSlotsError("");
+    void (async () => {
+      try {
+        const response = await api.get<SlotResponse>(
+          `/masters/${masterSlug}/slots?date=${dateISO}&serviceId=${service.id}`,
+        );
+        if (!alive) return;
+        setSlots(response.slots);
+        setSelectedSlot((current) =>
+          current && response.slots.some((slot) => slot.label === current) ? current : (response.slots[0]?.label ?? ""),
+        );
+      } catch (caught) {
+        if (!alive) return;
+        setSlots([]);
+        setSlotsError(caught instanceof Error ? caught.message : "Не удалось получить свободное время");
+      } finally {
+        if (alive) setSlotsLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [dateISO, masterSlug, service]);
+
+  const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!clientName.trim() || !clientPhone.trim()) {
       setError("Заполните имя и телефон — мастеру нужно знать, к кому обращаться.");
       return;
     }
+    if (!selectedSlot) {
+      setError("Выберите свободное время.");
+      return;
+    }
     setError("");
-    createBooking({
-      masterSlug,
-      serviceId: service.id,
-      date,
-      time: selectedSlot,
-      clientName,
-      clientPhone,
-      comment,
-    });
-    navigate("/account");
+    setPending(true);
+    try {
+      await createBooking({
+        masterSlug,
+        serviceId: service.id,
+        dateISO,
+        time: selectedSlot,
+        clientName,
+        clientPhone,
+        comment,
+      });
+      navigate("/account");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Не удалось записаться, попробуйте ещё раз");
+    } finally {
+      setPending(false);
+    }
   };
 
   return (
@@ -51,29 +111,70 @@ export function BookingPage() {
         <section className="mt-8 grid gap-8 lg:grid-cols-[1.1fr_1fr]">
           <div className="rounded-2xl border border-[#f1dde6] p-5">
             <h1 className="text-3xl font-semibold">Выбор услуги и даты</h1>
+
             <div className="mt-5 rounded-xl border border-[#f2dfe7] p-3">
               <p className="text-xs text-slate-500">Услуга</p>
-              <p className="font-medium">{service.name}</p>
-              <p className="text-sm text-slate-500">{formatRub(service.price)} · {service.duration}</p>
-            </div>
-            <div className="mt-3 rounded-xl border border-[#f2dfe7] p-3 text-sm text-slate-600">
-              <p className="font-medium text-slate-900">Мастер: {master.name}</p>
-              <p>{master.metro}</p>
-              <p>Дата: {date}</p>
+              {service ? (
+                <>
+                  <p className="font-medium">{service.name}</p>
+                  <p className="text-sm text-slate-500">
+                    {formatRub(service.price)} · {durationLabel(service.durationMinutes)}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-slate-400">
+                  {catalogStatus === "loading" ? "Загружаем услуги..." : "Услуги не найдены"}
+                </p>
+              )}
             </div>
 
-            <div className="mt-5 grid grid-cols-4 gap-2">
-              {slots.map((slot, idx) => (
+            <div className="mt-3 rounded-xl border border-[#f2dfe7] p-3 text-sm text-slate-600">
+              <p className="font-medium text-slate-900">Мастер: {master?.name ?? "—"}</p>
+              <p>{master?.metro}</p>
+              <p>Дата: {formatDateLabel(dateISO)}</p>
+            </div>
+
+            <p className="mt-5 text-xs uppercase tracking-[0.14em] text-slate-400">Дата</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {demoWeek.map((day) => (
                 <button
-                  key={slot}
-                  onClick={() => setSelectedSlot(slot)}
-                  className={`rounded-lg border px-3 py-2 text-sm ${
-                    selectedSlot === slot || (idx === 1 && !params.get("slot"))
-                      ? "border-pink-500 bg-pink-500 text-white"
-                      : "border-[#f1dde6]"
+                  key={day.iso}
+                  onClick={() => setDateISO(day.iso)}
+                  className={`rounded-lg border px-3 py-2 text-sm transition ${
+                    dateISO === day.iso ? "border-pink-500 bg-pink-500 text-white" : "border-[#f1dde6] hover:border-pink-300"
                   }`}
                 >
-                  {slot}
+                  {day.label}
+                </button>
+              ))}
+              <input
+                type="date"
+                value={dateISO}
+                onChange={(event) => event.target.value && setDateISO(event.target.value)}
+                className="rounded-lg border border-[#f1dde6] px-3 py-2 text-sm outline-none focus:border-pink-300"
+              />
+            </div>
+
+            <p className="mt-5 text-xs uppercase tracking-[0.14em] text-slate-400">Свободное время</p>
+            {slotsLoading && <p className="mt-2 text-sm text-slate-500">Считаем свободные окна…</p>}
+            {!slotsLoading && slotsError && <p className="mt-2 text-sm text-rose-500">{slotsError}</p>}
+            {!slotsLoading && !slotsError && slots.length === 0 && (
+              <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                На эту дату свободных окон нет. Выберите другой день.
+              </p>
+            )}
+            <div className="mt-2 grid grid-cols-4 gap-2">
+              {slots.map((slot) => (
+                <button
+                  key={slot.label}
+                  onClick={() => setSelectedSlot(slot.label)}
+                  className={`rounded-lg border px-3 py-2 text-sm transition ${
+                    selectedSlot === slot.label
+                      ? "border-pink-500 bg-pink-500 text-white"
+                      : "border-[#f1dde6] hover:border-pink-300"
+                  }`}
+                >
+                  {slot.label}
                 </button>
               ))}
             </div>
@@ -100,15 +201,18 @@ export function BookingPage() {
                 className="h-28 w-full rounded-xl border border-[#f1dde6] px-3 py-3 text-sm outline-none"
                 placeholder="Комментарий для мастера"
               />
-              {error && (
-                <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</p>
-              )}
+              {error && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</p>}
               <div className="rounded-xl border border-[#f1dde6] bg-[#fff8fb] p-3 text-sm text-slate-600">
-                Подтверждение: {date}, {selectedSlot}, {service.name}
+                Подтверждение: {formatDateLabel(dateISO)}
+                {selectedSlot ? `, ${selectedSlot}` : ""}, {service?.name ?? "услуга не выбрана"}
+                {service ? ` · ${formatRub(service.price)}` : ""}
               </div>
 
-              <button className="mt-4 w-full rounded-xl bg-pink-500 py-3 text-sm font-semibold text-white hover:bg-pink-600">
-                Записаться
+              <button
+                disabled={pending || !selectedSlot || !service}
+                className="mt-4 w-full rounded-xl bg-pink-500 py-3 text-sm font-semibold text-white transition hover:bg-pink-600 disabled:opacity-60"
+              >
+                {pending ? "Записываем..." : "Записаться"}
               </button>
               <p className="mt-2 text-xs text-slate-500">Нажимая "Записаться", вы соглашаетесь с правилами сервиса.</p>
             </form>

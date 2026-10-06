@@ -21,7 +21,7 @@ import {
   type Appointment,
 } from "../data";
 import { useCabinetAppointments } from "../appointments";
-import { masters } from "../../data/mock";
+import { useCatalog } from "../../catalog/store";
 import { cabinetOwnerSlug } from "../../store/bookings";
 import { cn } from "../../utils/cn";
 
@@ -133,6 +133,7 @@ function AppointmentBlock({ appointment }: { appointment: Appointment }) {
 /* --------------------------------- экран ---------------------------------- */
 
 export function SchedulePage() {
+  const { masters } = useCatalog();
   const [view, setView] = useState("Неделя");
   const [selectedDay, setSelectedDay] = useState(22);
   const [master, setMaster] = useState("all");

@@ -3,7 +3,9 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AppHeader } from "../components/AppHeader";
 import { Avatar, NailStrip } from "../components/NailUi";
-import { formatRub, masters, services, slotDays, slots } from "../data/mock";
+import { formatRub, slots } from "../data/mock";
+import { useCatalog, durationLabel } from "../catalog/store";
+import { demoWeek } from "../store/bookings";
 
 const filters = [
   "Маникюр до 2000 ₽",
@@ -16,8 +18,16 @@ const filters = [
 
 export function HomePage() {
   const { user } = useAuth();
-  const bookingTarget = "/booking?master=anna-smirnova&service=s2&date=22%20мая&slot=19:00";
+  const { masters, services } = useCatalog();
+  const defaultServiceId = services[1]?.id ?? services[0]?.id ?? "s1";
+  const bookingTarget = `/booking?master=anna-smirnova&service=${defaultServiceId}&date=${demoWeek[0].iso}&slot=19:00`;
   const bookingLink = user ? bookingTarget : `/login?returnTo=${encodeURIComponent(bookingTarget)}`;
+
+  /** Ссылка на запись конкретной услуги — с учётом авторизации. */
+  const serviceLink = (serviceId: string) => {
+    const target = `/booking?master=anna-smirnova&service=${serviceId}&date=${demoWeek[0].iso}`;
+    return user ? target : `/login?returnTo=${encodeURIComponent(target)}`;
+  };
 
   return (
     <main className="min-h-screen bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
@@ -87,7 +97,7 @@ export function HomePage() {
                       </Link>
                       <p className="truncate text-sm text-slate-500">{master.tags}</p>
                       <p className="mt-1 text-sm text-slate-600">
-                        <span className="font-medium text-yellow-500">★ {master.rating}</span> ({master.reviews} отзывов)
+                        <span className="font-medium text-yellow-500">★ {master.rating}</span> ({master.reviewsCount} отзывов)
                       </p>
                     </div>
                   </div>
@@ -145,12 +155,12 @@ export function HomePage() {
                 <div key={service.id} className="flex items-center justify-between rounded-xl border border-[#f3e3ea] px-3 py-2">
                   <div>
                     <p className="font-medium">{service.name}</p>
-                    <p className="text-slate-500">{service.duration}</p>
+                    <p className="text-slate-500">{durationLabel(service.durationMinutes)}</p>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="font-semibold">{formatRub(service.price)}</span>
                     <Link
-                      to={bookingLink}
+                      to={serviceLink(service.id)}
                       className="rounded-lg border border-pink-200 px-3 py-1 text-pink-600 transition hover:bg-pink-50"
                     >
                       Записаться
@@ -164,28 +174,38 @@ export function HomePage() {
               <p className="mb-3 text-lg font-semibold">Свободные окна</p>
               <div className="space-y-3">
                 <div className="grid grid-cols-4 gap-2">
-                  {slotDays.map((day, idx) => (
-                    <button
-                      key={day.id}
-                      className={`rounded-xl border px-2 py-2 text-xs ${
+                  {demoWeek.map((day, idx) => (
+                    <Link
+                      key={day.iso}
+                      to={
+                        user
+                          ? `/booking?master=anna-smirnova&service=${defaultServiceId}&date=${day.iso}`
+                          : `/login?returnTo=${encodeURIComponent(`/booking?master=anna-smirnova&service=${defaultServiceId}&date=${day.iso}`)}`
+                      }
+                      className={`rounded-xl border px-2 py-2 text-center text-xs ${
                         idx === 0 ? "border-pink-500 bg-pink-50 text-pink-600" : "border-[#f1dde6]"
                       }`}
                     >
-                      <p>{day.label}</p>
-                      <p className="text-[11px] opacity-70">{day.date}</p>
-                    </button>
+                      <p>{day.weekday}</p>
+                      <p className="text-[11px] opacity-70">{day.label}</p>
+                    </Link>
                   ))}
                 </div>
                 <div className="grid grid-cols-4 gap-2">
                   {slots.map((time, idx) => (
-                    <button
+                    <Link
                       key={time}
-                      className={`rounded-xl border px-3 py-2 text-sm font-medium ${
+                      to={
+                        user
+                          ? `/booking?master=anna-smirnova&service=${defaultServiceId}&date=${demoWeek[0].iso}&slot=${time}`
+                          : `/login?returnTo=${encodeURIComponent(`/booking?master=anna-smirnova&service=${defaultServiceId}&date=${demoWeek[0].iso}&slot=${time}`)}`
+                      }
+                      className={`rounded-xl border px-3 py-2 text-center text-sm font-medium ${
                         idx === 1 ? "border-pink-500 bg-pink-500 text-white" : "border-[#f2dce6]"
                       }`}
                     >
                       {time}
-                    </button>
+                    </Link>
                   ))}
                 </div>
               </div>

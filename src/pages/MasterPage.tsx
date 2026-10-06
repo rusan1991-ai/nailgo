@@ -3,14 +3,38 @@ import { Link, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AppHeader } from "../components/AppHeader";
 import { Avatar, NailStrip } from "../components/NailUi";
-import { formatRub, masters, services, slots } from "../data/mock";
+import { formatRub, slots } from "../data/mock";
+import { useCatalog, durationLabel } from "../catalog/store";
+import { demoWeek } from "../store/bookings";
 
 export function MasterPage() {
   const { user } = useAuth();
   const params = useParams();
+  const { masters, services } = useCatalog();
   const master = masters.find((item) => item.slug === params.slug) ?? masters[0];
-  const bookingTarget = `/booking?master=${master.slug}&service=s2&date=22%20мая&slot=19:00`;
-  const bookingLink = user ? bookingTarget : `/login?returnTo=${encodeURIComponent(bookingTarget)}`;
+  const defaultServiceId = services[1]?.id ?? services[0]?.id ?? "s1";
+
+  const bookingLinkFor = (query: string) => {
+    const target = `/booking?master=${master?.slug ?? "anna-smirnova"}&${query}`;
+    return user ? target : `/login?returnTo=${encodeURIComponent(target)}`;
+  };
+  const bookingLink = bookingLinkFor(`service=${defaultServiceId}&date=${demoWeek[0].iso}&slot=19:00`);
+
+  // Каталог приезжает из API — пока его нет, показываем заглушку вместо падения.
+  if (!master) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#fff7fa] p-6 text-center text-slate-500">
+        <div>
+          <p className="text-sm uppercase tracking-[0.2em] text-pink-500">NailGo</p>
+          <h1 className="mt-3 text-2xl font-semibold text-slate-900">Загружаем карточку мастера…</h1>
+          <p className="mt-2 text-sm">Если API недоступен, вернитесь на главную и попробуйте позже.</p>
+          <Link to="/" className="mt-5 inline-block text-sm text-pink-600 hover:text-pink-700">
+            На главную
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
@@ -25,7 +49,7 @@ export function MasterPage() {
                 <h1 className="text-4xl font-semibold">{master.name}</h1>
                 <p className="mt-1 text-slate-500">{master.tags}</p>
                 <p className="mt-2 text-slate-600">
-                  <span className="font-medium text-yellow-500">★ {master.rating}</span> ({master.reviews} отзывов)
+                  <span className="font-medium text-yellow-500">★ {master.rating}</span> ({master.reviewsCount} отзывов)
                 </p>
                 <p className="text-sm text-slate-500">{master.metro}</p>
               </div>
@@ -49,11 +73,11 @@ export function MasterPage() {
                 <div key={service.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-xl border border-[#f3e3ea] p-3">
                   <div>
                     <p className="font-medium">{service.name}</p>
-                    <p className="text-sm text-slate-500">{service.duration}</p>
+                    <p className="text-sm text-slate-500">{durationLabel(service.durationMinutes)}</p>
                   </div>
                   <p className="font-semibold">{formatRub(service.price)}</p>
                   <Link
-                    to={bookingLink}
+                    to={bookingLinkFor(`service=${service.id}&date=${demoWeek[0].iso}`)}
                     className="rounded-lg border border-pink-200 px-3 py-1 text-sm text-pink-600 hover:bg-pink-50"
                   >
                     Записаться
@@ -70,19 +94,29 @@ export function MasterPage() {
           >
             <p className="text-lg font-semibold">Свободные окна</p>
             <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-              <button className="rounded-lg border border-pink-500 bg-pink-50 px-3 py-2 text-pink-600">Сегодня</button>
-              <button className="rounded-lg border border-[#f1dde6] px-3 py-2">Завтра</button>
+              {demoWeek.slice(0, 2).map((day, idx) => (
+                <Link
+                  key={day.iso}
+                  to={bookingLinkFor(`service=${defaultServiceId}&date=${day.iso}`)}
+                  className={`rounded-lg border px-3 py-2 text-center ${
+                    idx === 0 ? "border-pink-500 bg-pink-50 text-pink-600" : "border-[#f1dde6]"
+                  }`}
+                >
+                  {idx === 0 ? "Сегодня" : "Завтра"}, {day.label}
+                </Link>
+              ))}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {slots.map((slot, idx) => (
-                <button
+                <Link
                   key={slot}
-                  className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+                  to={bookingLinkFor(`service=${defaultServiceId}&date=${demoWeek[0].iso}&slot=${slot}`)}
+                  className={`rounded-lg border px-3 py-2 text-center text-sm font-medium ${
                     idx === 1 ? "border-pink-500 bg-pink-500 text-white" : "border-[#f1dde6]"
                   }`}
                 >
                   {slot}
-                </button>
+                </Link>
               ))}
             </div>
             <Link

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 import { GhostButton, Modal, PersonAvatar, PrimaryButton, Select, TextField } from "./ui";
 import { formatMinutes, formatRub } from "../data";
-import { masters, services } from "../../data/mock";
+import { useCatalog, durationLabel } from "../../catalog/store";
 import { cabinetOwnerSlug, createBooking, demoWeek, parseTimeLabel } from "../../store/bookings";
 
 const timeOptions = Array.from({ length: 22 }, (_, index) => 9 * 60 + index * 30);
@@ -18,38 +18,58 @@ export function AppointmentModal({
   presetClient?: string;
   presetPhone?: string;
 }) {
+  const { masters, services } = useCatalog();
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
-  const [serviceId, setServiceId] = useState(services[1].id);
+  const [serviceId, setServiceId] = useState("");
   const [masterSlug, setMasterSlug] = useState(cabinetOwnerSlug);
-  const [dateLabel, setDateLabel] = useState(demoWeek[0].label);
+  const [dateISO, setDateISO] = useState(demoWeek[0].iso);
   const [time, setTime] = useState("19:00");
   const [comment, setComment] = useState("");
-  const [created, setCreated] = useState(false);
+  const [created, setCreated] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  /** Услуги подгружаются из API — выбираем первую, когда каталог приехал. */
+  useEffect(() => {
+    if (!serviceId && services.length > 0) setServiceId(services[1]?.id ?? services[0]!.id);
+  }, [serviceId, services]);
 
   useEffect(() => {
     if (!open) return;
     setClientName(presetClient ?? "");
     setClientPhone(presetPhone ?? "");
-    setCreated(false);
+    setCreated(null);
+    setError(null);
   }, [open, presetClient, presetPhone]);
 
   const service = services.find((item) => item.id === serviceId) ?? services[0];
 
-  const submit = () => {
-    createBooking({
-      masterSlug,
-      serviceId,
-      dateLabel,
-      startMinutes: parseTimeLabel(time),
-      clientName,
-      clientPhone,
-      comment,
-      source: "master",
-      status: "confirmed",
-    });
-    setCreated(true);
-    setComment("");
+  const submit = async () => {
+    if (!service) {
+      setError("Каталог услуг ещё не загрузился");
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await createBooking({
+        masterSlug,
+        serviceId,
+        dateISO,
+        startMinutes: parseTimeLabel(time),
+        clientName: clientName.trim() || "Гость",
+        clientPhone: clientPhone.trim() || "—",
+        comment,
+        source: "master",
+      });
+      setCreated(`${clientName.trim() || "Гость"}, ${demoWeek.find((day) => day.iso === dateISO)?.label ?? dateISO} в ${time}`);
+      setComment("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Не удалось создать запись");
+    } finally {
+      setPending(false);
+    }
   };
 
   return (
@@ -57,18 +77,18 @@ export function AppointmentModal({
       open={open}
       onClose={onClose}
       title="Новая запись"
-      subtitle="Запись сразу появится в расписании, в списке записей и в кабинете клиента"
+      subtitle="Запись сохраняется на сервере и сразу появляется в расписании и в кабинете клиента"
       footer={
         created ? (
           <>
-            <GhostButton onClick={() => setCreated(false)}>Добавить ещё</GhostButton>
+            <GhostButton onClick={() => setCreated(null)}>Добавить ещё</GhostButton>
             <PrimaryButton onClick={onClose}>Готово</PrimaryButton>
           </>
         ) : (
           <>
             <GhostButton onClick={onClose}>Отмена</GhostButton>
-            <PrimaryButton onClick={submit} type="button">
-              <Check className="h-4 w-4" />
+            <PrimaryButton onClick={submit} className={pending ? "opacity-70" : ""}>
+              {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               Создать запись
             </PrimaryButton>
           </>
@@ -78,8 +98,12 @@ export function AppointmentModal({
       {created && (
         <div className="mb-4 flex items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           <Check className="h-4 w-4" />
-          Запись создана: {clientName || "Гость"}, {dateLabel} в {time}
+          Запись создана: {created}
         </div>
+      )}
+
+      {error && (
+        <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</div>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -93,7 +117,7 @@ export function AppointmentModal({
             onChange={setServiceId}
             options={services.map((item) => ({
               value: item.id,
-              label: `${item.name} · ${item.duration} · ${formatRub(item.price)}`,
+              label: `${item.name} · ${durationLabel(item.durationMinutes)} · ${formatRub(item.price)}`,
             }))}
           />
         </div>
@@ -111,9 +135,9 @@ export function AppointmentModal({
         <div>
           <p className="mb-1.5 text-xs font-medium text-slate-500">Дата</p>
           <Select
-            value={dateLabel}
-            onChange={setDateLabel}
-            options={demoWeek.map((day) => ({ value: day.label, label: `${day.label}, ${day.weekday}` }))}
+            value={dateISO}
+            onChange={setDateISO}
+            options={demoWeek.map((day) => ({ value: day.iso, label: `${day.label}, ${day.weekday}` }))}
           />
         </div>
         <div>
@@ -138,9 +162,10 @@ export function AppointmentModal({
       <div className="mt-5 flex items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-600">
         <PersonAvatar name={clientName || "Новый клиент"} size={32} />
         <div>
-          <p className="font-medium text-slate-800">{service.name}</p>
+          <p className="font-medium text-slate-800">{service?.name ?? "Услуга не выбрана"}</p>
           <p className="text-xs text-slate-500">
-            {formatRub(service.price)} · {service.duration} · {dateLabel}, {time}
+            {service ? `${formatRub(service.price)} · ${durationLabel(service.durationMinutes)} · ` : ""}
+            {demoWeek.find((day) => day.iso === dateISO)?.label ?? dateISO}, {time}
           </p>
         </div>
       </div>

@@ -5,7 +5,7 @@ import { Avatar } from "../components/NailUi";
 import { formatRub } from "../data/mock";
 
 export function AccountPage() {
-  const { bookings, cancelBooking } = useBookings();
+  const { bookings, cancelBooking, error } = useBookings();
   const [tab, setTab] = useState<"upcoming" | "completed" | "cancelled">("upcoming");
 
   const filtered = useMemo(() => bookings.filter((item) => item.status === tab), [bookings, tab]);
@@ -29,6 +29,10 @@ export function AccountPage() {
               </button>
             ))}
           </div>
+
+          {error && (
+            <div className="mb-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</div>
+          )}
 
           <div className="space-y-3">
             {filtered.length === 0 && (
@@ -58,7 +62,7 @@ export function AccountPage() {
                     <p className="font-semibold">{formatRub(booking.price)}</p>
                     {booking.status === "upcoming" && (
                       <button
-                        onClick={() => cancelBooking(booking.id)}
+                        onClick={() => void cancelBooking(booking.id)}
                         className="mt-3 rounded-lg border border-rose-200 px-3 py-1 text-sm text-rose-500 hover:bg-rose-50"
                       >
                         Отменить

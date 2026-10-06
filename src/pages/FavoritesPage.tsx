@@ -1,9 +1,10 @@
 import { Link } from "react-router-dom";
 import { ClientShell } from "../components/ClientShell";
 import { Avatar } from "../components/NailUi";
-import { masters } from "../data/mock";
+import { useCatalog } from "../catalog/store";
 
 export function FavoritesPage() {
+  const { masters } = useCatalog();
   return (
     <ClientShell title="Избранное">
       <div className="space-y-3">

@@ -26,5 +26,13 @@ export default defineConfig({
   server: {
     host: true,
     allowedHosts,
+    // Браузер в окне предпросмотра обращается только к этому серверу,
+    // запросы к API уходят через прокси — без localhost из клиента.
+    proxy: {
+      "/api": {
+        target: process.env.VITE_API_TARGET ?? "http://127.0.0.1:4000",
+        changeOrigin: true,
+      },
+    },
   },
 });

@@ -117,8 +117,10 @@ const servicesSeed: {
   { key: "s2", name: "Маникюр аппаратный", category: "Маникюр", durationMinutes: 90, price: 2000 },
   { key: "s3", name: "Покрытие гель-лак", category: "Покрытие", durationMinutes: 60, price: 1800 },
   { key: "s4", name: "Укрепление ногтей", category: "Покрытие", durationMinutes: 30, price: 500 },
-  { key: "s5", name: "Наращивание ногтей", category: "Наращивание", durationMinutes: 120, price: 3500 },
-  { key: "s6", name: "Коррекция ногтей", category: "Наращивание", durationMinutes: 90, price: 2500 },
+  // На дорогое наращивание мастер берёт предоплату: запись держит время
+  // два часа, и неявка стоит дорого. Остальные услуги — без предоплаты.
+  { key: "s5", name: "Наращивание ногтей", category: "Наращивание", durationMinutes: 120, price: 3500, prepaymentPercent: 30 },
+  { key: "s6", name: "Коррекция ногтей", category: "Наращивание", durationMinutes: 90, price: 2500, prepaymentPercent: 30 },
   { key: "s7", name: "Дизайн ногтей (1 ноготь)", category: "Дизайн", durationMinutes: 10, price: 100 },
   { key: "s8", name: "Снятие гель-лака", category: "Дополнительно", durationMinutes: 20, price: 300 },
   { key: "s9", name: "Парафинотерапия", category: "Дополнительно", durationMinutes: 30, price: 700 },

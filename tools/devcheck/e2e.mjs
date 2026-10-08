@@ -7,10 +7,11 @@ import { api, apiAs, check, click, clickIn, login, loginMaster, makeDom, rootTex
 
 const PHONE = "+79990001122";
 /**
- * Дата для сквозного сценария — ближайший рабочий день мастера.
- * На фиксированное число завязываться нельзя: запись в прошлое запрещена.
+ * Дата для сквозного сценария — ближайший рабочий день мастера со свободным
+ * окном (см. выбор `slot` ниже). На фиксированное число завязываться нельзя:
+ * запись в прошлое запрещена, а вечером «сегодня» уже может быть занято.
  */
-const DATE = nextWorkingISO(0);
+let DATE = nextWorkingISO(0);
 
 let failures = 0;
 const assert = (label, ok, extra = "") => {
@@ -45,7 +46,6 @@ const service =
   catalog.data.items.find((item) => item.masterSlug === "anna-smirnova") ??
   catalog.data.items[0];
 
-const slotResponse = await api(`/masters/anna-smirnova/slots?date=${DATE}&serviceId=${service.id}`);
 // В модалке кабинета время выбирается из шага 30 минут, поэтому берём такое окно.
 const allowed = new Set(
   Array.from({ length: 22 }, (_, index) => {
@@ -53,16 +53,22 @@ const allowed = new Set(
     return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
   }),
 );
-const slot = slotResponse.data.slots.map((item) => item.label).find((label) => allowed.has(label));
+/** Ищем ближайший день (сегодня и неделя вперёд), где есть окно нужного шага. */
+let slot;
+for (let offset = 0; offset < 7 && !slot; offset += 1) {
+  DATE = nextWorkingISO(offset);
+  const response = await api(`/masters/anna-smirnova/slots?date=${DATE}&serviceId=${service.id}`);
+  slot = response.data.slots.map((item) => item.label).find((label) => allowed.has(label));
+}
 if (!slot) throw new Error("нет свободного окна с шагом 30 минут");
 console.log(`Свободное окно для проверки: ${DATE} ${slot} (${service.name})`);
 
 /* 1. Мастер создаёт запись в своём кабинете */
 const master = makeDom("/pro/schedule", { session: masterSession });
 await wait(1600);
-click(master.dom, "Добавить запись");
+click(master.dom, "Записать клиента вручную");
 await wait(300);
-assert("модалка «Новая запись» открылась", rootText(master.dom).includes("Новая запись"));
+assert("модалка ручной записи открылась", rootText(master.dom).includes("Записать клиента вручную"));
 
 setField(master.dom, "Анна Смирнова", "Тест Клиент");
 setField(master.dom, "+7 (999) 123-45-67", PHONE);

@@ -38,6 +38,7 @@ import {
 const mastersSeed = [
   {
     slug: "anna-smirnova",
+    usernameSlug: "anna_nails",
     name: "Анна Смирнова",
     tags: "Маникюр, Наращивание, Дизайн",
     about:
@@ -57,6 +58,7 @@ const mastersSeed = [
   },
   {
     slug: "ekaterina-vlasova",
+    usernameSlug: "ekaterina_vlasova",
     name: "Екатерина Власова",
     tags: "Маникюр, Педикюр",
     about: "Спокойный темп, аккуратная работа и покрытие, которое держится долго.",
@@ -75,6 +77,7 @@ const mastersSeed = [
   },
   {
     slug: "maria-ivanova",
+    usernameSlug: "maria_ivanova",
     name: "Мария Иванова",
     tags: "Маникюр, Педикюр",
     about: "Люблю сложные формы и чистые блики. Работаю с укреплением и ремонтом.",
@@ -93,6 +96,7 @@ const mastersSeed = [
   },
   {
     slug: "olga-kravtsova",
+    usernameSlug: "olga_kravtsova",
     name: "Ольга Кравцова",
     tags: "Наращивание, Дизайн",
     about: "Наращивание гелем, коррекции и авторский дизайн.",

@@ -12,7 +12,7 @@ import {
   Select,
   Tabs,
 } from "../components/ui";
-import { bookingRows, formatRub, type BookingRow } from "../data";
+import { formatRub, type BookingRow } from "../data";
 import { AppointmentModal } from "../components/AppointmentModal";
 import { ReschedulePanel } from "../../components/ReschedulePanel";
 import {
@@ -116,9 +116,8 @@ export function BookingsPage() {
     [stored],
   );
 
-  // Если API недоступен, показываем строки макета — экран не должен пустеть.
-  const live = liveRows.length > 0;
-  const baseRows = live ? liveRows : bookingRows;
+  // Единственный источник — база: строк макета на экране больше нет.
+  const baseRows = liveRows;
   const liveById = useMemo(() => new Map(stored.map((booking) => [booking.id, booking])), [stored]);
 
   useEffect(() => {
@@ -262,7 +261,7 @@ export function BookingsPage() {
             </thead>
             <tbody>
               {rows.map((row) => {
-                const actions = live ? [...actionsFor(row.status), ...paymentActionsFor(row)] : [];
+                const actions = [...actionsFor(row.status), ...paymentActionsFor(row)];
                 return (
                   <tr key={row.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
                     <td className="px-5 py-3.5">
@@ -384,9 +383,7 @@ export function BookingsPage() {
       <div className={cn("mt-2 flex items-center gap-3", rows.length === 0 && "hidden")}>
         <GhostButton>Экспорт в CSV</GhostButton>
         <span className="text-xs text-slate-400">
-          {live
-            ? `Данные из базы: ${liveRows.length} записей, статус источника — ${storeStatus === "ready" ? "онлайн" : storeStatus}`
-            : "API недоступен — показаны строки макета"}
+          {`Данные из базы: ${liveRows.length} записей, статус источника — ${storeStatus === "ready" ? "онлайн" : storeStatus}`}
         </span>
       </div>
 

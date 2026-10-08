@@ -70,6 +70,7 @@ export function PrimaryButton({
   className,
   disabled,
   title,
+  dataAction,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -77,6 +78,8 @@ export function PrimaryButton({
   className?: string;
   disabled?: boolean;
   title?: string;
+  /** Стабильный селектор для проверок: `data-action` на кнопке. */
+  dataAction?: string;
 }) {
   return (
     <button
@@ -84,6 +87,7 @@ export function PrimaryButton({
       onClick={onClick}
       disabled={disabled}
       title={title}
+      data-action={dataAction}
       className={cn(
         "inline-flex items-center gap-2 rounded-xl bg-[#e11d48] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#be123c] active:scale-[0.99]",
         disabled && "cursor-not-allowed opacity-60 hover:bg-[#e11d48]",
@@ -100,16 +104,20 @@ export function GhostButton({
   onClick,
   className,
   active,
+  dataAction,
 }: {
   children: ReactNode;
   onClick?: () => void;
   className?: string;
   active?: boolean;
+  /** Стабильный селектор для проверок: `data-action` на кнопке. */
+  dataAction?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      data-action={dataAction}
       className={cn(
         "inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm transition",
         active
@@ -306,11 +314,13 @@ export function TextArea({
   value,
   onChange,
   rows = 4,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange?: (value: string) => void;
   rows?: number;
+  placeholder?: string;
 }) {
   return (
     <label className="block">
@@ -318,6 +328,7 @@ export function TextArea({
       <textarea
         rows={rows}
         value={value}
+        placeholder={placeholder}
         onChange={(event) => onChange?.(event.target.value)}
         className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-rose-300"
       />

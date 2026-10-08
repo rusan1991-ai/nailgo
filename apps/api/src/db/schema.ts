@@ -124,6 +124,15 @@ export const masters = pgTable("masters", {
   /** Почему мастер снят с публикации — видно в админке и в кабинете. */
   statusReason: text("status_reason"),
   statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
+  /**
+   * Короткая ссылка мастера — «как в ВК»: `nailgo.ru/any_nails`.
+   *
+   * Отличается от `slug`: slug генерируется из имени и живёт вечно, а username
+   * мастер выбирает сам (латиница, цифры, дефис и подчёркивание, от 3 символов)
+   * и может менять. Обе ссылки ведут на одну витрину: `/master/<slug>` — старая
+   * ссылка, `/<username>` и `/masters/<username>` — красивая.
+   */
+  usernameSlug: text("username_slug").unique(),
   email: text("email"),
   site: text("site"),
   priceFrom: integer("price_from").notNull(),
@@ -611,6 +620,73 @@ export const rateLimitHits = pgTable(
   (table) => [index("rate_limit_key_time").on(table.key, table.createdAt)],
 );
 
+/**
+ * Своя база клиентов мастера.
+ *
+ * Витрина знает клиента только по записи, а мастеру нужен блокнот: «Оля,
+ * аллергия на гель-лак», «не любит длинные ногти», «пишет в Telegram». Такие
+ * карточки мастер заводит сам — они не привязаны ни к аккаунту клиента, ни к
+ * визиту; телефон может быть пустым (клиент пришёл по рекомендации и оставил
+ * только мессенджер).
+ *
+ * Клиенты из записей в эту таблицу не дублируются: кабинет показывает их
+ * вместе (`GET /cabinet/clients`), а поле `source` объясняет происхождение.
+ */
+export const masterClients = pgTable(
+  "master_clients",
+  {
+    id: id(),
+    masterId: text("master_id")
+      .notNull()
+      .references(() => masters.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Канонический номер или null: у «клиента из мессенджера» телефона нет. */
+    phone: text("phone"),
+    /** Куда писать: ник в Telegram или id/ссылка в Max. Свободный текст. */
+    telegram: text("telegram"),
+    max: text("max"),
+    /**
+     * Заметки мастера: особенности ногтей, аллергии, привычки. Видно только
+     * владельцу кабинета — это рабочий блокнот, а не карточка клиента на витрине.
+     */
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("master_clients_master").on(table.masterId, table.name),
+    // Один и тот же клиент у мастера один: повторное добавление по телефону
+    // не плодит дубли, а обновляет карточку (см. routes/cabinet.ts).
+    uniqueIndex("master_clients_phone").on(table.masterId, table.phone),
+  ],
+);
+
+/**
+ * Технические перерывы мастера: обед, дорога, личные дела.
+ *
+ * Это не запись — клиента нет, денег нет. Смысл один: время занято, и
+ * свободные окна его не показывают (`lib/slots.ts`) и запись на него не
+ * принимается («time_blocked»). Поэтому блокировка живёт отдельной таблицей,
+ * а не фейковой записью: иначе она попала бы в статистику и в деньги.
+ */
+export const timeBlocks = pgTable(
+  "time_blocks",
+  {
+    id: id(),
+    masterId: text("master_id")
+      .notNull()
+      .references(() => masters.id, { onDelete: "cascade" }),
+    startAt: timestamp("start_at", { withTimezone: true }).notNull(),
+    endAt: timestamp("end_at", { withTimezone: true }).notNull(),
+    /** «Обед», «Личные дела» — подпись, которую мастер видит в календаре. */
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("time_blocks_master_start").on(table.masterId, table.startAt)],
+);
+
+export type MasterClient = typeof masterClients.$inferSelect;
+export type TimeBlock = typeof timeBlocks.$inferSelect;
 export type BookingEvent = typeof bookingEvents.$inferSelect;
 export type RateLimitHit = typeof rateLimitHits.$inferSelect;
 export type Delivery = typeof deliveries.$inferSelect;

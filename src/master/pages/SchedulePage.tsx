@@ -1,13 +1,15 @@
 import { useMemo, useState } from "react";
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock, Plus, Settings2, X } from "lucide-react";
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock, Coffee, Plus, Settings2, Trash2, X } from "lucide-react";
 import {
   Card,
   Checkbox,
   GhostButton,
+  Modal,
   PersonAvatar,
   PrimaryButton,
   SegmentedControl,
   Select,
+  TextField,
 } from "../components/ui";
 import { AppointmentModal } from "../components/AppointmentModal";
 import {
@@ -23,7 +25,9 @@ import {
 import { useCabinetAppointments } from "../appointments";
 import { useCatalog } from "../../catalog/store";
 import { minutesToLabel, useCabinetHours } from "../../api/profile";
-import { cabinetOwnerSlug } from "../../store/bookings";
+import { parseTimeLabel } from "../../store/bookings";
+import { cabinetOwnerSlug, demoWeek, formatDateLabel } from "../../store/bookings";
+import { createTimeBlock, deleteTimeBlock, useTimeBlocks, type TimeBlock } from "../../api/cabinet";
 import { cn } from "../../utils/cn";
 
 const hourHeight = 54;
@@ -151,6 +155,42 @@ function AppointmentBlock({ appointment }: { appointment: Appointment }) {
   );
 }
 
+/* ------------------------------ перерыв в дне ----------------------------- */
+
+/**
+ * Технический перерыв мастера: обед, дорога, личные дела. Занимает время так
+ * же, как запись, — клиент не может записаться на этот слот, — но денег и
+ * статистики не касается. Поэтому выглядит «штриховкой», а не карточкой.
+ */
+function TimeBlockCell({ block, onRemove }: { block: TimeBlock; onRemove: (id: string) => void }) {
+  return (
+    <div
+      className="absolute inset-x-1 overflow-hidden rounded-xl border border-dashed border-slate-300 bg-slate-100/90 px-2.5 py-2 text-xs text-slate-500"
+      data-time-block={block.id}
+      style={{
+        top: ((block.startMinutes - dayStartHour * 60) / 60) * hourHeight,
+        height: ((block.endMinutes - block.startMinutes) / 60) * hourHeight - 4,
+      }}
+    >
+      <div className="flex items-start justify-between gap-1">
+        <p className="text-[11px] font-medium">
+          {formatMinutes(block.startMinutes)} – {formatMinutes(block.endMinutes)}
+        </p>
+        <button
+          type="button"
+          data-action="delete-time-block"
+          onClick={() => onRemove(block.id)}
+          className="rounded p-0.5 text-slate-400 transition hover:bg-white hover:text-rose-500"
+          title="Снять перерыв"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <p className="mt-1 truncate">{block.reason || "Перерыв"}</p>
+    </div>
+  );
+}
+
 /* --------------------------------- экран ---------------------------------- */
 
 export function SchedulePage() {
@@ -165,6 +205,24 @@ export function SchedulePage() {
   const [showCancelled, setShowCancelled] = useState(false);
 
   const appointments = useCabinetAppointments(weekAppointments);
+
+  /**
+   * Технические перерывы недели: их считает сервер, и он же закрывает это
+   * время для клиентов. В сетке они рисуются серыми блоками.
+   */
+  const weekFrom = demoWeek[0]!.iso;
+  const weekTo = demoWeek[6]!.iso;
+  const blocksResource = useTimeBlocks(weekFrom, weekTo);
+  const blocks = blocksResource.data?.items ?? [];
+  const [blockOpen, setBlockOpen] = useState(false);
+  const [blockDate, setBlockDate] = useState(demoWeek[0]!.iso);
+  const [blockStart, setBlockStart] = useState("13:00");
+  const [blockEnd, setBlockEnd] = useState("14:00");
+  const [blockReason, setBlockReason] = useState("Обед");
+  const [blockState, setBlockState] = useState<{ saving: boolean; error: string | null }>({
+    saving: false,
+    error: null,
+  });
 
   // Часы работы берём из базы: их мастер правит в настройках, они же
   // определяют свободные окна для клиентов.
@@ -196,6 +254,33 @@ export function SchedulePage() {
     [appointments, service, status, showCancelled, master, onlyMine],
   );
 
+  const saveBlock = async () => {
+    setBlockState({ saving: true, error: null });
+    try {
+      await createTimeBlock({
+        dateISO: blockDate,
+        startMinutes: parseTimeLabel(blockStart),
+        endMinutes: parseTimeLabel(blockEnd),
+        reason: blockReason.trim(),
+      });
+      setBlockState({ saving: false, error: null });
+      setBlockOpen(false);
+      blocksResource.reload();
+    } catch (cause) {
+      setBlockState({
+        saving: false,
+        error: cause instanceof Error ? cause.message : "Не удалось поставить перерыв",
+      });
+    }
+  };
+
+  const removeBlock = async (id: string) => {
+    await deleteTimeBlock(id).catch(() => undefined);
+    blocksResource.reload();
+  };
+
+  const blocksOfDay = (dateISO: string) => blocks.filter((block) => block.dateISO === dateISO);
+
   const hours = Array.from({ length: dayEndHour - dayStartHour }, (_, index) => dayStartHour + index);
   const todayAppointments = visible.filter((item) => item.day === TODAY_INDEX && item.status !== "cancelled");
   const load = Math.round((todayAppointments.reduce((acc, item) => acc + item.duration, 0) / 600) * 100);
@@ -223,9 +308,14 @@ export function SchedulePage() {
             options={[{ value: "20 – 26 мая 2024", label: "20 – 26 мая 2024" }]}
           />
           <SegmentedControl options={["День", "Неделя", "Месяц"]} value={view} onChange={setView} />
-          <PrimaryButton onClick={() => setModalOpen(true)}>
+          {/* Перерыв закрывает время для клиентов; запись мастер вносит вручную. */}
+          <GhostButton dataAction="block-time" onClick={() => setBlockOpen(true)}>
+            <Coffee className="h-4 w-4" />
+            Перерыв
+          </GhostButton>
+          <PrimaryButton dataAction="manual-booking" onClick={() => setModalOpen(true)}>
             <Plus className="h-4 w-4" />
-            Добавить запись
+            Записать клиента вручную
           </PrimaryButton>
         </div>
       </div>
@@ -398,6 +488,13 @@ export function SchedulePage() {
                       {hours.map((hour) => (
                         <div key={hour} className="border-b border-slate-50" style={{ height: hourHeight }} />
                       ))}
+                      {blocksOfDay(day.iso).map((block) => (
+                        <TimeBlockCell
+                          key={block.id}
+                          block={block}
+                          onRemove={(id) => void removeBlock(id)}
+                        />
+                      ))}
                       {visible
                         .filter((item) => weekDays[item.day]?.date === day.date)
                         .map((item) => (
@@ -428,6 +525,10 @@ export function SchedulePage() {
             <span className="inline-flex items-center gap-2">
               <Plus className="h-3.5 w-3.5 text-slate-400" />
               Свободное окно
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-sm border border-dashed border-slate-400 bg-slate-200" />
+              Технический перерыв
             </span>
           </div>
         </Card>
@@ -467,7 +568,99 @@ export function SchedulePage() {
         </div>
       </Card>
 
+      {/* Перерывы недели: то же, что серые блоки в сетке, но списком — так
+          мастер видит, куда не записать клиента, и может снять перерыв. */}
+      <div className="mt-4" data-block="time-blocks">
+      <Card>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Технические перерывы недели</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Обед и личные дела: время закрыто для клиентов, в статистику и деньги не попадает.
+            </p>
+          </div>
+          <GhostButton dataAction="block-time-list" onClick={() => setBlockOpen(true)}>
+            <Coffee className="h-4 w-4" />
+            Поставить перерыв
+          </GhostButton>
+        </div>
+        {blocks.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-400">
+            Перерывов на эту неделю нет — все рабочие часы открыты для записи.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2" data-block="time-block-list">
+            {blocks.map((block) => (
+              <span
+                key={block.id}
+                data-time-block-row={block.id}
+                className="inline-flex items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-600"
+              >
+                <span className="font-medium">
+                  {formatDateLabel(block.dateISO)}, {formatMinutes(block.startMinutes)}–
+                  {formatMinutes(block.endMinutes)}
+                </span>
+                <span className="text-slate-500">· {block.reason || "Перерыв"}</span>
+                <button
+                  type="button"
+                  data-action="delete-time-block"
+                  onClick={() => void removeBlock(block.id)}
+                  className="text-slate-400 transition hover:text-rose-500"
+                  title="Снять перерыв"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </Card>
+      </div>
+
       <AppointmentModal open={modalOpen} onClose={() => setModalOpen(false)} />
+
+      {/* Форма перерыва: дата, время и подпись. Пересечение с записью сервер
+          не примет — клиента сначала нужно перенести. */}
+      <Modal
+        open={blockOpen}
+        onClose={() => setBlockOpen(false)}
+        title="Технический перерыв"
+        subtitle="Обед, дорога или личные дела: клиенты не смогут занять это время"
+        footer={
+          <>
+            <GhostButton onClick={() => setBlockOpen(false)}>Отмена</GhostButton>
+            <PrimaryButton dataAction="block-save" onClick={() => void saveBlock()} disabled={blockState.saving}>
+              {blockState.saving ? "Сохраняем…" : "Закрыть время"}
+            </PrimaryButton>
+          </>
+        }
+      >
+        <div data-block="time-block-form" className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <p className="mb-1.5 text-xs font-medium text-slate-500">День недели</p>
+            <Select
+              value={blockDate}
+              onChange={setBlockDate}
+              options={demoWeek.map((day) => ({ value: day.iso, label: `${day.label}, ${day.weekday}` }))}
+            />
+          </div>
+          <TextField label="Начало (ЧЧ:ММ)" value={blockStart} onChange={setBlockStart} placeholder="13:00" />
+          <TextField label="Конец (ЧЧ:ММ)" value={blockEnd} onChange={setBlockEnd} placeholder="14:00" />
+          <div className="sm:col-span-2">
+            <TextField
+              label="Причина (видно только вам)"
+              value={blockReason}
+              onChange={setBlockReason}
+              placeholder="Обед"
+            />
+          </div>
+          {blockState.error && (
+            <p data-field="block-error" className="sm:col-span-2 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600">
+              {blockState.error}
+            </p>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

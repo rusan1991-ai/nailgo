@@ -28,6 +28,12 @@ export type BookingItem = {
   prepaymentAmount: number;
   paymentStatus: "none" | "pending" | "paid" | "refunded";
   status: "upcoming" | "completed" | "cancelled" | "no_show";
+  /**
+   * Можно ли отменить визит онлайн. Считает сервер: до визита меньше 6 часов —
+   * кнопка закрыта, а клиент видит причину и связывается с мастером.
+   */
+  canCancel: boolean;
+  cancelBlockedReason: string | null;
   /** Отзыв по визиту: null, если его ещё нет — тогда интерфейс предлагает оставить. */
   review: {
     id: string;
@@ -51,6 +57,8 @@ type ApiBooking = {
   prepaymentAmount?: number;
   paymentStatus?: "none" | "pending" | "paid" | "refunded";
   status: "pending" | "confirmed" | "completed" | "cancelled" | "no_show";
+  canCancel?: boolean;
+  cancelBlockedReason?: string | null;
   address: string;
   /** Отзыв по визиту: null, если отзыва ещё нет. */
   review: {
@@ -112,6 +120,8 @@ function toItem(booking: ApiBooking): BookingItem {
         : booking.status === "completed"
           ? "completed"
           : "upcoming",
+    canCancel: booking.canCancel ?? false,
+    cancelBlockedReason: booking.cancelBlockedReason ?? null,
     review: booking.review ?? null,
   };
 }

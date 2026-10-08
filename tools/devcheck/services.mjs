@@ -16,6 +16,12 @@ const assert = (label, ok, extra = "") => {
 };
 
 const DATE = nextWorkingISO(0);
+/**
+ * Для сравнения окон по длительности нужен день с полным набором свободного
+ * времени: вечером «сегодня» окон может не остаться вовсе, и сравнение
+ * потеряет смысл. Берём ближайший рабочий день впереди.
+ */
+const SLOT_DATE = nextWorkingISO(1);
 const master = await loginMaster();
 await resetDemo(master);
 
@@ -69,8 +75,8 @@ const badPrice = await apiAs(master, `/cabinet/services/${newId}`, { method: "PA
 assert("отрицательная цена отклоняется", badPrice.status === 400, `status=${badPrice.status}`);
 
 // Длительность нового окна влияет на расчёт слотов: 60 минут занимают больше времени.
-const slotsBefore = await api(`/masters/anna-smirnova/slots?date=${DATE}&serviceId=anna-smirnova-s7`); // 10 мин
-const slotsAfter = await api(`/masters/anna-smirnova/slots?date=${DATE}&serviceId=${newId}`); // 60 мин
+const slotsBefore = await api(`/masters/anna-smirnova/slots?date=${SLOT_DATE}&serviceId=anna-smirnova-s7`); // 10 мин
+const slotsAfter = await api(`/masters/anna-smirnova/slots?date=${SLOT_DATE}&serviceId=${newId}`); // 60 мин
 assert(
   "длительность услуги влияет на свободные окна",
   slotsBefore.status === 200 && slotsAfter.status === 200 && slotsAfter.data.slots.length < slotsBefore.data.slots.length,

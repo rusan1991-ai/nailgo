@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import { masters, reviews, services, workingHours, bookings } from "../db/schema.js";
@@ -10,10 +10,20 @@ import { freeSlotsForDay, freeWindows, windowLabel } from "../lib/slots.js";
 import { collectWindows } from "../lib/lastMinute.js";
 import { windowService } from "../lib/favorites.js";
 import { cartAvatars, masterGallery } from "./media.js";
+import { masterPublicPath } from "../lib/username.js";
+
+/**
+ * Сортировка витрины. `rating` — по умолчанию (топ отзывов выше), `reviews` —
+ * по числу отзывов, `price`/`price_desc` — по цене «от» в прайсе мастера.
+ */
+export const MASTER_SORTS = ["rating", "reviews", "price", "price_desc"] as const;
+export type MasterSort = (typeof MASTER_SORTS)[number];
 
 const listQuery = z.object({
   query: z.string().trim().optional(),
   service: z.string().trim().optional(),
+  /** Сортировка витрины: рейтинг, отзывы, цена. */
+  sort: z.enum(MASTER_SORTS).optional(),
   /** Регион выбора на входе: «Санкт-Петербург» или «Ленинградская область». */
   region: z.string().trim().optional(),
   /** `windows=1` — посчитать ближайшие свободные окна для карточек. */
@@ -22,6 +32,11 @@ const listQuery = z.object({
   metro: z.string().trim().max(60).optional(),
   /** Город Ленинградской области из справочника. */
   district: z.string().trim().max(60).optional(),
+  /**
+   * Только мастера, у которых в этот день есть свободное окно
+   * (`?date=2026-10-08`): «найти мастера, свободного в этот четверг».
+   */
+  date: z.string().trim().optional(),
 });
 
 /**
@@ -33,6 +48,20 @@ const MASTER_INACTIVE_MESSAGE = "Мастер снят с публикации";
 
 function inactiveReply(reply: { code: (status: number) => { send: (body: unknown) => unknown } }) {
   return reply.code(404).send({ error: "master_inactive", message: MASTER_INACTIVE_MESSAGE });
+}
+
+/**
+ * Мастер по любому из имён: канонический slug (`/master/anna-smirnova`) или
+ * короткая ссылка мастера (`/masters/anna_nails`). Обе ведут на одну витрину —
+ * старые ссылки не ломаются, когда мастер выбирает красивую.
+ */
+export async function masterByAnySlug(value: string) {
+  const [master] = await db
+    .select()
+    .from(masters)
+    .where(or(eq(masters.slug, value), eq(masters.usernameSlug, value)))
+    .limit(1);
+  return master ?? null;
 }
 
 const lastMinuteQuery = z.object({
@@ -50,11 +79,13 @@ const slotsQuery = z.object({
 export async function catalogRoutes(app: FastifyInstance) {
   /** Каталог мастеров с поиском по имени, тегам и метро. */
   app.get("/masters", async (request) => {
-    const { query, service, region, windows, metro, district } = listQuery.parse(request.query ?? {});
+    const { query, service, region, windows, metro, district, sort, date } = listQuery.parse(request.query ?? {});
     const needle = query?.toLowerCase();
     const serviceNeedle = service?.toLowerCase();
 
     const rows = await db.select().from(masters).orderBy(desc(masters.rating));
+    const sortBy: MasterSort = sort ?? "rating";
+    const freeDateISO = date && isValidISODate(date) ? date : null;
     const filtered = rows
         // Витрина показывает только активных: мастер на паузе или заблокирован
         // администратором не должен собирать записи.
@@ -73,21 +104,35 @@ export async function catalogRoutes(app: FastifyInstance) {
           return true;
         });
 
+    // Сортировка витрины. Рейтинг — «топ выше», цена — «от дешёвых к дорогим»;
+    // при равных значениях порядок стабильный: по имени, чтобы выдача не
+    // прыгала между запросами.
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortBy === "price" && a.priceFrom !== b.priceFrom) return a.priceFrom - b.priceFrom;
+      if (sortBy === "price_desc" && a.priceFrom !== b.priceFrom) return b.priceFrom - a.priceFrom;
+      if (sortBy === "reviews" && a.reviewsCount !== b.reviewsCount) return b.reviewsCount - a.reviewsCount;
+      if (sortBy === "rating" && a.rating !== b.rating) return b.rating - a.rating;
+      return a.name.localeCompare(b.name, "ru");
+    });
+
     // Окна нужны карточкам поиска и карточке мастера: показываем настоящие
     // свободные слоты вместо демо-времени. Считаем только по запросу, чтобы
     // каталог для главной не платил за лишние расчёты.
-    const withWindows = windows === "1";
+    const withWindows = windows === "1" || freeDateISO !== null;
 
     /** Аватары всех мастеров одним запросом: витрина показывает фото, не инициалы. */
-    const avatars = await cartAvatars(filtered.map((master) => master.id));
+    const avatars = await cartAvatars(sorted.map((master) => master.id));
     const items = [];
-    for (const master of filtered) {
+    for (const master of sorted) {
       const base = {
         avatarUrl: avatars.get(master.id)?.thumbUrl ?? null,
         avatarFullUrl: avatars.get(master.id)?.url ?? null,
         metroSlug: master.metroSlug,
         districtSlug: master.districtSlug,
         slug: master.slug,
+        /** Короткая ссылка мастера: `/masters/<username>` (может быть не задана). */
+        usernameSlug: master.usernameSlug,
+        publicPath: masterPublicPath(master),
         name: master.name,
         tags: master.tags,
         about: master.about,
@@ -104,15 +149,43 @@ export async function catalogRoutes(app: FastifyInstance) {
         reviewsCount: master.reviewsCount,
       };
 
+      const service = await windowService(master.id);
+
+      // Фильтр «свободен в этот день»: считаем окна на конкретную дату по самой
+      // длинной услуге мастера — если она помещается, поместится и любая другая.
+      let daySlots: Awaited<ReturnType<typeof freeSlotsForDay>> = null;
+      if (freeDateISO) {
+        daySlots = service ? await freeSlotsForDay(master, freeDateISO, service.durationMinutes) : null;
+        if (!daySlots?.slots.length) continue;
+      }
+
       if (!withWindows) {
         items.push({ ...base, nextWindows: [] });
         continue;
       }
 
-      const service = await windowService(master.id);
-      const found = service ? await freeWindows(master, service.durationMinutes, { days: 7, max: 4 }) : [];
+      const found = service
+        ? await freeWindows(master, service.durationMinutes, {
+            days: freeDateISO ? 1 : 7,
+            max: freeDateISO ? daySlots?.slots.length ?? 0 : 4,
+            fromDateISO: freeDateISO ?? undefined,
+          })
+        : [];
       items.push({
         ...base,
+        /** Сколько окон осталось в выбранный день — для подписи «свободен». */
+        ...(freeDateISO
+          ? {
+              freeOnDate: {
+                dateISO: freeDateISO,
+                slots: daySlots?.slots.length ?? 0,
+                firstLabel: daySlots?.slots.length ? windowLabel(daySlots.slots[0]!) : null,
+                serviceId: service?.id ?? null,
+                serviceName: service?.name ?? null,
+                durationMinutes: service?.durationMinutes ?? 60,
+              },
+            }
+          : {}),
         nextWindows: found.map((window) => ({
           dateISO: window.dateISO,
           startMinutes: window.startMinutes,
@@ -172,7 +245,9 @@ export async function catalogRoutes(app: FastifyInstance) {
   app.get("/masters/:slug", async (request, reply) => {
     const { slug } = request.params as { slug: string };
 
-    const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
+    // Принимаем и обычный slug, и короткую ссылку мастера: `/<username>` должен
+    // открывать ту же витрину, а не отдельную копию профиля.
+    const master = await masterByAnySlug(slug);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Мастер не найден" });
     if (master.status !== "active") return inactiveReply(reply);
 
@@ -190,6 +265,9 @@ export async function catalogRoutes(app: FastifyInstance) {
 
     return {
       slug: master.slug,
+      /** Короткая ссылка: витрина показывает её мастеру и в кнопке «поделиться». */
+      usernameSlug: master.usernameSlug,
+      publicPath: masterPublicPath(master),
       name: master.name,
       tags: master.tags,
       about: master.about,
@@ -300,7 +378,7 @@ export async function catalogRoutes(app: FastifyInstance) {
   app.get("/masters/:slug/services", async (request, reply) => {
     const { slug } = request.params as { slug: string };
 
-    const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
+    const master = await masterByAnySlug(slug);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Мастер не найден" });
     if (master.status !== "active") return inactiveReply(reply);
 
@@ -413,7 +491,7 @@ export async function catalogRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "bad_request", message: "Некорректная дата" });
     }
 
-    const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
+    const master = await masterByAnySlug(slug);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Мастер не найден" });
     if (master.status !== "active") return inactiveReply(reply);
 

@@ -10,6 +10,8 @@ import { Avatar, NailStrip } from "../components/NailUi";
 import { formatRub, slots } from "../data/mock";
 import { useCatalog, durationLabel } from "../catalog/store";
 import { LocationPicker, type PickedPlace } from "../components/LocationPicker";
+import { SmartSearchPanel } from "../components/SmartSearchPanel";
+import { useMasterSearch, type MasterSearchItem, type MasterSort } from "../api/search";
 import { demoWeek } from "../store/bookings";
 
 const filters = [
@@ -38,6 +40,31 @@ export function HomePage() {
       ? { kind: "district", slug: districtParam, name: masters.find((master) => master.districtSlug === districtParam)?.metro.replace(/^г\.\s*/, "") ?? districtParam }
       : null;
 
+  /**
+   * Умный поиск: сортировка и «свободен в этот день». Параметры живут в адресе
+   * (`?sort=price&date=2026-10-08`) — ссылку на такую выдачу можно отправить.
+   */
+  const sortParam = (searchParams.get("sort") as MasterSort | null) ?? "rating";
+  const dateParam = searchParams.get("date");
+  const setParam = (key: string, value: string | null) => {
+    const params = new URLSearchParams(searchParams);
+    if (value) params.set(key, value);
+    else params.delete(key);
+    setSearchParams(params, { replace: true });
+  };
+  const smartActive = Boolean(searchParams.get("sort") || dateParam);
+
+  const smart = useMasterSearch(
+    {
+      sort: sortParam,
+      date: dateParam,
+      metro: metroParam,
+      district: districtParam,
+      region,
+    },
+    smartActive,
+  );
+
   const choosePlace = (next: PickedPlace) => {
     const params = new URLSearchParams(searchParams);
     params.delete("metro");
@@ -61,6 +88,14 @@ export function HomePage() {
         place.kind === "metro" ? master.metroSlug === place.slug : master.districtSlug === place.slug,
       )
     : regionalMasters;
+  /**
+   * Что показываем в списке: результат серверного поиска (когда включена
+   * сортировка или дата) или отфильтрованный каталог для обычного экрана.
+   */
+  const listedMasters: MasterSearchItem[] =
+    smartActive && smart.data ? smart.data.items : (placeMasters as MasterSearchItem[]);
+  const listedCount = listedMasters.length;
+
   const defaultServiceId = services[1]?.id ?? services[0]?.id ?? "s1";
   const bookingTarget = `/booking?master=anna-smirnova&service=${defaultServiceId}&date=${demoWeek[0].iso}&slot=19:00`;
   const bookingLink = user ? bookingTarget : `/login?returnTo=${encodeURIComponent(bookingTarget)}`;
@@ -117,21 +152,32 @@ export function HomePage() {
           <div>
             <LocationPicker place={place} onPick={choosePlace} className="mb-4" />
 
+            <SmartSearchPanel
+              sort={sortParam}
+              date={dateParam}
+              available={smartActive && smart.data ? smart.data.items.length : null}
+              onSort={(next) => setParam("sort", next === "rating" ? null : next)}
+              onDate={(next) => setParam("date", next)}
+              onClearDate={() => setParam("date", null)}
+            />
+
             <div className="mb-3">
               <h2 className="text-3xl font-semibold">{place ? "Мастера у выбранного места" : "Мастера рядом"}</h2>
               <p className="text-slate-500">
-                {place
-                  ? placeMasters.length > 0
-                    ? `${placeMasters.length} ${placeMasters.length === 1 ? "мастер" : "мастера"}: ${place.kind === "metro" ? "м. " : "г. "}${place.name}`
-                    : `у места «${place.name}» мастеров пока нет — выберите другое`
-                  : regionalMasters.length > 0
-                    ? `${regionalMasters.length} ${regionalMasters.length === 1 ? "мастер" : "мастера"} в регионе: ${region}`
-                    : `в регионе «${region}» мастеров пока нет`}
+                {listedCount > 0
+                  ? `${listedCount} ${listedCount === 1 ? "мастер" : "мастера"}` +
+                    (place ? `: ${place.kind === "metro" ? "м. " : "г. "}${place.name}` : ` в регионе: ${region}`) +
+                    (dateParam ? ` · свободны ${dateParam.split("-").reverse().join(".")} ` : "")
+                  : dateParam
+                    ? `на выбранный день свободных мастеров нет — попробуйте другую дату`
+                    : place
+                      ? `у места «${place.name}» мастеров пока нет — выберите другое`
+                      : `в регионе «${region}» мастеров пока нет`}
               </p>
             </div>
 
             <div className="space-y-3" data-block="home-masters">
-              {placeMasters.map((master, idx) => (
+              {listedMasters.map((master, idx) => (
                 <motion.article
                   key={master.slug}
                   initial={{ opacity: 0, x: -14 }}
@@ -155,6 +201,15 @@ export function HomePage() {
                     </div>
                     <FavoriteButton masterSlug={master.slug} masterName={master.name} />
                   </div>
+                  {dateParam && master.freeOnDate && (
+                    <p
+                      data-free-on={dateParam}
+                      className="mt-2 inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700"
+                    >
+                      Свободен: {master.freeOnDate.slots} окон
+                      {master.freeOnDate.firstLabel ? `, начиная с ${master.freeOnDate.firstLabel}` : ""}
+                    </p>
+                  )}
                   <div className="mt-3 flex items-center justify-between">
                     <NailStrip />
                     <p className="text-lg font-semibold">
@@ -174,12 +229,12 @@ export function HomePage() {
             )}
             <CityPicker variant="wide" />
             <CityMap
-              masters={placeMasters}
+              masters={listedMasters}
               center={
-                place && placeMasters.find((master) => master.lat && master.lng)
+                place && listedMasters.find((master) => master.lat && master.lng)
                   ? {
-                      lat: placeMasters.find((master) => master.lat && master.lng)!.lat!,
-                      lng: placeMasters.find((master) => master.lat && master.lng)!.lng!,
+                      lat: listedMasters.find((master) => master.lat && master.lng)!.lat!,
+                      lng: listedMasters.find((master) => master.lat && master.lng)!.lng!,
                     }
                   : regionInfo.center
               }

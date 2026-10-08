@@ -1,11 +1,12 @@
 import type { FastifyInstance } from "fastify";
-import { and, asc, desc, eq, gte, lt, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { bookings, masters, reviews, services, users, workingHours } from "../db/schema.js";
+import { bookings, masterClients, masters, reviews, services, timeBlocks, users, workingHours } from "../db/schema.js";
 import { env, isDev } from "../env.js";
 import {
   addDaysISO,
+  atMinutes,
   dayBounds,
   devNow,
   isValidISODate,
@@ -30,6 +31,7 @@ import { markPaid, refundBookingPayment } from "../lib/payments.js";
 import { paymentRowsForBooking } from "./payments.js";
 import { notifyFavoritesAboutWindow, windowService } from "../lib/favorites.js";
 import { freeSlotsForDay } from "../lib/slots.js";
+import { checkUsername, masterPublicPath, usernameTaken } from "../lib/username.js";
 
 const listQuery = z.object({
   status: z.enum(["all", "pending", "confirmed", "completed", "cancelled", "no_show"]).optional(),
@@ -158,6 +160,13 @@ export async function cabinetRoutes(app: FastifyInstance) {
         status: master.status,
         statusReason: master.statusReason,
         statusChangedAt: master.statusChangedAt?.toISOString() ?? null,
+        /**
+         * Короткая ссылка мастера: `/<username>` и `/masters/<username>`.
+         * Мастер видит её в настройках и может менять — старая ссылка
+         * `/master/<slug>` при этом продолжает работать.
+         */
+        usernameSlug: master.usernameSlug,
+        publicPath: masterPublicPath(master),
       },
     };
   });
@@ -186,8 +195,32 @@ export async function cabinetRoutes(app: FastifyInstance) {
           .optional(),
         /** 0 — общий шаг площадки, иначе 15/30/60 минут. */
         slotStepMinutes: z.union([z.literal(0), z.literal(15), z.literal(30), z.literal(60)]).optional(),
+        /**
+         * Короткая ссылка: пустая строка снимает её (остаётся `/master/<slug>`).
+         * Формат проверяем до базы, занятость — запросом.
+         */
+        usernameSlug: z.string().trim().max(40).optional(),
       })
       .parse(request.body ?? {});
+
+    let usernameSlug: string | null | undefined;
+    if (input.usernameSlug !== undefined) {
+      const value = input.usernameSlug.replace(/^@/, "");
+      if (!value) {
+        usernameSlug = null;
+      } else {
+        const checked = checkUsername(value);
+        if (!checked.ok) {
+          return reply.code(400).send({ error: "username_format", message: checked.message });
+        }
+        if (await usernameTaken(checked.username, master.id)) {
+          return reply
+            .code(409)
+            .send({ error: "username_taken", message: "Эта ссылка уже занята — выберите другую" });
+        }
+        usernameSlug = checked.username;
+      }
+    }
 
     await db
       .update(masters)
@@ -203,6 +236,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
         ...(input.priceFrom !== undefined ? { priceFrom: input.priceFrom } : {}),
         ...(input.timezone !== undefined ? { timezone: input.timezone } : {}),
         ...(input.slotStepMinutes !== undefined ? { slotStepMinutes: input.slotStepMinutes } : {}),
+        ...(usernameSlug !== undefined ? { usernameSlug } : {}),
       })
       .where(eq(masters.id, master.id));
 
@@ -210,7 +244,11 @@ export async function cabinetRoutes(app: FastifyInstance) {
       await db.update(users).set({ name: input.name }).where(eq(users.id, master.userId));
     }
 
-    return { ok: true, savedAt: new Date().toISOString() };
+    return {
+      ok: true,
+      savedAt: new Date().toISOString(),
+      ...(usernameSlug !== undefined ? { usernameSlug } : {}),
+    };
   });
 
   /**
@@ -342,7 +380,13 @@ export async function cabinetRoutes(app: FastifyInstance) {
   /** Мастер создаёт запись вручную. */
   app.post("/cabinet/bookings", masterOnly, async (request, reply) => {
     const input = createBookingSchema.parse(request.body ?? {});
-    const { row, service, payload } = await createBooking(input, { source: "master", status: "confirmed" });
+    // `now` — дев-параметр (см. `devNow`): в проверках он позволяет поставить
+    // запись «как будто сейчас утро», не дожидаясь нужного часа.
+    const { row, service, payload } = await createBooking(input, {
+      source: "master",
+      status: "confirmed",
+      now: devNow(input.now),
+    });
     await notifyBookingEvent(row, service, "created_by_master");
     return reply.code(201).send({ booking: payload });
   });
@@ -567,11 +611,32 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
     const items = rows.map((row) => serializeBooking(row.booking, row.master, row.service));
 
+    // Технические перерывы идут тем же ответом: сетка расписания рисует их
+    // серыми блоками, и мастер видит, почему клиент не может записаться.
+    const blocks = await db
+      .select()
+      .from(timeBlocks)
+      .where(
+        and(
+          eq(timeBlocks.masterId, master.id),
+          gte(timeBlocks.endAt, dayBounds(from, master.timezone).start),
+          lt(timeBlocks.startAt, dayBounds(to, master.timezone).end),
+        ),
+      )
+      .orderBy(asc(timeBlocks.startAt));
+
     return {
       from,
       to,
       days: [...new Set(items.map((booking) => booking.dateISO))].sort(),
       items,
+      blocks: blocks.map((row) => ({
+        id: row.id,
+        dateISO: toISODate(row.startAt, master.timezone),
+        startMinutes: minutesOfDay(row.startAt, master.timezone),
+        endMinutes: minutesOfDay(row.endAt, master.timezone),
+        reason: row.reason,
+      })),
     };
   });
 
@@ -645,15 +710,343 @@ export async function cabinetRoutes(app: FastifyInstance) {
       }
     }
 
-    const items = [...byPhone.values()]
-      .filter((client) => (needle ? `${client.name} ${client.phone}`.toLowerCase().includes(needle) : true))
-      .sort((a, b) => (a.lastVisitISO < b.lastVisitISO ? 1 : -1))
+    const fromBookings = [...byPhone.values()]
       .map(({ sources, ...client }) => ({
         ...client,
+        /** Откуда клиент в списке: из записей витрины или из блокнота мастера. */
+        kind: "booking" as const,
+        id: null as string | null,
+        note: null as string | null,
+        telegram: null as string | null,
+        max: null as string | null,
         source: sources.filter((item) => item === "master").length > sources.length / 2 ? "master" : "client",
       }));
 
+    /**
+     * Своя база мастера: карточки, которые он завёл руками. Клиент из записей
+     * и карточка с тем же телефоном — один человек: телефон карточки важнее
+     * (мастер мог поправить контакт), пустая дата визита означает «ещё не был».
+     */
+    const cards = await db
+      .select()
+      .from(masterClients)
+      .where(eq(masterClients.masterId, master.id))
+      .orderBy(asc(masterClients.name));
+
+    const items = [
+      ...fromBookings.map((client) => {
+        const card = client.phone ? cards.find((row) => row.phone === client.phone) : undefined;
+        if (!card) return client;
+        return {
+          ...client,
+          id: card.id,
+          kind: "booking" as const,
+          note: card.note,
+          telegram: card.telegram,
+          max: card.max,
+          name: card.name || client.name,
+        };
+      }),
+      ...cards
+        .filter((card) => !card.phone || !byPhone.has(card.phone))
+        .map((card) => ({
+          name: card.name,
+          phone: card.phone,
+          visits: 0,
+          /** Визитов ещё не было: интерфейс пишет «—», а не пустую дату. */
+          lastVisitISO: null as string | null,
+          avgCheck: 0,
+          totalSpent: 0,
+          lastService: "",
+          masterName: master.name,
+          cancelled: 0,
+          source: "master" as const,
+          kind: "manual" as const,
+          id: card.id,
+          note: card.note,
+          telegram: card.telegram,
+          max: card.max,
+        })),
+    ]
+      .filter((client) => (needle ? `${client.name} ${client.phone ?? ""}`.toLowerCase().includes(needle) : true))
+      .sort((a, b) => {
+        if (a.lastVisitISO === b.lastVisitISO) return a.name.localeCompare(b.name, "ru");
+        if (!a.lastVisitISO) return 1;
+        if (!b.lastVisitISO) return -1;
+        return a.lastVisitISO < b.lastVisitISO ? 1 : -1;
+      });
+
     return { items, total: items.length };
+  });
+
+  /**
+   * Карточка клиента в своей базе мастера.
+   *
+   * Мастер заводит клиента руками: имя обязательно, телефон и мессенджеры —
+   * по желанию (клиент мог прийти по рекомендации и оставить только ник).
+   * Повторная запись по тому же телефону обновляет карточку, а не плодит дубли.
+   */
+  const clientCardSchema = z.object({
+    name: z.string().trim().min(2, "Укажите имя").max(80),
+    phone: z
+      .string()
+      .trim()
+      .max(25)
+      .transform((value) => (value ? normalizePhone(value) : ""))
+      .refine((value) => !value || value.length >= 12, "Укажите телефон полностью")
+      .optional(),
+    telegram: z.string().trim().max(80).optional(),
+    max: z.string().trim().max(80).optional(),
+    note: z.string().trim().max(1000).optional(),
+  });
+
+  type ClientCardResult =
+    | { card: typeof masterClients.$inferSelect }
+    | { reply: { code: number; error: string; message: string } };
+
+  async function clientCardById(id: string, masterId: string): Promise<ClientCardResult> {
+    const [card] = await db.select().from(masterClients).where(eq(masterClients.id, id)).limit(1);
+    if (!card) return { reply: { code: 404, error: "not_found", message: "Клиент не найден" } };
+    if (card.masterId !== masterId) {
+      return { reply: { code: 403, error: "forbidden", message: "Это клиент другого мастера" } };
+    }
+    return { card };
+  }
+
+  app.post("/cabinet/clients", masterOnly, async (request, reply) => {
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const input = clientCardSchema.parse(request.body ?? {});
+    const phone = input.phone ? input.phone : null;
+
+    // Телефон есть — карточка одна на номер: повторное добавление обновляет её.
+    if (phone) {
+      const [existing] = await db
+        .select()
+        .from(masterClients)
+        .where(and(eq(masterClients.masterId, master.id), eq(masterClients.phone, phone)))
+        .limit(1);
+      if (existing) {
+        const [updated] = await db
+          .update(masterClients)
+          .set({
+            name: input.name,
+            telegram: input.telegram || null,
+            max: input.max || null,
+            note: input.note || null,
+            updatedAt: new Date(),
+          })
+          .where(eq(masterClients.id, existing.id))
+          .returning();
+        return reply.code(200).send({ client: updated, updated: true });
+      }
+    }
+
+    const [created] = await db
+      .insert(masterClients)
+      .values({
+        masterId: master.id,
+        name: input.name,
+        phone,
+        telegram: input.telegram || null,
+        max: input.max || null,
+        note: input.note || null,
+      })
+      .returning();
+
+    return reply.code(201).send({ client: created, updated: false });
+  });
+
+  app.patch("/cabinet/clients/:id", masterOnly, async (request, reply) => {
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const { id } = request.params as { id: string };
+    const found = await clientCardById(id, master.id);
+    if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
+
+    const input = clientCardSchema.partial().parse(request.body ?? {});
+    const phone = input.phone === undefined ? undefined : input.phone ? input.phone : null;
+
+    if (phone) {
+      const [twin] = await db
+        .select({ id: masterClients.id })
+        .from(masterClients)
+        .where(and(eq(masterClients.masterId, master.id), eq(masterClients.phone, phone)))
+        .limit(1);
+      if (twin && twin.id !== id) {
+        return reply
+          .code(409)
+          .send({ error: "client_exists", message: "Клиент с таким телефоном уже есть в базе" });
+      }
+    }
+
+    const [updated] = await db
+      .update(masterClients)
+      .set({
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(phone !== undefined ? { phone } : {}),
+        ...(input.telegram !== undefined ? { telegram: input.telegram || null } : {}),
+        ...(input.max !== undefined ? { max: input.max || null } : {}),
+        ...(input.note !== undefined ? { note: input.note || null } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(masterClients.id, id))
+      .returning();
+
+    return { client: updated };
+  });
+
+  app.delete("/cabinet/clients/:id", masterOnly, async (request, reply) => {
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const { id } = request.params as { id: string };
+    const found = await clientCardById(id, master.id);
+    if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
+
+    // Удаляем только карточку-блокнот: записи клиента остаются в истории.
+    await db.delete(masterClients).where(eq(masterClients.id, id));
+    return { ok: true };
+  });
+
+  /**
+   * Технические перерывы мастера: обед, дорога, личные дела.
+   *
+   * Перерыв — не запись: в статистику и деньги он не попадает, но закрывает
+   * время для клиентов (в окнах витрины его не видно, запись получает 409
+   * `time_blocked`). Поэтому пересечение с существующей записью запрещено:
+   * сначала перенесите клиента, потом закрывайте время.
+   */
+  const timeBlockSchema = z.object({
+    dateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата в формате YYYY-MM-DD"),
+    startMinutes: z.number().int().min(0).max(24 * 60 - 1),
+    endMinutes: z.number().int().min(1).max(24 * 60),
+    reason: z.string().trim().max(120).optional(),
+  });
+
+  app.get("/cabinet/time-blocks", masterOnly, async (request, reply) => {
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const { from, to } = z
+      .object({ from: z.string().optional(), to: z.string().optional() })
+      .parse(request.query ?? {});
+    const fromDate = from && isValidISODate(from) ? from : toISODate(new Date(), master.timezone);
+    const toDate = to && isValidISODate(to) ? to : addDaysISO(fromDate, 14);
+
+    const rows = await db
+      .select()
+      .from(timeBlocks)
+      .where(
+        and(
+          eq(timeBlocks.masterId, master.id),
+          gte(timeBlocks.endAt, dayBounds(fromDate, master.timezone).start),
+          lt(timeBlocks.startAt, dayBounds(toDate, master.timezone).end),
+        ),
+      )
+      .orderBy(asc(timeBlocks.startAt));
+
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        dateISO: toISODate(row.startAt, master.timezone),
+        startMinutes: minutesOfDay(row.startAt, master.timezone),
+        endMinutes: minutesOfDay(row.endAt, master.timezone),
+        startAt: row.startAt.toISOString(),
+        endAt: row.endAt.toISOString(),
+        reason: row.reason,
+      })),
+      from: fromDate,
+      to: toDate,
+      timezone: master.timezone,
+    };
+  });
+
+  app.post("/cabinet/time-blocks", masterOnly, async (request, reply) => {
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const input = timeBlockSchema.parse(request.body ?? {});
+    if (input.endMinutes <= input.startMinutes) {
+      return reply.code(400).send({ error: "bad_range", message: "Конец перерыва должен быть позже начала" });
+    }
+
+    const startAt = atMinutes(input.dateISO, input.startMinutes, master.timezone);
+    const endAt = atMinutes(input.dateISO, input.endMinutes, master.timezone);
+
+    // Перерыв поверх визита — конфликт: клиент уже ждёт мастера в это время.
+    const [conflict] = await db
+      .select({ id: bookings.id })
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.masterId, master.id),
+          ne(bookings.status, "cancelled"),
+          lt(bookings.startAt, endAt),
+          gt(bookings.endAt, startAt),
+        ),
+      )
+      .limit(1);
+    if (conflict) {
+      return reply.code(409).send({
+        error: "block_conflict",
+        message: "На это время уже есть запись — сначала перенесите её",
+      });
+    }
+
+    // Два перерыва внахлёст — тоже конфликт: иначе в списке появляются
+    // «двойные обеды», а снять их можно только по одному.
+    const [blockedAlready] = await db
+      .select({ id: timeBlocks.id, reason: timeBlocks.reason })
+      .from(timeBlocks)
+      .where(
+        and(
+          eq(timeBlocks.masterId, master.id),
+          lt(timeBlocks.startAt, endAt),
+          gt(timeBlocks.endAt, startAt),
+        ),
+      )
+      .limit(1);
+    if (blockedAlready) {
+      return reply.code(409).send({
+        error: "block_conflict",
+        message: blockedAlready.reason
+          ? `Это время уже закрыто перерывом («${blockedAlready.reason}»)`
+          : "Это время уже закрыто перерывом",
+      });
+    }
+
+    const [created] = await db
+      .insert(timeBlocks)
+      .values({ masterId: master.id, startAt, endAt, reason: input.reason || null })
+      .returning();
+
+    return reply.code(201).send({
+      block: {
+        id: created!.id,
+        dateISO: input.dateISO,
+        startMinutes: input.startMinutes,
+        endMinutes: input.endMinutes,
+        reason: created!.reason,
+      },
+    });
+  });
+
+  app.delete("/cabinet/time-blocks/:id", masterOnly, async (request, reply) => {
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const { id } = request.params as { id: string };
+    const [block] = await db.select().from(timeBlocks).where(eq(timeBlocks.id, id)).limit(1);
+    if (!block) return reply.code(404).send({ error: "not_found", message: "Перерыв не найден" });
+    if (block.masterId !== master.id) {
+      return reply.code(403).send({ error: "forbidden", message: "Это перерыв другого мастера" });
+    }
+
+    await db.delete(timeBlocks).where(eq(timeBlocks.id, id));
+    return { ok: true };
   });
 
   /**

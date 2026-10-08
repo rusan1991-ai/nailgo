@@ -32,9 +32,11 @@ export type CabinetStats = {
 
 export type CabinetClient = {
   name: string;
-  phone: string;
+  /** Телефона может не быть: клиент из блокнота мог оставить только мессенджер. */
+  phone: string | null;
   visits: number;
-  lastVisitISO: string;
+  /** Пусто у карточки из базы, по которой ещё не было визитов. */
+  lastVisitISO: string | null;
   avgCheck: number;
   totalSpent: number;
   lastService: string;
@@ -42,7 +44,79 @@ export type CabinetClient = {
   cancelled: number;
   /** Чем чаще приходил клиент: онлайн-записью или через кабинет. */
   source: "client" | "master";
+  /** `booking` — клиент из записей, `manual` — карточка, заведённая мастером. */
+  kind: "booking" | "manual";
+  /** id карточки в базе мастера: нужен для правок и удаления. */
+  id: string | null;
+  /** Заметка про особенности ногтей и аллергии — рабочий блокнот мастера. */
+  note: string | null;
+  telegram: string | null;
+  max: string | null;
 };
+
+/** Карточка клиента: то, что мастер заполняет вручную. */
+export type MasterClientInput = {
+  name: string;
+  phone?: string;
+  telegram?: string;
+  max?: string;
+  note?: string;
+};
+
+export type MasterClientCard = {
+  id: string;
+  name: string;
+  phone: string | null;
+  telegram: string | null;
+  max: string | null;
+  note: string | null;
+};
+
+/**
+ * Добавить клиента в свою базу. Повторная запись по тому же телефону
+ * обновляет существующую карточку — дублей в базе не появляется.
+ */
+export async function createMasterClient(input: MasterClientInput): Promise<{ client: MasterClientCard; updated: boolean }> {
+  return api.post<{ client: MasterClientCard; updated: boolean }>("/cabinet/clients", input);
+}
+
+export async function updateMasterClient(id: string, input: Partial<MasterClientInput>): Promise<{ client: MasterClientCard }> {
+  return api.patch<{ client: MasterClientCard }>(`/cabinet/clients/${id}`, input);
+}
+
+export async function deleteMasterClient(id: string): Promise<void> {
+  await api.delete(`/cabinet/clients/${id}`);
+}
+
+/** Технический перерыв мастера: обед, дорога, личные дела. */
+export type TimeBlock = {
+  id: string;
+  dateISO: string;
+  startMinutes: number;
+  endMinutes: number;
+  reason: string | null;
+};
+
+export type TimeBlockInput = {
+  dateISO: string;
+  startMinutes: number;
+  endMinutes: number;
+  reason?: string;
+};
+
+export function useTimeBlocks(from: string, to: string): Resource<{ items: TimeBlock[]; from: string; to: string }> {
+  return useApiResource<{ items: TimeBlock[]; from: string; to: string }>(
+    `/cabinet/time-blocks?from=${from}&to=${to}`,
+  );
+}
+
+export async function createTimeBlock(input: TimeBlockInput): Promise<{ block: TimeBlock }> {
+  return api.post<{ block: TimeBlock }>("/cabinet/time-blocks", input);
+}
+
+export async function deleteTimeBlock(id: string): Promise<void> {
+  await api.delete(`/cabinet/time-blocks/${id}`);
+}
 
 export type CabinetReview = {
   id: string;

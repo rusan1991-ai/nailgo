@@ -13,7 +13,6 @@ import {
   Stars,
   type ChipTone,
 } from "../components/ui";
-import { reviewRows } from "../data";
 import { complainAboutReview, replyToReview, useCabinetReviews, type CabinetReview } from "../../api/cabinet";
 import { formatDateLabel } from "../../store/bookings";
 
@@ -46,27 +45,10 @@ export function ReviewsProPage() {
   const [complaintBusy, setComplaintBusy] = useState(false);
 
   const { data, loading, error, reload } = useCabinetReviews();
-  const live = Boolean(data && data.items.length > 0);
+  /** Отзывы только из базы: строк макета на экране больше нет. */
+  const live = Boolean(data);
 
-  /** Реальные отзывы из базы; если API недоступен — строки макета. */
-  const allReviews = useMemo<CabinetReview[]>(() => {
-    if (data && data.items.length > 0) return data.items;
-    return reviewRows.map((row) => ({
-      id: row.id,
-      clientName: row.client,
-      score: row.score,
-      text: row.text,
-      service: row.service,
-      status: row.status as ReviewStatus,
-      hiddenReason: null,
-      complaintText: null,
-      complaintAt: null,
-      replyText: null,
-      repliedAt: null,
-      createdAt: "2024-05-22T12:00:00.000Z",
-      dateISO: "2024-05-22",
-    }));
-  }, [data]);
+  const allReviews = useMemo<CabinetReview[]>(() => data?.items ?? [], [data]);
 
   const rows = useMemo(() => {
     let result = allReviews;
@@ -81,7 +63,7 @@ export function ReviewsProPage() {
   }, [allReviews, query, status, score, service]);
 
   const services = Array.from(new Set(allReviews.map((row) => row.service)));
-  const average = live && data ? data.average.toFixed(1) : "—";
+  const average = data ? data.average.toFixed(1) : "—";
   const counts = data?.byStatus ?? {
     published: allReviews.filter((row) => row.status === "published").length,
     moderation: allReviews.filter((row) => row.status === "moderation").length,
@@ -264,11 +246,9 @@ export function ReviewsProPage() {
       />
 
       <p className="mt-2 text-xs text-slate-400">
-        {live
-          ? "Отзывы из базы: решения о публикации принимает администратор, ответ мастера сохраняется сразу."
-          : loading
-            ? "Загружаем отзывы из базы…"
-            : "API недоступен — показаны строки макета"}
+        {loading && !data
+          ? "Загружаем отзывы из базы…"
+          : "Отзывы из базы: решения о публикации принимает администратор, ответ мастера сохраняется сразу."}
       </p>
 
       <Modal

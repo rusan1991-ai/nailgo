@@ -25,6 +25,7 @@ import { MessagesClientPage } from "./pages/MessagesClientPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { SearchMapPage } from "./pages/SearchMapPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { ShortLinkPage } from "./pages/ShortLinkPage";
 import { AccountPage } from "./pages/AccountPage";
 import { ReviewsPage } from "./pages/ReviewsPage";
 import { MasterLayout } from "./master/MasterLayout";
@@ -150,6 +151,12 @@ export default function App() {
             {/* Отдельный вход администратора: на сайте на него нет ссылок. */}
             <Route path="/admin/login" element={<AdminLoginPage />} />
             <Route path="/master/:slug" element={<MasterPage />} />
+            {/*
+              Короткие ссылки мастера: `/masters/any_nails` и «как в ВК» —
+              корневая `/any_nails`. Статические маршруты выше по приоритету,
+              поэтому разделы сайта они не перекрывают.
+            */}
+            <Route path="/masters/:username" element={<ShortLinkPage />} />
             <Route
               path="/booking"
               element={
@@ -168,6 +175,8 @@ export default function App() {
               }
             >
               <Route index element={<DashboardPage />} />
+              {/* `/pro/dashboard` — тот же обзор: адрес из документации этапа. */}
+              <Route path="dashboard" element={<DashboardPage />} />
               <Route path="schedule" element={<SchedulePage />} />
               <Route path="bookings" element={<BookingsPage />} />
               <Route path="clients" element={<ClientsPage />} />
@@ -219,6 +228,15 @@ export default function App() {
                 </RequireAuth>
               }
             />
+            {/* Кабинет клиента доступен и по адресу /cabinet — тем же экраном. */}
+            <Route
+              path="/cabinet"
+              element={
+                <RequireAuth>
+                  <AccountPage />
+                </RequireAuth>
+              }
+            />
             <Route
               path="/settings"
               element={
@@ -251,6 +269,8 @@ export default function App() {
               <Route path="payments" element={<AdminPaymentsPage />} />
             </Route>
             <Route path="/home" element={<Navigate to="/" replace />} />
+            {/* Короткая ссылка мастера в корне: /any_nails */}
+            <Route path="/:username" element={<ShortLinkPage />} />
             <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </BrowserRouter>

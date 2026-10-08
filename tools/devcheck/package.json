@@ -29,7 +29,10 @@
     "oauth": "node oauth.mjs",
     "messengers": "node messengers.mjs",
     "media": "node media.mjs",
-    "admin": "node admin.mjs"
+    "admin": "node admin.mjs",
+    "short-links": "node short-links.mjs",
+    "master-crm": "node master-crm.mjs",
+    "client-cabinet": "node client-cabinet.mjs"
   },
   "dependencies": {
     "jsdom": "^30.1.2"

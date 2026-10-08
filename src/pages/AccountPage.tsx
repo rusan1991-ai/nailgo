@@ -21,7 +21,7 @@ export function AccountPage() {
   );
 
   return (
-    <ClientShell title="Мой профиль">
+    <ClientShell title="Мои записи">
       <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
         <div>
           <div className="mb-3 inline-flex rounded-xl border border-[#f1dde6] p-1 text-sm">
@@ -108,12 +108,30 @@ export function AccountPage() {
                         >
                           Перенести
                         </button>
+                        {/*
+                          Отмена закрывается за 6 часов до визита (решает
+                          сервер): мастер уже готовится, а окно не занять
+                          другим клиентом. Клиент видит причину отказа.
+                        */}
                         <button
                           onClick={() => void cancelBooking(booking.id)}
-                          className="rounded-lg border border-rose-200 px-3 py-1 text-sm text-rose-500 hover:bg-rose-50"
+                          disabled={!booking.canCancel}
+                          data-action="cancel-booking"
+                          data-can-cancel={booking.canCancel ? "1" : "0"}
+                          title={booking.cancelBlockedReason ?? "Отменить визит"}
+                          className={`rounded-lg border px-3 py-1 text-sm ${
+                            booking.canCancel
+                              ? "border-rose-200 text-rose-500 hover:bg-rose-50"
+                              : "cursor-not-allowed border-slate-200 text-slate-300"
+                          }`}
                         >
                           Отменить
                         </button>
+                        {!booking.canCancel && booking.cancelBlockedReason && (
+                          <p data-field="cancel-blocked" className="max-w-[220px] text-right text-xs text-slate-400">
+                            {booking.cancelBlockedReason}
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>

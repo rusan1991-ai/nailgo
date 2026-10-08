@@ -172,31 +172,6 @@ export const bookingTabs = [
   { id: "cancelled", label: "Отменённые", count: 4 },
 ];
 
-export type ClientRow = {
-  id: string;
-  name: string;
-  phone: string;
-  master: string;
-  lastVisit: string;
-  visits: number;
-  avgCheck: number;
-  status: "regular" | "new" | "away";
-  source: string;
-};
-
-export const clientRows: ClientRow[] = [
-  { id: "c1", name: "Анна Смирнова", phone: "+7 (999) 123-45-67", master: "Ксения Р.", lastVisit: "22 мая 2024", visits: 12, avgCheck: 2000, status: "regular", source: "Instagram" },
-  { id: "c2", name: "Татьяна Лебедева", phone: "+7 (999) 234-56-78", master: "Виктория К.", lastVisit: "20 мая 2024", visits: 8, avgCheck: 2100, status: "regular", source: "Рекомендация" },
-  { id: "c3", name: "Екатерина Волкова", phone: "+7 (999) 345-67-89", master: "Екатерина В.", lastVisit: "22 мая 2024", visits: 15, avgCheck: 1800, status: "regular", source: "Google" },
-  { id: "c4", name: "Елена Морозова", phone: "+7 (999) 456-78-90", master: "Надежда Т.", lastVisit: "18 мая 2024", visits: 6, avgCheck: 2500, status: "regular", source: "Instagram" },
-  { id: "c5", name: "Анастасия Титова", phone: "+7 (999) 567-89-01", master: "Анастасия Т.", lastVisit: "15 мая 2024", visits: 10, avgCheck: 2000, status: "new", source: "Реклама" },
-  { id: "c6", name: "Наталья Белова", phone: "+7 (999) 678-90-12", master: "Наталья Б.", lastVisit: "10 мая 2024", visits: 7, avgCheck: 1600, status: "regular", source: "Сайт" },
-  { id: "c7", name: "Ольга Петрова", phone: "+7 (999) 789-01-23", master: "Ольга П.", lastVisit: "8 мая 2024", visits: 9, avgCheck: 2200, status: "regular", source: "Рекомендация" },
-  { id: "c8", name: "Дарья Соколова", phone: "+7 (999) 890-12-34", master: "Дарья С.", lastVisit: "5 мая 2024", visits: 11, avgCheck: 2300, status: "regular", source: "Instagram" },
-  { id: "c9", name: "Марина Долгова", phone: "+7 (999) 901-23-45", master: "Марина Д.", lastVisit: "3 мая 2024", visits: 5, avgCheck: 1900, status: "away", source: "Google" },
-  { id: "c10", name: "Ирина Козлова", phone: "+7 (999) 012-34-56", master: "Ирина К.", lastVisit: "1 мая 2024", visits: 4, avgCheck: 1500, status: "away", source: "Instagram" },
-];
-
 export const clientTabs = [
   { id: "all", label: "Все клиенты", count: 156 },
   { id: "regular", label: "Постоянные", count: 89 },

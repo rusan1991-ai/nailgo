@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { and, desc, eq, gt, inArray, lt, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { bookings, masters, reviews, services } from "../db/schema.js";
+import { bookings, masterClients, masters, reviews, services, timeBlocks } from "../db/schema.js";
 import { optionalUserId, ownsBooking, requireAuth } from "../lib/auth.js";
 import { applyBookingStatus, bookingHistory, logBookingEvent } from "../lib/booking-status.js";
 import {
@@ -26,7 +26,12 @@ export const createBookingSchema = z.object({
   serviceId: z.string().min(1),
   dateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата в формате YYYY-MM-DD"),
   startMinutes: z.number().int().min(0).max(24 * 60 - 1),
-  clientName: z.string().trim().min(2, "Укажите имя").max(80),
+  /**
+   * Имя и телефон можно не передавать, если указан `clientId`: данные возьмутся
+   * из карточки клиента в базе мастера. Для записи с витрины оба поля
+   * обязательны — это проверяет `createBooking`.
+   */
+  clientName: z.string().trim().min(2, "Укажите имя").max(80).optional(),
   // Телефон сразу приводим к каноническому виду: иначе «+7 (999) 111-22-33»
   // и «+79991112233» — это два разных клиента в базе.
   clientPhone: z
@@ -34,8 +39,16 @@ export const createBookingSchema = z.object({
     .trim()
     .max(25)
     .transform((value) => normalizePhone(value))
-    .refine((value) => value.length >= 12, "Укажите телефон полностью"),
+    .refine((value) => value.length >= 12, "Укажите телефон полностью")
+    .optional(),
   comment: z.string().trim().max(500).optional(),
+  /**
+   * Клиент из базы мастера (`master_clients`). Когда он указан, имя и телефон
+   * берутся из карточки: мастер не перенабирает данные руками. Если мастер
+   * создаёт нового клиента «на лету», поля приходят как обычно — и запись
+   * попадёт в базу клиентов сама (см. cabinet.ts).
+   */
+  clientId: z.string().trim().min(1).optional(),
   /**
    * «Сейчас» для проверки правил времени. Принимается только в dev
    * (см. `devNow`): проверки воспроизводят прошедшее окно в любое время суток.
@@ -113,6 +126,30 @@ export async function assertSlotFree(params: {
 
   if (conflict) throw new DomainError(409, "slot_taken", "Это время уже занято, выберите другое");
 
+  // Технический перерыв мастера (обед, личные дела): время занято, но это не
+  // запись. Сообщение отдельное, чтобы мастер понял, что мешает, и снял блок.
+  const [blocked] = await db
+    .select({ id: timeBlocks.id, reason: timeBlocks.reason })
+    .from(timeBlocks)
+    .where(
+      and(
+        eq(timeBlocks.masterId, params.masterId),
+        lt(timeBlocks.startAt, endAt),
+        gt(timeBlocks.endAt, startAt),
+      ),
+    )
+    .limit(1);
+
+  if (blocked) {
+    throw new DomainError(
+      409,
+      "time_blocked",
+      blocked.reason
+        ? `Это время мастер оставил под перерыв (${blocked.reason}) — выберите другое`
+        : "Это время мастер оставил под перерыв — выберите другое",
+    );
+  }
+
   return { startAt, endAt, dayStart, dayEnd };
 }
 
@@ -138,11 +175,39 @@ export async function createBooking(
     throw new DomainError(409, "master_inactive", "Мастер снят с публикации и не принимает записи");
   }
 
+  // Запись по карточке из базы мастера: имя и телефон берём из неё, чтобы не
+  // расходились с тем, что мастер видит в клиентах.
+  let clientName = input.clientName ?? "";
+  let clientPhone = input.clientPhone ?? "";
+  let masterClientId: string | null = null;
+
+  if (input.clientId) {
+    const [card] = await db.select().from(masterClients).where(eq(masterClients.id, input.clientId)).limit(1);
+    if (!card) throw new DomainError(404, "client_not_found", "Клиент не найден в вашей базе");
+    if (card.masterId !== master.id) {
+      throw new DomainError(403, "forbidden", "Это клиент другого мастера");
+    }
+    masterClientId = card.id;
+    clientName = card.name;
+    // Телефон в карточке может быть пустым (клиент из мессенджера): тогда
+    // берём введённый в форме — без телефона запись не создаётся.
+    clientPhone = card.phone ?? input.clientPhone ?? "";
+  }
+
+  // Телефон обязателен для записи: по нему клиент узнаётся в базе, приходят
+  // напоминания и строится кабинет. Форма записи подставляет его сама.
+  if (clientName.trim().length < 2) {
+    throw new DomainError(400, "bad_client", "Укажите имя клиента");
+  }
+  if (clientPhone.length < 12) {
+    throw new DomainError(400, "bad_phone", "Укажите телефон клиента полностью");
+  }
+
   // Дисциплина клиента: чёрный список — отказ, накопленные поздние отмены —
   // полная предоплата. Мастер, вносящий запись вручную, ничего не проверяет:
   // он уже поговорил с человеком и решает сам.
   let policy: ClientPolicy | null = null;
-  if (options.source === "client") policy = await assertClientCanBook(input.clientPhone);
+  if (options.source === "client") policy = await assertClientCanBook(clientPhone);
 
   const [service] = await db.select().from(services).where(eq(services.id, input.serviceId)).limit(1);
   if (!service || !service.active || service.masterId !== master.id) {
@@ -172,8 +237,8 @@ export async function createBooking(
       masterId: master.id,
       serviceId: service.id,
       userId: options.userId ?? null,
-      clientName: input.clientName,
-      clientPhone: input.clientPhone,
+      clientName,
+      clientPhone,
       comment: input.comment,
       startAt,
       endAt,
@@ -195,6 +260,19 @@ export async function createBooking(
         ? "клиенту нужна полная предоплата: накоплены поздние отмены"
         : null,
   });
+
+  // Мастер внёс нового клиента «на лету» — заводим ему карточку в базе
+  // клиентов, чтобы в следующий раз не набирать данные заново.
+  if (options.source === "master" && !masterClientId && clientPhone) {
+    try {
+      await db
+        .insert(masterClients)
+        .values({ masterId: master.id, name: clientName, phone: clientPhone })
+        .onConflictDoNothing();
+    } catch {
+      // Дубль по телефону — не повод отменять запись: карточка уже есть.
+    }
+  }
 
   // Возвращаем и строку записи: по ней строятся уведомления участникам.
   return { row: booking!, service, payload: serializeBooking(booking!, master, service), policy };

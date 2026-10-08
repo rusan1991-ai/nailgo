@@ -41,6 +41,13 @@ export function SettingsProPage() {
   const [metro, setMetro] = useState("");
   const [tags, setTags] = useState("");
   const [priceFrom, setPriceFrom] = useState("0");
+  /**
+   * Короткая ссылка мастера: `nailgo.ru/any_nails`. Хранится без ведущего
+   * слэша и без собаки — их подставляет интерфейс, а сервер проверяет формат,
+   * занятость и служебные слова (`admin`, `login`, …).
+   */
+  const [usernameSlug, setUsernameSlug] = useState("");
+  const [copied, setCopied] = useState(false);
 
   const [state, setState] = useState<{ saving: boolean; saved: boolean; error: string | null }>({
     saving: false,
@@ -73,6 +80,7 @@ export function SettingsProPage() {
     setPriceFrom(String(profile.priceFrom));
     setTimezone(profile.timezone);
     setSlotStep(profile.slotStepMinutes);
+    setUsernameSlug(profile.usernameSlug ?? "");
   }, [profile]);
 
   const save = async () => {
@@ -90,6 +98,7 @@ export function SettingsProPage() {
         priceFrom: Number.parseInt(priceFrom, 10) || 0,
         timezone,
         slotStepMinutes: slotStep,
+        usernameSlug,
       });
       if (hours) await saveCabinetHours(hours);
       profileResource.reload();
@@ -191,6 +200,53 @@ export function SettingsProPage() {
                     </div>
                     <div className="sm:col-span-2">
                       <TextArea label="Описание" value={description} onChange={setDescription} rows={4} />
+                    </div>
+
+                    {/*
+                      Персональная ссылка мастера: короткий адрес витрины
+                      (`nailgo.ru/any_nails`). Пустое поле возвращает обычную
+                      ссылку `/master/<slug>`.
+                    */}
+                    <div className="sm:col-span-2" data-block="username-slug">
+                      <p className="mb-1.5 text-xs font-medium text-slate-500">Ваша персональная ссылка</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm text-slate-400">nailgo.ru/</span>
+                        <input
+                          data-field="username-slug"
+                          value={usernameSlug}
+                          onChange={(event) => {
+                            setUsernameSlug(event.target.value.replace(/^@/, "").toLowerCase());
+                            setCopied(false);
+                          }}
+                          placeholder="any_nails"
+                          className="min-w-[200px] flex-1 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-pink-400"
+                        />
+                        <button
+                          type="button"
+                          data-action="copy-username"
+                          onClick={() => {
+                            const link = `https://nailgo.ru/${usernameSlug || profile?.slug || ""}`;
+                            void navigator.clipboard?.writeText(link).catch(() => undefined);
+                            setCopied(true);
+                          }}
+                          className="rounded-xl border border-slate-200 px-3.5 py-2 text-sm text-slate-600 transition hover:bg-slate-50"
+                        >
+                          {copied ? "Скопировано" : "Копировать"}
+                        </button>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Латиница, цифры, дефис и подчёркивание, от 3 символов. Открывается и как
+                        /masters/{usernameSlug || "any_nails"} — ссылка ведёт прямо на витрину с
+                        портфолио, прайсом и свободными окнами.
+                      </p>
+                      {profile?.publicPath && (
+                        <p className="mt-1 text-xs text-slate-400" data-field="public-path">
+                          Сейчас витрина открывается по адресу{" "}
+                          <a className="text-pink-600 hover:text-pink-700" href={profile.publicPath}>
+                            {profile.publicPath}
+                          </a>
+                        </p>
+                      )}
                     </div>
                     <TextField label="Email" value={email} onChange={setEmail} />
                     <TextField label="Адрес (необязательно)" value={address} onChange={setAddress} />

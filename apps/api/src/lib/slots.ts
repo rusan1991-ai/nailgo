@@ -4,7 +4,8 @@
  * Один расчёт на всех: его использует публичная ручка слотов, избранное
  * (подбирает ближайшее окно у любимого мастера) и горящие окна.
  * Правила те же, что при создании записи: рабочие часы, выходные,
- * анти-овербукинг и «запас» на дорогу — записаться можно не раньше, чем
+ * анти-овербукинг, технические перерывы мастера (`time_blocks` — обед,
+ * личные дела) и «запас» на дорогу — записаться можно не раньше, чем
  * за `BOOKING_MIN_LEAD_MINUTES` до начала.
  *
  * Все «минуты дня» — в поясе мастера (`masters.timezone`), а не сервера.
@@ -13,7 +14,7 @@
  */
 import { and, eq, gt, lt, ne } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { bookings } from "../db/schema.js";
+import { bookings, timeBlocks } from "../db/schema.js";
 import { env } from "../env.js";
 import { scheduleForDay, slotStepOf } from "./schedule.js";
 import {
@@ -105,7 +106,20 @@ export async function freeSlotsForDay(
       ),
     );
 
-  const busy = booked.map((item) => ({
+  // Технические перерывы занимают время так же, как записи: клиент не должен
+  // занять обед мастера. Хранятся отдельно — в статистику и деньги не попадают.
+  const blocked = await db
+    .select({ startAt: timeBlocks.startAt, endAt: timeBlocks.endAt })
+    .from(timeBlocks)
+    .where(
+      and(
+        eq(timeBlocks.masterId, master.id),
+        lt(timeBlocks.startAt, dayEnd),
+        gt(timeBlocks.endAt, dayStart),
+      ),
+    );
+
+  const busy = [...booked, ...blocked].map((item) => ({
     start: minutesOfDay(item.startAt, tz),
     end: minutesOfDay(item.endAt, tz),
   }));

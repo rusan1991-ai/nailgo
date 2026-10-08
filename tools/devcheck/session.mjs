@@ -59,7 +59,7 @@ const page = makeDom("/account", { session: { ...clientSession, accessToken: "st
 await wait(2500);
 const text = rootText(page.dom).replace(/\s+/g, " ");
 assert("страница клиента отрисовалась с мёртвым access-токеном", page.errors.length === 0, page.errors[0] ?? "");
-assert("профиль открылся, а не экран входа", text.includes("Мой профиль"), text.slice(0, 80));
+assert("кабинет клиента открылся, а не экран входа", text.includes("Мои записи"), text.slice(0, 80));
 assert("записи загрузились после автопродления", text.includes("Тест Клиент") || text.includes("Предстоящие"),
   text.slice(0, 120));
 page.dom.window.close();

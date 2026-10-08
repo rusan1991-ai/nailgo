@@ -28,6 +28,10 @@ export type CabinetProfile = {
   status?: "active" | "paused" | "blocked";
   statusReason?: string | null;
   statusChangedAt?: string | null;
+  /** Короткая ссылка мастера (`/any_nails`) или null, если не задана. */
+  usernameSlug?: string | null;
+  /** Куда ведёт публичная ссылка: короткая, если задана, иначе `/master/<slug>`. */
+  publicPath?: string;
 };
 
 /** Пояса России для выбора в кабинете: запад → восток. */
@@ -74,6 +78,8 @@ export async function saveCabinetProfile(input: {
   priceFrom: number;
   timezone?: string;
   slotStepMinutes?: number;
+  /** Короткая ссылка: пустая строка снимает её (остаётся `/master/<slug>`). */
+  usernameSlug?: string;
 }): Promise<void> {
   await api.patch("/cabinet/profile", input);
 }

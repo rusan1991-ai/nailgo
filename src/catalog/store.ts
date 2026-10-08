@@ -38,6 +38,10 @@ export type Master = {
   region?: string;
   lat?: number | null;
   lng?: number | null;
+  /** Короткая ссылка мастера (`/masters/<username>`): может быть не задана. */
+  usernameSlug?: string | null;
+  /** Куда ведёт публичная ссылка: короткая, если задана, иначе `/master/<slug>`. */
+  publicPath?: string;
 };
 
 export type Service = {

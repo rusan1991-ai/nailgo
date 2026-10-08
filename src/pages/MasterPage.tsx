@@ -22,21 +22,28 @@ function windowLabel(dateISO: string): string {
   return formatDateLabel(dateISO);
 }
 
-export function MasterPage() {
+/**
+ * Витрина мастера. Одно и то же окно открывается по канонической ссылке
+ * (`/master/anna-smirnova`) и по короткой (`/anna_nails`): во втором случае
+ * адрес уже разрешён на сервере и приходит в `slugOverride`, а красивый адрес
+ * остаётся в строке браузера — его и диктуют клиентам.
+ */
+export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [messageError, setMessageError] = useState<string | null>(null);
   const params = useParams();
+  const slug = slugOverride ?? params.slug;
   const { masters, services } = useCatalog();
-  const master = masters.find((item) => item.slug === params.slug) ?? masters[0];
+  const master = masters.find((item) => item.slug === slug) ?? masters[0];
   /** Полная карточка с фото: каталог отдаёт её отдельной ручкой. */
-  const { data: card } = useMasterCard(params.slug);
+  const { data: card } = useMasterCard(slug);
 
   /** У мастера свой прайс: показываем и предлагаем к записи только его услуги. */
   const ownServices = useMemo(() => {
-    const own = services.filter((service) => !service.masterSlug || service.masterSlug === params.slug);
+    const own = services.filter((service) => !service.masterSlug || service.masterSlug === slug);
     return own.length > 0 ? own : services;
-  }, [services, params.slug]);
+  }, [services, slug]);
   const defaultServiceId = ownServices[0]?.id ?? "s1";
 
   const bookingLinkFor = (query: string) => {

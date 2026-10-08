@@ -93,7 +93,9 @@ export function MessagesPage() {
 
   const summary = threads.data?.items.find((item) => item.id === activeId) ?? null;
   const client = clients.data?.items.find(
-    (item) => summary && item.phone.replace(/\D/g, "").slice(-10) === summary.clientPhone.replace(/\D/g, "").slice(-10),
+    (item) =>
+      summary &&
+      (item.phone ?? "").replace(/\D/g, "").slice(-10) === summary.clientPhone.replace(/\D/g, "").slice(-10),
   );
 
   const send = async () => {

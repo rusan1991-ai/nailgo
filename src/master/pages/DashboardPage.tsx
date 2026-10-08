@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { BadgeCheck, Check, Plus } from "lucide-react";
 import { Card, CardTitle, Chip, PersonAvatar, PrimaryButton, GhostButton } from "../components/ui";
 import { journalArticles, profileCompletion, formatRub } from "../data";
 import { useCabinetClients, useCabinetStats } from "../../api/cabinet";
+import { AppointmentModal } from "../components/AppointmentModal";
 import { formatDateLabel, formatTimeLabel, useBookingsStore, weekdayForDate, type Booking } from "../../store/bookings";
 
 /** День, который кабинет показывает как «сегодня»: среда демо-недели. */
@@ -44,6 +46,8 @@ function hasFreeWindow(bookings: Booking[]): boolean {
 
 export function DashboardPage() {
   const bookings = useBookingsStore();
+  /** Ручная запись прямо с дашборда: та же форма, что в расписании. */
+  const [modalOpen, setModalOpen] = useState(false);
   const { data: stats } = useCabinetStats(CABINET_MONTH);
   const { data: clients } = useCabinetClients();
 
@@ -63,7 +67,7 @@ export function DashboardPage() {
             {freeWindow ? " · есть свободные окна" : " · день заполнен"}
           </p>
         </div>
-        <PrimaryButton>
+        <PrimaryButton dataAction="manual-booking" onClick={() => setModalOpen(true)}>
           <Plus className="h-4 w-4" />
           Добавить запись
         </PrimaryButton>
@@ -173,10 +177,12 @@ export function DashboardPage() {
                 <PersonAvatar name={client.name} size={38} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-slate-800">{client.name}</p>
-                  <p className="truncate text-xs text-slate-500">{client.phone}</p>
+                  <p className="truncate text-xs text-slate-500">{client.phone ?? "без телефона"}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-slate-400">{formatDateLabel(client.lastVisitISO)}</p>
+                  <p className="text-xs text-slate-400">
+                    {client.lastVisitISO ? formatDateLabel(client.lastVisitISO) : "ещё не был"}
+                  </p>
                   <span className="mt-1 inline-flex items-center gap-1 text-xs text-emerald-600">
                     <BadgeCheck className="h-3.5 w-3.5" />
                     {client.visits === 0
@@ -232,6 +238,7 @@ export function DashboardPage() {
           </div>
         </div>
       </div>
+      <AppointmentModal open={modalOpen} onClose={() => setModalOpen(false)} />
     </div>
   );
 }

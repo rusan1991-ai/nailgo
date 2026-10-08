@@ -55,8 +55,11 @@ export type NewBookingInput = {
   serviceId: string;
   dateISO: string;
   startMinutes: number;
-  clientName: string;
-  clientPhone: string;
+  /** Имя и телефон не нужны, если записываем клиента из своей базы (`clientId`). */
+  clientName?: string;
+  clientPhone?: string;
+  /** Карточка из базы мастера: имя и телефон возьмутся из неё. */
+  clientId?: string;
   comment?: string;
   source?: BookingSource;
 };
@@ -296,8 +299,9 @@ export async function createBooking(input: NewBookingInput): Promise<Booking> {
     serviceId: input.serviceId,
     dateISO: input.dateISO,
     startMinutes: input.startMinutes,
-    clientName: input.clientName,
-    clientPhone: input.clientPhone,
+    ...(input.clientId ? { clientId: input.clientId } : {}),
+    ...(input.clientName ? { clientName: input.clientName } : {}),
+    ...(input.clientPhone ? { clientPhone: input.clientPhone } : {}),
     comment: input.comment,
   });
 

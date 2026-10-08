@@ -83,17 +83,23 @@ const mastersSeed = [
   },
 ];
 
+/**
+ * Стандартный прайс. В сидах он копируется каждому мастеру: в базе услуга
+ * принадлежит мастеру (`master_id`), поэтому у каждого свой прайс, который
+ * он меняет в кабинете, не задевая остальных. `key` — только для сидов:
+ * по нему записи и отзывы находят услугу нужного мастера.
+ */
 const servicesSeed = [
-  { id: "s1", name: "Маникюр классический", category: "Маникюр", durationMinutes: 60, price: 1500 },
-  { id: "s2", name: "Маникюр аппаратный", category: "Маникюр", durationMinutes: 90, price: 2000 },
-  { id: "s3", name: "Покрытие гель-лак", category: "Покрытие", durationMinutes: 60, price: 1800 },
-  { id: "s4", name: "Укрепление ногтей", category: "Покрытие", durationMinutes: 30, price: 500 },
-  { id: "s5", name: "Наращивание ногтей", category: "Наращивание", durationMinutes: 120, price: 3500 },
-  { id: "s6", name: "Коррекция ногтей", category: "Наращивание", durationMinutes: 90, price: 2500 },
-  { id: "s7", name: "Дизайн ногтей (1 ноготь)", category: "Дизайн", durationMinutes: 10, price: 100 },
-  { id: "s8", name: "Снятие гель-лака", category: "Дополнительно", durationMinutes: 20, price: 300 },
-  { id: "s9", name: "Парафинотерапия", category: "Дополнительно", durationMinutes: 30, price: 700 },
-  { id: "s10", name: "SPA-уход для рук", category: "Дополнительно", durationMinutes: 40, price: 1000 },
+  { key: "s1", name: "Маникюр классический", category: "Маникюр", durationMinutes: 60, price: 1500 },
+  { key: "s2", name: "Маникюр аппаратный", category: "Маникюр", durationMinutes: 90, price: 2000 },
+  { key: "s3", name: "Покрытие гель-лак", category: "Покрытие", durationMinutes: 60, price: 1800 },
+  { key: "s4", name: "Укрепление ногтей", category: "Покрытие", durationMinutes: 30, price: 500 },
+  { key: "s5", name: "Наращивание ногтей", category: "Наращивание", durationMinutes: 120, price: 3500 },
+  { key: "s6", name: "Коррекция ногтей", category: "Наращивание", durationMinutes: 90, price: 2500 },
+  { key: "s7", name: "Дизайн ногтей (1 ноготь)", category: "Дизайн", durationMinutes: 10, price: 100 },
+  { key: "s8", name: "Снятие гель-лака", category: "Дополнительно", durationMinutes: 20, price: 300 },
+  { key: "s9", name: "Парафинотерапия", category: "Дополнительно", durationMinutes: 30, price: 700 },
+  { key: "s10", name: "SPA-уход для рук", category: "Дополнительно", durationMinutes: 40, price: 1000 },
 ];
 
 /** Демо-неделя: 20 мая 2024 — понедельник. */
@@ -250,7 +256,24 @@ export async function seed() {
     .onConflictDoUpdate({ target: users.phone, set: { role: "admin", name: "Администратор NailGo" } });
   const masterBySlug = new Map(masterRows.map((row) => [row.slug, row.id]));
 
-  await db.insert(services).values(servicesSeed);
+  // Услуги копируются каждому мастеру; id читаемые — «anna-smirnova-s2»,
+  // по ним записи и проверки находят услугу мастера.
+  const serviceRows = await db
+    .insert(services)
+    .values(
+      masterRows.flatMap((master) =>
+        servicesSeed.map((service) => ({
+          id: `${master.slug}-${service.key}`,
+          masterId: master.id,
+          name: service.name,
+          category: service.category,
+          durationMinutes: service.durationMinutes,
+          price: service.price,
+        })),
+      ),
+    )
+    .returning();
+  const serviceIdOf = (masterSlug: string, key: string) => `${masterSlug}-${key}`;
 
   const hours = masterRows.flatMap((master) =>
     [0, 1, 2, 3, 4, 5].map((weekday) => ({
@@ -263,11 +286,11 @@ export async function seed() {
   await db.insert(workingHours).values(hours);
 
   const bookingRows = bookingsSeed.map(
-    ([day, start, duration, clientName, clientPhone, serviceId, masterSlug, status, price]) => {
-      const service = servicesSeed.find((item) => item.id === serviceId)!;
+    ([day, start, duration, clientName, clientPhone, serviceKey, masterSlug, status, price]) => {
+      const service = servicesSeed.find((item) => item.key === serviceKey)!;
       return {
         masterId: masterBySlug.get(masterSlug)!,
-        serviceId,
+        serviceId: serviceIdOf(masterSlug, serviceKey),
         clientName,
         // Канонический вид телефона — как при записи через приложение.
         clientPhone: normalizePhone(clientPhone),
@@ -339,7 +362,7 @@ export async function seed() {
 
   return {
     masters: masterRows.length,
-    services: servicesSeed.length,
+    services: serviceRows.length,
     bookings: bookingRows.length,
     reviews: reviewRows.length,
     conversations: threadsSeed.length,

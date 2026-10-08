@@ -67,14 +67,27 @@ export const masters = pgTable("masters", {
   reviewsCount: integer("reviews_count").notNull().default(0),
 });
 
-export const services = pgTable("services", {
-  id: id(),
-  name: text("name").notNull(),
-  category: text("category").notNull(),
-  durationMinutes: integer("duration_minutes").notNull(),
-  price: integer("price").notNull(),
-  active: boolean("active").notNull().default(true),
-});
+/**
+ * Услуга принадлежит мастеру: у каждого свой прайс, свои длительности и цены.
+ * Общих услуг нет — иначе мастер, скрывая свою услугу, скрывал бы её всем.
+ * `active = false` — услуга скрыта: её не видно в каталоге и нельзя записаться,
+ * но записи и статистика по ней сохраняются.
+ */
+export const services = pgTable(
+  "services",
+  {
+    id: id(),
+    masterId: text("master_id")
+      .notNull()
+      .references(() => masters.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    category: text("category").notNull(),
+    durationMinutes: integer("duration_minutes").notNull(),
+    price: integer("price").notNull(),
+    active: boolean("active").notNull().default(true),
+  },
+  (table) => [index("services_master").on(table.masterId)],
+);
 
 export const workingHours = pgTable(
   "working_hours",

@@ -71,16 +71,39 @@ const sameSlot = await apiAs(client, `/bookings/${upcoming.id}/reschedule`, {
 assert("повторный перенос на то же окно разрешён", sameSlot.status === 200, `status=${sameSlot.status}`);
 
 /* --- API: правила --- */
-const day = await apiAs(master, `/cabinet/schedule?from=${upcoming.dateISO}&to=${upcoming.dateISO}`);
-const otherBooking = day.data.items.find((item) => item.id !== upcoming.id && item.masterSlug === upcoming.masterSlug);
-assert("в тот же день есть другая запись мастера", Boolean(otherBooking), otherBooking ? `${otherBooking.startMinutes}` : "нет");
+// Занятое окно проверяем на своей же записи: сначала занимаем свободный слот
+// вторым клиентом, потом пробуем перенести на него первую запись.
+// Окна пересчитываем после переноса: соседние слоты пересекаются по времени,
+// а список свободных окон это уже учитывает.
+const afterMoveSlots = await api(
+  `/masters/${upcoming.masterSlug}/slots?date=${upcoming.dateISO}&serviceId=${upcoming.serviceId}`,
+);
+const freeSecond = afterMoveSlots.data.slots.map((slot) => slot.startMinute)[0];
+assert("после переноса остались свободные окна", Boolean(freeSecond), `свободно=${afterMoveSlots.data.slots.length}`);
 
-if (otherBooking) {
+if (freeSecond) {
+  const occupied = await api("/bookings", {
+    method: "POST",
+    body: {
+      masterSlug: upcoming.masterSlug,
+      serviceId: upcoming.serviceId,
+      dateISO: upcoming.dateISO,
+      startMinutes: freeSecond,
+      clientName: "Занятый Слот",
+      clientPhone: "+79990001155",
+    },
+  });
+  assert("второй клиент занял свободное окно", occupied.status === 201, `status=${occupied.status}`);
+
   const conflict = await apiAs(client, `/bookings/${upcoming.id}/reschedule`, {
     method: "POST",
-    body: { dateISO: upcoming.dateISO, startMinutes: otherBooking.startMinutes },
+    body: { dateISO: upcoming.dateISO, startMinutes: freeSecond },
   });
-  assert("занятое окно не переносится", conflict.status === 409 && conflict.data.error === "slot_taken", `status=${conflict.status} ${conflict.data?.error}`);
+  assert(
+    "занятое окно не переносится",
+    conflict.status === 409 && conflict.data.error === "slot_taken",
+    `status=${conflict.status} ${conflict.data?.error}`,
+  );
 }
 
 const early = await apiAs(client, `/bookings/${upcoming.id}/reschedule`, {

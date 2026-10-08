@@ -104,7 +104,9 @@ export async function createBooking(
   if (!master) throw new BookingError(404, "master_not_found", "Мастер не найден");
 
   const [service] = await db.select().from(services).where(eq(services.id, input.serviceId)).limit(1);
-  if (!service || !service.active) throw new BookingError(404, "service_not_found", "Услуга не найдена");
+  if (!service || !service.active || service.masterId !== master.id) {
+    throw new BookingError(404, "service_not_found", "Услуга не найдена у этого мастера");
+  }
 
   const { startAt, endAt } = await assertSlotFree({
     masterId: master.id,

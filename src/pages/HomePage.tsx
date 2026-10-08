@@ -23,6 +23,9 @@ export function HomePage() {
   const { user } = useAuth();
   const { masters, services } = useCatalog();
   const { region, chosen } = useCity();
+  /** Блок «услуги студии» показывает прайс мастера, к которому ведёт запись. */
+  const spotlightServices = services.filter((service) => service.masterSlug === "anna-smirnova");
+  const showcase = spotlightServices.length > 0 ? spotlightServices : services;
   const regionInfo = DEFAULT_REGIONS.find((item) => item.region === region) ?? DEFAULT_REGIONS[0];
   /** Мастера выбранного города: карта показывает именно их. */
   const regionalMasters = masters.filter((master) => !master.region || master.region === region);
@@ -163,7 +166,7 @@ export function HomePage() {
             </div>
 
             <div className="mt-5 space-y-3 text-sm">
-              {services.map((service) => (
+              {showcase.slice(0, 6).map((service) => (
                 <div key={service.id} className="flex items-center justify-between rounded-xl border border-[#f3e3ea] px-3 py-2">
                   <div>
                     <p className="font-medium">{service.name}</p>

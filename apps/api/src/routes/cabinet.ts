@@ -204,10 +204,13 @@ export async function cabinetRoutes(app: FastifyInstance) {
     return { ok: true, days: enabled.length };
   });
 
-  /** Все записи студии с фильтрами — источник данных для таблицы «Записи». */
-  app.get("/cabinet/bookings", masterOnly, async (request) => {
+  /** Записи мастера с фильтрами — источник данных для таблицы «Записи». */
+  app.get("/cabinet/bookings", masterOnly, async (request, reply) => {
     const { status, query, masterSlug, from, to } = listQuery.parse(request.query ?? {});
     const needle = query?.toLowerCase();
+
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const fromDate = from ? parseISODate(from) : null;
     const toDate = to ? parseISODate(to) : null;
@@ -219,6 +222,8 @@ export async function cabinetRoutes(app: FastifyInstance) {
       .innerJoin(services, eq(bookings.serviceId, services.id))
       .where(
         and(
+          // Кабинет видит только свои записи: чужие клиенты — не его дело.
+          eq(bookings.masterId, master.id),
           status && status !== "all" ? eq(bookings.status, status) : undefined,
           masterSlug ? eq(masters.slug, masterSlug) : undefined,
           fromDate ? gte(bookings.startAt, atMinutes(fromDate, 0)) : undefined,
@@ -304,6 +309,9 @@ export async function cabinetRoutes(app: FastifyInstance) {
     const end = parseISODate(to);
     if (!start || !end) return reply.code(400).send({ error: "bad_request", message: "Некорректные даты" });
 
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
     const rows = await db
       .select({ booking: bookings, master: masters, service: services })
       .from(bookings)
@@ -311,6 +319,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
       .innerJoin(services, eq(bookings.serviceId, services.id))
       .where(
         and(
+          eq(bookings.masterId, master.id),
           ne(bookings.status, "cancelled"),
           gte(bookings.startAt, atMinutes(start, 0)),
           lt(bookings.startAt, atMinutes(end, 24 * 60)),
@@ -329,15 +338,19 @@ export async function cabinetRoutes(app: FastifyInstance) {
   });
 
   /** База клиентов: агрегируем записи по телефону. */
-  app.get("/cabinet/clients", masterOnly, async (request) => {
+  app.get("/cabinet/clients", masterOnly, async (request, reply) => {
     const { query } = listQuery.parse(request.query ?? {});
     const needle = query?.toLowerCase();
+
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const rows = await db
       .select({ booking: bookings, master: masters, service: services })
       .from(bookings)
       .innerJoin(masters, eq(bookings.masterId, masters.id))
       .innerJoin(services, eq(bookings.serviceId, services.id))
+      .where(eq(bookings.masterId, master.id))
       .orderBy(asc(bookings.startAt));
 
     const byPhone = new Map<
@@ -514,9 +527,13 @@ export async function cabinetRoutes(app: FastifyInstance) {
    * По умолчанию — текущий месяц. Параметр `month=YYYY-MM` нужен демо-данным:
    * они лежат на неделе 20–26 мая 2024, и кабинет показывает цифры за этот месяц.
    */
-  app.get("/cabinet/stats", masterOnly, async (request) => {
+  app.get("/cabinet/stats", masterOnly, async (request, reply) => {
     const { month } = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/).optional() }).parse(request.query ?? {});
-    const rows = await db.select().from(bookings);
+
+    // Считаем только свои записи: у каждого мастера своя статистика и клиенты.
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+    const rows = await db.select().from(bookings).where(eq(bookings.masterId, master.id));
 
     const today = new Date();
     const [year, monthIndex] = month

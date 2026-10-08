@@ -12,6 +12,7 @@ import { catalogRoutes } from "./routes/catalog.js";
 import { messageRoutes } from "./routes/messages.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { reviewRoutes } from "./routes/reviews.js";
+import { serviceRoutes } from "./routes/services.js";
 
 export async function buildServer() {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? (isDev ? "warn" : "info") } });
@@ -69,6 +70,7 @@ export async function buildServer() {
       await instance.register(notificationRoutes);
       await instance.register(messageRoutes);
       await instance.register(reviewRoutes);
+      await instance.register(serviceRoutes);
     },
     { prefix: "/api" },
   );

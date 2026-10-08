@@ -267,12 +267,12 @@ export function DonutChart({
       <div className="relative" style={{ width: size, height: size }}>
         <svg viewBox="0 0 200 200" className="h-full w-full -rotate-90">
           <circle cx="100" cy="100" r={radius} fill="none" stroke="#f1f5f9" strokeWidth="26" />
-          {data.map((segment) => {
+          {data.map((segment, index) => {
             const length = (segment.percent / 100) * circumference;
             const dash = `${length} ${circumference - length}`;
             const element = (
               <circle
-                key={segment.label}
+                key={`${segment.label}-${index}`}
                 cx="100"
                 cy="100"
                 r={radius}
@@ -297,8 +297,8 @@ export function DonutChart({
       </div>
 
       <ul className="min-w-[210px] flex-1 space-y-3">
-        {data.map((segment) => (
-          <li key={segment.label} className="flex items-center justify-between gap-4 text-sm">
+        {data.map((segment, index) => (
+          <li key={`${segment.label}-${index}`} className="flex items-center justify-between gap-4 text-sm">
             <span className="inline-flex items-center gap-2 text-slate-600">
               <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: segment.color }} />
               {segment.label}

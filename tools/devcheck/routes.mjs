@@ -16,7 +16,7 @@ const clientRoutes = [
   "/last-minute",
   "/login",
   "/master/anna-smirnova",
-  "/booking?master=anna-smirnova&service=s3&date=2024-05-22",
+  "/booking?master=anna-smirnova&service=anna-smirnova-s3&date=2024-05-22",
   "/favorites",
   "/messages",
   "/notifications",

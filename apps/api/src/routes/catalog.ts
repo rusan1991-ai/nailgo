@@ -190,9 +190,52 @@ export async function catalogRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get("/services", async () => {
-    const rows = await db.select().from(services).where(eq(services.active, true)).orderBy(asc(services.price));
+  /**
+   * Витрина услуг: только активные (скрытые мастером не видны).
+   * `?master=slug` — прайс конкретного мастера: так страница записи
+   * показывает услуги того, к кому записываются.
+   */
+  app.get("/services", async (request) => {
+    const { master: masterSlug } = z
+      .object({ master: z.string().trim().optional() })
+      .parse(request.query ?? {});
+
+    const rows = await db
+      .select({ service: services, master: masters })
+      .from(services)
+      .innerJoin(masters, eq(services.masterId, masters.id))
+      .where(masterSlug ? and(eq(services.active, true), eq(masters.slug, masterSlug)) : eq(services.active, true))
+      .orderBy(asc(services.price));
+
     return {
+      items: rows.map(({ service, master }) => ({
+        id: service.id,
+        name: service.name,
+        category: service.category,
+        durationMinutes: service.durationMinutes,
+        price: service.price,
+        masterSlug: master.slug,
+        masterName: master.name,
+      })),
+    };
+  });
+
+  /** Прайс мастера: активные услуги его кабинета. */
+  app.get("/masters/:slug/services", async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+
+    const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Мастер не найден" });
+
+    const rows = await db
+      .select()
+      .from(services)
+      .where(and(eq(services.masterId, master.id), eq(services.active, true)))
+      .orderBy(asc(services.price));
+
+    return {
+      masterSlug: master.slug,
+      masterName: master.name,
       items: rows.map((service) => ({
         id: service.id,
         name: service.name,
@@ -217,10 +260,27 @@ export async function catalogRoutes(app: FastifyInstance) {
     const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Мастер не найден" });
 
+    // Услуга должна быть из прайса этого мастера: иначе по чужой длительности
+    // можно было бы посчитать окна, которых у мастера нет.
     const service = serviceId
-      ? (await db.select().from(services).where(eq(services.id, serviceId)).limit(1))[0]
-      : (await db.select().from(services).where(eq(services.active, true)).orderBy(asc(services.durationMinutes)).limit(1))[0];
-    if (!service) return reply.code(404).send({ error: "not_found", message: "Услуга не найдена" });
+      ? (
+          await db
+            .select()
+            .from(services)
+            .where(and(eq(services.id, serviceId), eq(services.masterId, master.id), eq(services.active, true)))
+            .limit(1)
+        )[0]
+      : (
+          await db
+            .select()
+            .from(services)
+            .where(and(eq(services.masterId, master.id), eq(services.active, true)))
+            .orderBy(asc(services.durationMinutes))
+            .limit(1)
+        )[0];
+    if (!service) {
+      return reply.code(404).send({ error: "service_not_found", message: "Услуга не найдена у этого мастера" });
+    }
 
     // Выходной день: окон нет вовсе.
     const schedule = await scheduleForDay(master.id, day);

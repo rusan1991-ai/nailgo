@@ -89,7 +89,7 @@ export function SearchMapPage() {
                   {["17:00", "18:30", "20:00"].map((time) => (
                     <Link
                       key={time}
-                      to={`/booking?master=${master.slug}&service=s2&date=22%20мая&slot=${encodeURIComponent(time)}`}
+                      to={`/booking?master=${master.slug}&slot=${encodeURIComponent(time)}`}
                       className="rounded-lg border border-[#f1dde6] px-2 py-1 hover:border-pink-300"
                     >
                       {time}

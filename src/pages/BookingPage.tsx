@@ -23,7 +23,7 @@ export function BookingPage() {
   const { masters, services, status: catalogStatus } = useCatalog();
 
   const masterSlug = params.get("master") ?? "anna-smirnova";
-  const serviceId = params.get("service") ?? "";
+  const [serviceId, setServiceId] = useState(params.get("service") ?? "");
   const [dateISO, setDateISO] = useState(params.get("date") ?? demoWeek[0].iso);
   const [slots, setSlots] = useState<SlotResponse["slots"]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
@@ -35,13 +35,24 @@ export function BookingPage() {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
-  const service = useMemo(
-    () => services.find((item) => item.id === serviceId) ?? services[0],
-    [serviceId, services],
-  );
   const master = useMemo(
     () => masters.find((item) => item.slug === masterSlug) ?? masters[0],
     [masterSlug, masters],
+  );
+
+  /**
+   * Услуги выбранного мастера: у каждого свой прайс. Если по ссылке пришла
+   * услуга другого мастера (старая ссылка), показываем первую из его прайса —
+   * записаться на чужую услугу всё равно нельзя, сервер отклонит.
+   */
+  const masterServices = useMemo(() => {
+    const own = services.filter((item) => !item.masterSlug || item.masterSlug === masterSlug);
+    return own.length > 0 ? own : services;
+  }, [services, masterSlug]);
+
+  const service = useMemo(
+    () => masterServices.find((item) => item.id === serviceId) ?? masterServices[0],
+    [masterServices, serviceId],
   );
 
   /** Свободные окна считает сервер: занятые записи в список не попадают. */
@@ -116,8 +127,23 @@ export function BookingPage() {
               <p className="text-xs text-slate-500">Услуга</p>
               {service ? (
                 <>
-                  <p className="font-medium">{service.name}</p>
-                  <p className="text-sm text-slate-500">
+                  {masterServices.length > 1 ? (
+                    <select
+                      value={service.id}
+                      onChange={(event) => setServiceId(event.target.value)}
+                      data-field="service"
+                      className="mt-1 w-full rounded-lg border border-[#f1dde6] px-2 py-1.5 font-medium outline-none focus:border-pink-300"
+                    >
+                      {masterServices.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name} · {formatRub(item.price)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="font-medium">{service.name}</p>
+                  )}
+                  <p className="mt-1 text-sm text-slate-500">
                     {formatRub(service.price)} · {durationLabel(service.durationMinutes)}
                   </p>
                 </>

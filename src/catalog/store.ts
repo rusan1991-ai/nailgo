@@ -31,6 +31,9 @@ export type Service = {
   category: string;
   durationMinutes: number;
   price: number;
+  /** Услуга принадлежит мастеру: страница записи показывает прайс выбранного. */
+  masterSlug?: string;
+  masterName?: string;
 };
 
 export type CatalogStatus = "idle" | "loading" | "ready" | "offline";

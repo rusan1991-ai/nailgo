@@ -32,6 +32,34 @@ const clients = await apiAs(master, "/cabinet/clients");
 assert("API отдал сводку", stats.status === 200, String(stats.status));
 assert("API отдал клиентов", clients.status === 200, String(clients.status));
 
+/* --- Кабинет изолирован: чужие записи и клиенты в него не попадают --- */
+const bookingRows = await apiAs(master, "/cabinet/bookings?status=all");
+const mySlug = (await apiAs(master, "/cabinet/profile")).data.profile.slug;
+const foreign = bookingRows.data.items.filter((item) => item.masterSlug !== mySlug);
+assert(
+  "в кабинете только свои записи",
+  bookingRows.status === 200 && foreign.length === 0,
+  `всего=${bookingRows.data.items.length} чужих=${foreign.length} mySlug=${mySlug}`,
+);
+
+const schedule = await apiAs(master, "/cabinet/schedule?from=2024-05-20&to=2024-05-26");
+const foreignSchedule = schedule.data.items.filter((item) => item.masterSlug !== mySlug);
+assert(
+  "в расписании только свои записи",
+  schedule.status === 200 && foreignSchedule.length === 0,
+  `всего=${schedule.data.items.length} чужих=${foreignSchedule.length}`,
+);
+
+const foreignClients = clients.data.items.filter((item) =>
+  item.bookings?.some((booking) => booking.masterSlug !== mySlug) ||
+  (item.masters ?? []).some((slug) => slug !== mySlug),
+);
+assert(
+  "в клиентах только те, кто записан к мастеру",
+  foreignClients.length === 0,
+  `клиентов=${clients.data.items.length} чужих=${foreignClients.length}`,
+);
+
 const s = stats.data;
 
 /* --- «Статистика» --- */

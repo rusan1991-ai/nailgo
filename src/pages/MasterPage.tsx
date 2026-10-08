@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
@@ -16,7 +16,13 @@ export function MasterPage() {
   const params = useParams();
   const { masters, services } = useCatalog();
   const master = masters.find((item) => item.slug === params.slug) ?? masters[0];
-  const defaultServiceId = services[1]?.id ?? services[0]?.id ?? "s1";
+
+  /** У мастера свой прайс: показываем и предлагаем к записи только его услуги. */
+  const ownServices = useMemo(() => {
+    const own = services.filter((service) => !service.masterSlug || service.masterSlug === params.slug);
+    return own.length > 0 ? own : services;
+  }, [services, params.slug]);
+  const defaultServiceId = ownServices[0]?.id ?? "s1";
 
   const bookingLinkFor = (query: string) => {
     const target = `/booking?master=${master?.slug ?? "anna-smirnova"}&${query}`;
@@ -73,7 +79,7 @@ export function MasterPage() {
             </div>
 
             <div className="mt-4 space-y-3">
-              {services.map((service) => (
+              {ownServices.map((service) => (
                 <div key={service.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-xl border border-[#f3e3ea] p-3">
                   <div>
                     <p className="font-medium">{service.name}</p>

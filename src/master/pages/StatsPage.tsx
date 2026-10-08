@@ -247,8 +247,8 @@ export function StatsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {services.map((service) => (
-                    <tr key={service.name} className="border-b border-slate-50 last:border-0">
+                  {services.map((service, index) => (
+                    <tr key={`${service.name}-${index}`} className="border-b border-slate-50 last:border-0">
                       <td className="px-5 py-3 text-slate-600">{service.name}</td>
                       <td className="px-5 py-3 text-slate-500">{formatNumber(service.bookings)}</td>
                       <td className="px-5 py-3 text-slate-600">{formatRub(service.revenue)}</td>
@@ -419,8 +419,8 @@ export function StatsPage() {
               </tr>
             </thead>
             <tbody>
-              {services.map((service) => (
-                <tr key={service.name} className="border-b border-slate-50 last:border-0">
+              {services.map((service, index) => (
+                <tr key={`${service.name}-${index}`} className="border-b border-slate-50 last:border-0">
                   <td className="px-5 py-3 text-slate-600">{service.name}</td>
                   <td className="px-5 py-3 text-slate-500">{formatNumber(service.bookings)}</td>
                   <td className="px-5 py-3 text-slate-600">{formatRub(service.revenue)}</td>

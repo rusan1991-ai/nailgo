@@ -1,15 +1,25 @@
-import { useMemo, useState } from "react";
-import { Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Pencil, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import {
   Card,
   Chip,
   GhostButton,
+  Modal,
   Pagination,
   PrimaryButton,
   SearchInput,
   Tabs,
 } from "../components/ui";
-import { formatRub, serviceRows, type ServiceRow } from "../data";
+import { formatRub } from "../data";
+import {
+  createService,
+  deleteService,
+  durationLabel,
+  updateService,
+  useCabinetServices,
+  type CabinetService,
+} from "../../api/services";
+import { ApiError } from "../../api/client";
 
 const categoryTone: Record<string, string> = {
   Маникюр: "from-pink-200 to-rose-300",
@@ -19,13 +29,7 @@ const categoryTone: Record<string, string> = {
   Дополнительно: "from-amber-200 to-orange-300",
 };
 
-const categories = [
-  { name: "Маникюр", count: 6, lead: "Классический, аппаратный, комбинированный" },
-  { name: "Покрытие", count: 5, lead: "Гель-лак, укрепление, снятие" },
-  { name: "Наращивание", count: 4, lead: "Гель, акрил, коррекция" },
-  { name: "Дизайн", count: 5, lead: "Роспись, стразы, френч" },
-  { name: "Дополнительно", count: 4, lead: "SPA-уход, парафин, массаж" },
-];
+const CATEGORIES = ["Маникюр", "Покрытие", "Наращивание", "Дизайн", "Дополнительно"];
 
 function ServiceThumb({ category }: { category: string }) {
   return (
@@ -42,31 +46,145 @@ function ServiceThumb({ category }: { category: string }) {
   );
 }
 
+/** Черновик формы: строки, чтобы поля ввода не спорили с числами в базе. */
+type Draft = { name: string; category: string; duration: string; price: string; active: boolean };
+
+const emptyDraft: Draft = { name: "", category: CATEGORIES[0], duration: "60", price: "1500", active: true };
+
+function draftOf(service: CabinetService): Draft {
+  return {
+    name: service.name,
+    category: service.category,
+    duration: String(service.durationMinutes),
+    price: String(service.price),
+    active: service.active,
+  };
+}
+
+/**
+ * Услуги и цены кабинета.
+ *
+ * Прайс живёт в базе и принадлежит мастеру: изменение цены или длительности
+ * сразу влияет на запись клиентов и расчёт свободных окон, а скрытая услуга
+ * исчезает из каталога, не теряя историю записей.
+ */
 export function ServicesPage() {
   const [tab, setTab] = useState("services");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
-  const [rows, setRows] = useState<ServiceRow[]>(serviceRows);
+  const [editor, setEditor] = useState<{ mode: "create" } | { mode: "edit"; service: CabinetService } | null>(null);
+  const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [inUse, setInUse] = useState<CabinetService | null>(null);
+
+  const { data, loading, error, reload } = useCabinetServices();
+  const services = useMemo(() => data?.items ?? [], [data]);
+  const live = Boolean(data);
 
   const visible = useMemo(
-    () => (query ? rows.filter((row) => row.name.toLowerCase().includes(query.trim().toLowerCase())) : rows),
-    [rows, query],
+    () => (query ? services.filter((row) => row.name.toLowerCase().includes(query.trim().toLowerCase())) : services),
+    [services, query],
   );
 
-  const toggleActive = (id: string) =>
-    setRows((prev) => prev.map((row) => (row.id === id ? { ...row, active: !row.active } : row)));
+  /** Категории считаем по прайсу: они у каждого мастера свои. */
+  const categories = useMemo(() => {
+    const map = new Map<string, { count: number; active: number; lead: string }>();
+    for (const service of services) {
+      const entry = map.get(service.category) ?? { count: 0, active: 0, lead: "" };
+      entry.count += 1;
+      if (service.active) entry.active += 1;
+      entry.lead = entry.lead || durationLabel(service.durationMinutes);
+      map.set(service.category, entry);
+    }
+    return [...map.entries()].map(([name, value]) => ({ name, ...value }));
+  }, [services]);
 
-  const removeRow = (id: string) => setRows((prev) => prev.filter((row) => row.id !== id));
+  useEffect(() => {
+    if (!editor) return;
+    setDraft(editor.mode === "edit" ? draftOf(editor.service) : emptyDraft);
+  }, [editor]);
+
+  const run = async (action: () => Promise<void>, message: string) => {
+    setBusy(true);
+    setActionError(null);
+    try {
+      await action();
+      reload();
+      return true;
+    } catch (caught) {
+      setActionError(caught instanceof ApiError ? caught.message : message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const save = async () => {
+    const payload = {
+      name: draft.name.trim(),
+      category: draft.category.trim(),
+      durationMinutes: Number(draft.duration) || 0,
+      price: Number(draft.price) || 0,
+      active: draft.active,
+    };
+    const ok =
+      editor?.mode === "edit"
+        ? await run(() => updateService(editor.service.id, payload), "Не удалось сохранить услугу")
+        : await run(async () => void (await createService(payload)), "Не удалось создать услугу");
+    if (ok) setEditor(null);
+  };
+
+  const toggleActive = async (service: CabinetService) => {
+    await run(() => updateService(service.id, { active: !service.active }), "Не удалось изменить видимость");
+  };
+
+  const remove = async (service: CabinetService) => {
+    setActionError(null);
+    setBusy(true);
+    try {
+      await deleteService(service.id);
+      setInUse(null);
+      reload();
+    } catch (caught) {
+      // По услуге уже есть записи: предлагаем скрыть, а не удалять.
+      if (caught instanceof ApiError && caught.code === "service_in_use") {
+        setInUse(service);
+      } else {
+        setActionError(caught instanceof ApiError ? caught.message : "Не удалось удалить услугу");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Услуги и цены</h1>
-        <PrimaryButton>
+        <div className="flex flex-wrap items-baseline gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Услуги и цены</h1>
+          {live && (
+            <span className="text-sm text-slate-500">
+              {data?.total ?? 0} услуг · активных {data?.activeCount ?? 0}
+            </span>
+          )}
+        </div>
+        <PrimaryButton onClick={() => setEditor({ mode: "create" })} disabled={!live || busy}>
           <Plus className="h-4 w-4" />
           Добавить услугу
         </PrimaryButton>
       </div>
+
+      <p className="mb-4 rounded-xl bg-[#fdf2f7] px-4 py-3 text-sm text-slate-600">
+        Прайс влияет на запись: клиент видит только активные услуги, а длительность определяет,
+        какие окна свободны. Услугу с прошедшими записями нельзя удалить — её скрывают.
+      </p>
+
+      {(actionError || error) && (
+        <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600">
+          {actionError ?? `Не удалось загрузить услуги: ${error}`}
+        </div>
+      )}
 
       <Tabs
         tabs={[
@@ -86,9 +204,9 @@ export function ServicesPage() {
               value={query}
               onChange={setQuery}
             />
-            <GhostButton>
+            <GhostButton onClick={() => setQuery("")}>
               <SlidersHorizontal className="h-4 w-4" />
-              Ещё фильтры
+              Сбросить поиск
             </GhostButton>
           </div>
 
@@ -107,31 +225,53 @@ export function ServicesPage() {
                 </thead>
                 <tbody>
                   {visible.map((row) => (
-                    <tr key={row.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
+                    <tr key={row.id} data-service-row={row.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-3">
                           <ServiceThumb category={row.category} />
-                          <span className="text-slate-700">{row.name}</span>
+                          <div>
+                            <p className="text-slate-700">{row.name}</p>
+                            {row.bookingsCount > 0 && (
+                              <p className="text-xs text-slate-400">записей: {row.bookingsCount}</p>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="px-5 py-3.5 text-slate-500">{row.category}</td>
-                      <td className="px-5 py-3.5 text-slate-500">{row.duration}</td>
+                      <td className="px-5 py-3.5 text-slate-500">{durationLabel(row.durationMinutes)}</td>
                       <td className="px-5 py-3.5 font-medium text-slate-700">{formatRub(row.price)}</td>
                       <td className="px-5 py-3.5">
-                        <button type="button" onClick={() => toggleActive(row.id)}>
+                        <button
+                          type="button"
+                          disabled={!live || busy}
+                          onClick={() => void toggleActive(row)}
+                          data-action="toggle-active"
+                          title={row.active ? "Скрыть от клиентов" : "Вернуть в каталог"}
+                        >
                           <Chip tone={row.active ? "green" : "gray"}>{row.active ? "Активна" : "Скрыта"}</Chip>
                         </button>
                       </td>
                       <td className="px-5 py-3.5">
                         <div className="flex items-center justify-end gap-1.5">
-                          <button className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-white">
+                          <button
+                            type="button"
+                            disabled={!live || busy}
+                            onClick={() => setEditor({ mode: "edit", service: row })}
+                            data-action="edit-service"
+                            className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-white disabled:opacity-50"
+                          >
                             <Pencil className="h-4 w-4" />
+                            <span className="sr-only">Изменить услугу</span>
                           </button>
                           <button
-                            onClick={() => removeRow(row.id)}
-                            className="grid h-8 w-8 place-items-center rounded-lg border border-rose-200 text-rose-400 transition hover:bg-rose-50"
+                            type="button"
+                            disabled={!live || busy}
+                            onClick={() => void remove(row)}
+                            data-action="delete-service"
+                            className="grid h-8 w-8 place-items-center rounded-lg border border-rose-200 text-rose-400 transition hover:bg-rose-50 disabled:opacity-50"
                           >
                             <Trash2 className="h-4 w-4" />
+                            <span className="sr-only">Удалить услугу</span>
                           </button>
                         </div>
                       </td>
@@ -140,13 +280,30 @@ export function ServicesPage() {
                 </tbody>
               </table>
             </div>
+
+            {visible.length === 0 && (
+              <div className="flex flex-col items-center gap-3 px-5 py-10 text-sm text-slate-400">
+                <Search className="h-5 w-5" />
+                {loading
+                  ? "Загружаем услуги…"
+                  : services.length === 0
+                    ? "В прайсе пока нет услуг — добавьте первую, и клиенты смогут записаться."
+                    : "По поиску ничего не нашлось"}
+                {!loading && services.length === 0 && (
+                  <PrimaryButton onClick={() => setEditor({ mode: "create" })} disabled={!live}>
+                    <Plus className="h-4 w-4" />
+                    Добавить услугу
+                  </PrimaryButton>
+                )}
+              </div>
+            )}
           </Card>
 
           <Pagination
-            total={3}
+            total={1}
             page={page}
             onPage={setPage}
-            label={`Показано 1–${visible.length} из ${visible.length || 0} услуг`}
+            label={`Показано ${visible.length} из ${services.length} услуг`}
           />
         </>
       ) : (
@@ -156,15 +313,144 @@ export function ServicesPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <p className="font-medium text-slate-800">{category.name}</p>
-                  <p className="mt-1 text-sm text-slate-500">{category.lead}</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Активных услуг: {category.active} из {category.count}
+                  </p>
                 </div>
                 <Chip tone="gray">{category.count} услуг</Chip>
               </div>
-              <GhostButton className="mt-4">Настроить категорию</GhostButton>
             </Card>
           ))}
+          {categories.length === 0 && (
+            <Card>
+              <p className="py-6 text-center text-sm text-slate-400">
+                {loading ? "Загружаем категории…" : "Категории появятся вместе с первой услугой"}
+              </p>
+            </Card>
+          )}
         </div>
       )}
+
+      <Modal
+        open={editor !== null}
+        onClose={() => setEditor(null)}
+        title={editor?.mode === "edit" ? "Изменить услугу" : "Новая услуга"}
+        subtitle="Цена и длительность сразу видны клиентам при записи"
+        footer={
+          editor ? (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void save()}
+                data-action="save-service"
+                className="rounded-xl bg-[#e11d48] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#be123c] disabled:opacity-60"
+              >
+                {busy ? "Сохраняем…" : editor.mode === "edit" ? "Сохранить" : "Создать услугу"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditor(null)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                Отмена
+              </button>
+            </>
+          ) : undefined
+        }
+      >
+        {editor && (
+          <div className="space-y-3" data-service-form>
+            <label className="block text-sm text-slate-600">
+              Название
+              <input
+                value={draft.name}
+                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                placeholder="Название услуги"
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-pink-400"
+              />
+            </label>
+            <label className="block text-sm text-slate-600">
+              Категория
+              <select
+                value={draft.category}
+                onChange={(event) => setDraft({ ...draft, category: event.target.value })}
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-pink-400"
+              >
+                {[...new Set([...CATEGORIES, ...services.map((service) => service.category)])].map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-sm text-slate-600">
+                Длительность, мин
+                <input
+                  value={draft.duration}
+                  onChange={(event) => setDraft({ ...draft, duration: event.target.value.replace(/\D/g, "") })}
+                  inputMode="numeric"
+                  placeholder="Длительность, мин"
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-pink-400"
+                />
+              </label>
+              <label className="block text-sm text-slate-600">
+                Цена, ₽
+                <input
+                  value={draft.price}
+                  onChange={(event) => setDraft({ ...draft, price: event.target.value.replace(/\D/g, "") })}
+                  inputMode="numeric"
+                  placeholder="Цена, ₽"
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-pink-400"
+                />
+              </label>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={draft.active}
+                onChange={(event) => setDraft({ ...draft, active: event.target.checked })}
+              />
+              Показывать клиентам (активна)
+            </label>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={inUse !== null}
+        onClose={() => setInUse(null)}
+        title="Услугу нельзя удалить"
+        subtitle={inUse ? `${inUse.name} · записей: ${inUse.bookingsCount}` : undefined}
+        footer={
+          inUse ? (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void run(() => updateService(inUse.id, { active: false }), "Не удалось скрыть услугу").then(() => setInUse(null))}
+                data-action="hide-instead"
+                className="rounded-xl bg-[#e11d48] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#be123c] disabled:opacity-60"
+              >
+                Скрыть услугу
+              </button>
+              <button
+                type="button"
+                onClick={() => setInUse(null)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                Оставить как есть
+              </button>
+            </>
+          ) : undefined
+        }
+      >
+        <p className="text-sm text-slate-600">
+          По этой услуге уже есть записи клиентов. Если её удалить, пропадёт история визитов и
+          статистика. Скрытая услуга исчезает из каталога, но записи остаются.
+        </p>
+      </Modal>
     </div>
   );
 }

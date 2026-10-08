@@ -49,7 +49,11 @@ const before = await apiAs(session, `/bookings?phone=${encodeURIComponent(PHONE)
 const beforeIds = new Set(before.data.items.map((item) => item.id));
 
 const catalog = await api("/services");
-const service = catalog.data.items.find((item) => item.id === "s1") ?? catalog.data.items[0];
+// Услуга теперь принадлежит мастеру: берём из прайса Анны.
+const service =
+  catalog.data.items.find((item) => item.id === "anna-smirnova-s1" && item.masterSlug === "anna-smirnova") ??
+  catalog.data.items.find((item) => item.masterSlug === "anna-smirnova") ??
+  catalog.data.items[0];
 
 const slotResponse = await api(`/masters/anna-smirnova/slots?date=${DATE}&serviceId=${service.id}`);
 // В модалке кабинета время выбирается из шага 30 минут, поэтому берём такое окно.

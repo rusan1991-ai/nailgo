@@ -45,6 +45,19 @@ openssl rand -hex 32   # для JWT_ACCESS_SECRET и JWT_REFRESH_SECRET
   API ответит `503 sms_not_configured`, а не «код отправлен»
 - `response` — код возвращается прямо в ответе API, только для локальной разработки
 
+Про внешние каналы и деньги (подробности — в комментариях `.env.production.example`):
+
+- `DELIVERY_TRANSPORT` — чем отправляем SMS и письма: `log` (в лог, режим стенда),
+  `webhook` (POST на `DELIVERY_WEBHOOK_URL` — любой SMS-шлюз или почтовый сервис),
+  `smsru` (нужен `SMSRU_API_ID`). Транспорт и адрес можно поменять на ходу
+  в админке, `/admin/deliveries`.
+- `PAYMENT_PROVIDER` — как принимаем предоплату: `manual` (деньги принимает мастер,
+  факт отмечается в кабинете) или `webhook` (`PAYMENT_WEBHOOK_URL` — платёжный шлюз,
+  он возвращает ссылку на оплату и сообщает об оплате вебхуком
+  `POST /api/payments/webhook`; если шлюз присылает секрет, задайте
+  `PAYMENT_WEBHOOK_SECRET`). `PAYMENT_RETURN_URL` и `PAYMENT_PUBLIC_API_URL` —
+  адрес сайта для возврата клиента и публичный адрес API для callback.
+
 ## 3. Первый запуск
 
 ```bash
@@ -120,5 +133,9 @@ curl -fsS http://127.0.0.1:4000/api/health   # storage: postgres
 - Порт Postgres наружу не публикуется: база доступна только внутри docker-сети.
 - `OTP_DELIVERY=log` — режим закрытого стенда: код входа виден в логах, не давайте
   к ним доступ посторонним.
+- `DELIVERY_TRANSPORT=log` — то же для всех сообщений клиентам: на закрытом стенде они
+  не уходят наружу, а пишутся в лог.
+- Вебхук шлюза (`POST /api/payments/webhook`) принимает оплату по номеру операции.
+  В проде задайте `PAYMENT_WEBHOOK_SECRET`: без него ручка открыта всем, кто знает номер.
 - Прод-образ API собирается без PGlite: при `DATABASE_URL=postgres://` локальный
   WASM-драйвер не загружается и из образа удалён.

@@ -175,7 +175,8 @@ export function SettingsPage() {
                 <BellRing className="h-4 w-4 text-slate-400" /> Уведомления о записи
               </p>
               <p className="mt-1 text-sm text-slate-500">
-                Подтверждение, перенос, отмена визита и ответы мастера на отзывы.
+                Подтверждение, перенос, отмена визита и ответы мастера на отзывы —
+                и в приложении, и SMS на телефон.
               </p>
             </div>
             <Toggle
@@ -194,7 +195,7 @@ export function SettingsPage() {
                 <Mail className="h-4 w-4 text-slate-400" /> Акции и свободные окна
               </p>
               <p className="mt-1 text-sm text-slate-500">
-                Сообщения вроде «у избранного мастера освободилось окно».
+                Сообщения вроде «у избранного мастера освободилось окно»: в приложении и SMS.
               </p>
             </div>
             <Toggle

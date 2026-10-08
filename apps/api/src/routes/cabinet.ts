@@ -9,6 +9,8 @@ import { serializeBooking } from "../lib/serialize.js";
 import { requireAuth, requireMaster } from "../lib/auth.js";
 import { createBooking, createBookingSchema, rescheduleSchema, rescheduleBooking, withRelations } from "./bookings.js";
 import { notifyBookingEvent, notifyClient, notifyStudio } from "../lib/notify.js";
+import { markPaid, refundBookingPayment } from "../lib/payments.js";
+import { paymentRowsForBooking } from "./payments.js";
 import { notifyFavoritesAboutWindow, windowService } from "../lib/favorites.js";
 import { freeSlotsForDay } from "../lib/slots.js";
 
@@ -312,6 +314,9 @@ export async function cabinetRoutes(app: FastifyInstance) {
     await db.update(bookings).set({ status: "cancelled" }).where(eq(bookings.id, id));
     await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "cancelled_by_master");
 
+    // Мастер отменил визит — предоплата возвращается клиенту.
+    if (booking.paymentStatus === "paid") await refundBookingPayment(booking);
+
     // Окно освободилось: предлагаем его избранным клиентам (кроме самого клиента).
     await notifyFavoritesAboutWindow({
       masterId: booking.masterId,
@@ -332,6 +337,71 @@ export async function cabinetRoutes(app: FastifyInstance) {
     await db.update(bookings).set({ status: "confirmed" }).where(eq(bookings.id, id));
     await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "confirmed");
     return { ok: true };
+  });
+
+  /**
+   * Деньги по записи: история операций предоплаты.
+   *
+   * Мастеру это нужно, чтобы понимать, ждём оплату или нет: без оплаты
+   * запись не подтверждается, а визит может не состояться.
+   */
+  app.get("/cabinet/bookings/:id/payments", masterOnly, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
+
+    const rows = await paymentRowsForBooking(id);
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        amount: row.amount,
+        provider: row.provider,
+        status: row.status,
+        payUrl: row.payUrl,
+        error: row.error,
+        paidAt: row.paidAt?.toISOString() ?? null,
+        refundedAt: row.refundedAt?.toISOString() ?? null,
+        createdAt: row.createdAt.toISOString(),
+      })),
+      prepaymentAmount: found.booking.prepaymentAmount,
+      paymentStatus: found.booking.paymentStatus,
+    };
+  });
+
+  /** Мастер подтверждает предоплату: деньги пришли (перевод или наличные). */
+  app.post("/cabinet/bookings/:id/payment/paid", masterOnly, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
+
+    const rows = await paymentRowsForBooking(id);
+    const pending = rows.find((row) => row.status === "pending");
+    if (!pending) {
+      return reply.code(409).send({
+        error: found.booking.paymentStatus === "paid" ? "already_paid" : "no_payment",
+        message:
+          found.booking.paymentStatus === "paid"
+            ? "Предоплата уже отмечена"
+            : "По этой записи нет операции ожидающей оплаты",
+      });
+    }
+
+    const result = await markPaid(pending.id, { paidBy: "master" });
+    return { ok: true, bookingStatus: result?.booking.status ?? null };
+  });
+
+  /** Мастер возвращает предоплату (например, визит не состоялся по его вине). */
+  app.post("/cabinet/bookings/:id/payment/refund", masterOnly, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
+
+    if (found.booking.paymentStatus !== "paid") {
+      return reply.code(409).send({ error: "not_paid", message: "Возвращать нечего: предоплата не внесена" });
+    }
+
+    const refunded = await refundBookingPayment(found.booking);
+    return { ok: true, paymentId: refunded?.id ?? null };
   });
 
   /** Мастер завершает визит (услуга оказана). */

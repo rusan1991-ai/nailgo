@@ -25,6 +25,16 @@ const serviceInput = z.object({
     .min(5, "Минимум 5 минут")
     .max(600, "Максимум 10 часов"),
   price: z.number().int("Цена — целое число рублей").min(0, "Цена не может быть отрицательной").max(1_000_000),
+  /**
+   * Предоплата в процентах от цены. 0 — платить не нужно; 100 — услуга
+   * оплачивается полностью заранее. Применяется к новым записям.
+   */
+  prepaymentPercent: z
+    .number()
+    .int("Процент — целое число")
+    .min(0, "Процент не может быть отрицательным")
+    .max(100, "Больше 100% предоплаты не бывает")
+    .optional(),
   active: z.boolean().optional(),
 });
 
@@ -71,6 +81,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         category: service.category,
         durationMinutes: service.durationMinutes,
         price: service.price,
+        prepaymentPercent: service.prepaymentPercent,
         active: service.active,
         bookingsCount: bookingsByService.get(service.id) ?? 0,
       })),
@@ -93,6 +104,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         category: input.category,
         durationMinutes: input.durationMinutes,
         price: input.price,
+        prepaymentPercent: input.prepaymentPercent ?? 0,
         active: input.active ?? true,
       })
       .returning();
@@ -104,6 +116,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         category: created!.category,
         durationMinutes: created!.durationMinutes,
         price: created!.price,
+        prepaymentPercent: created!.prepaymentPercent,
         active: created!.active,
         bookingsCount: 0,
       },
@@ -130,6 +143,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         ...(input.category !== undefined ? { category: input.category } : {}),
         ...(input.durationMinutes !== undefined ? { durationMinutes: input.durationMinutes } : {}),
         ...(input.price !== undefined ? { price: input.price } : {}),
+        ...(input.prepaymentPercent !== undefined ? { prepaymentPercent: input.prepaymentPercent } : {}),
         ...(input.active !== undefined ? { active: input.active } : {}),
       })
       .where(eq(services.id, id))

@@ -34,6 +34,8 @@ export function BookingPage() {
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  /** Запись создана и ждёт предоплату: показываем шаг оплаты вместо перехода. */
+  const [waitingPayment, setWaitingPayment] = useState<{ bookingId: string; amount: number } | null>(null);
 
   const master = useMemo(
     () => masters.find((item) => item.slug === masterSlug) ?? masters[0],
@@ -97,7 +99,7 @@ export function BookingPage() {
     setError("");
     setPending(true);
     try {
-      await createBooking({
+      const created = await createBooking({
         masterSlug,
         serviceId: service.id,
         dateISO,
@@ -106,6 +108,13 @@ export function BookingPage() {
         clientPhone,
         comment,
       });
+
+      // Услуга с предоплатой: без денег запись не подтвердится, поэтому
+      // сначала показываем шаг оплаты, а не «мои записи».
+      if (created.payment.status === "pending" && created.payment.paymentId) {
+        setWaitingPayment({ bookingId: created.booking.id, amount: created.payment.amount ?? 0 });
+        return;
+      }
       navigate("/account");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Не удалось записаться, попробуйте ещё раз");
@@ -207,6 +216,35 @@ export function BookingPage() {
           </div>
 
           <div className="rounded-2xl border border-[#f1dde6] p-5">
+            {waitingPayment ? (
+              <div data-step="payment">
+                <h2 className="text-2xl font-semibold">Записи нужна предоплата</h2>
+                <p className="mt-3 text-sm text-slate-600">
+                  Запись создана, но мастер подтвердит её после предоплаты{" "}
+                  <span className="font-semibold">{formatRub(waitingPayment.amount)}</span>. Остаток отдадите после
+                  визита.
+                </p>
+                <div className="mt-4 flex flex-col gap-2">
+                  <Link
+                    to={`/pay/${waitingPayment.bookingId}`}
+                    data-action="go-pay"
+                    className="rounded-xl bg-pink-500 px-4 py-3 text-center font-semibold text-white hover:bg-pink-600"
+                  >
+                    Перейти к оплате
+                  </Link>
+                  <button
+                    onClick={() => navigate("/account")}
+                    className="rounded-xl border border-[#f1dde6] px-4 py-2 text-sm text-slate-600 hover:border-pink-300"
+                  >
+                    Оплачу позже
+                  </button>
+                </div>
+                <p className="mt-3 text-xs text-slate-500">
+                  Запись видна в «Моих записях»: оплатить можно в любой момент до визита.
+                </p>
+              </div>
+            ) : (
+            <>
             <h2 className="text-2xl font-semibold">Ваши данные</h2>
             <form className="mt-4 space-y-3" onSubmit={onSubmit}>
               <input
@@ -232,6 +270,13 @@ export function BookingPage() {
                 Подтверждение: {formatDateLabel(dateISO)}
                 {selectedSlot ? `, ${selectedSlot}` : ""}, {service?.name ?? "услуга не выбрана"}
                 {service ? ` · ${formatRub(service.price)}` : ""}
+                {service && (service.prepaymentPercent ?? 0) > 0 && (
+                  <span className="mt-1 block text-amber-600" data-note="prepayment">
+                    Услуга с предоплатой {(service.prepaymentPercent ?? 0)}% —{" "}
+                    {formatRub(Math.round((service.price * (service.prepaymentPercent ?? 0)) / 100))}. Запись
+                    подтвердится после оплаты, остаток отдадите мастеру после визита.
+                  </span>
+                )}
               </div>
 
               <button
@@ -246,6 +291,8 @@ export function BookingPage() {
             <Link to="/" className="mt-5 inline-block text-sm text-pink-600 hover:text-pink-700">
               Вернуться к поиску
             </Link>
+            </>
+            )}
           </div>
         </section>
       </div>

@@ -66,6 +66,33 @@ export function AccountPage() {
                   </div>
                   <div className="text-right">
                     <p className="font-semibold">{formatRub(booking.price)}</p>
+                    {booking.prepaymentAmount > 0 && (
+                      <p
+                        data-payment={booking.paymentStatus}
+                        className={`mt-1 rounded-full px-2 py-0.5 text-xs ${
+                          booking.paymentStatus === "paid"
+                            ? "bg-emerald-50 text-emerald-600"
+                            : booking.paymentStatus === "pending"
+                              ? "bg-amber-50 text-amber-600"
+                              : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        {booking.paymentStatus === "paid"
+                          ? `Предоплата ${formatRub(booking.prepaymentAmount)} внесена`
+                          : booking.paymentStatus === "pending"
+                            ? `Предоплата ${formatRub(booking.prepaymentAmount)}`
+                            : `Предоплата ${formatRub(booking.prepaymentAmount)} возвращена`}
+                      </p>
+                    )}
+                    {booking.status === "upcoming" && booking.paymentStatus === "pending" && (
+                      <Link
+                        to={`/pay/${booking.id}`}
+                        data-action="go-pay"
+                        className="mt-2 block rounded-lg bg-pink-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-pink-600"
+                      >
+                        Оплатить предоплату
+                      </Link>
+                    )}
                     {booking.status === "upcoming" && (
                       <div className="mt-3 flex flex-col items-end gap-2">
                         <button

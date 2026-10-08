@@ -120,6 +120,9 @@ export type BookingRow = {
   master: string;
   status: "confirmed" | "pending" | "cancelled" | "completed";
   price: number;
+  /** Предоплата: у строк макета её нет, у живых записей — есть. */
+  prepaymentAmount?: number;
+  paymentStatus?: "none" | "pending" | "paid" | "refunded";
 };
 
 export const bookingRows: BookingRow[] = [

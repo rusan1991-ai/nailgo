@@ -11,6 +11,8 @@ export type CabinetService = {
   category: string;
   durationMinutes: number;
   price: number;
+  /** Предоплата в процентах от цены: 0 — платить не нужно. */
+  prepaymentPercent: number;
   /** Скрытая услуга не видна клиентам, но история записей сохраняется. */
   active: boolean;
   /** Сколько записей (кроме отменённых) уже ссылается на услугу. */
@@ -28,6 +30,7 @@ export type ServiceInput = {
   category: string;
   durationMinutes: number;
   price: number;
+  prepaymentPercent?: number;
   active?: boolean;
 };
 

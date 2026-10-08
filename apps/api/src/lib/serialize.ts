@@ -11,6 +11,9 @@ export function serializeBooking(booking: Booking, master: Master, service: Serv
     serviceName: service.name,
     durationMinutes: service.durationMinutes,
     price: booking.price,
+    /** Предоплата: 0 — платить не нужно, иначе ждём эту сумму. */
+    prepaymentAmount: booking.prepaymentAmount,
+    paymentStatus: booking.paymentStatus,
     dateISO: toISODate(booking.startAt),
     startAt: booking.startAt.toISOString(),
     endAt: booking.endAt.toISOString(),

@@ -5,6 +5,7 @@ import { db } from "../db/index.js";
 import { bookings, masters, reviews, services } from "../db/schema.js";
 import { requireAuth } from "../lib/auth.js";
 import { notifyBookingEvent } from "../lib/notify.js";
+import { initiatePayment, prepaymentFor, refundBookingPayment } from "../lib/payments.js";
 import { notifyFavoritesAboutWindow } from "../lib/favorites.js";
 import { env } from "../env.js";
 import { scheduleForDay } from "../lib/schedule.js";
@@ -116,6 +117,10 @@ export async function createBooking(
     durationMinutes: service.durationMinutes,
   });
 
+  // Предоплата фиксируется на момент записи: процент по услуге мастер может
+  // поменять хоть завтра, но по этой записи сумма уже согласована.
+  const prepaymentAmount = prepaymentFor(service.price, service.prepaymentPercent);
+
   const [booking] = await db
     .insert(bookings)
     .values({
@@ -127,6 +132,8 @@ export async function createBooking(
       startAt,
       endAt,
       price: service.price,
+      prepaymentAmount,
+      paymentStatus: prepaymentAmount > 0 ? "pending" : "none",
       status: options.status,
       source: options.source,
     })
@@ -216,7 +223,12 @@ export async function bookingRoutes(app: FastifyInstance) {
     const input = createBookingSchema.parse(request.body ?? {});
     const { row, service, payload } = await createBooking(input, { source: "client", status: "pending" });
     await notifyBookingEvent(row, service, "created_by_client");
-    return reply.code(201).send({ booking: payload });
+
+    // Если услуга с предоплатой — сразу отдаём ссылку на оплату, чтобы клиент
+    // не искал её потом: без денег запись не подтвердится.
+    const payment = row.prepaymentAmount > 0 ? await initiatePayment(row) : { status: "none" as const };
+
+    return reply.code(201).send({ booking: payload, payment });
   });
 
   /**
@@ -303,6 +315,9 @@ export async function bookingRoutes(app: FastifyInstance) {
     await db.update(bookings).set({ status: "cancelled" }).where(eq(bookings.id, id));
     const [service] = await db.select().from(services).where(eq(services.id, booking.serviceId)).limit(1);
     await notifyBookingEvent(booking, service ?? { name: "Услуга" }, "cancelled_by_client");
+
+    // Внесённая предоплата не остаётся у мастера: отмена возвращает деньги.
+    if (booking.paymentStatus === "paid") await refundBookingPayment(booking);
 
     // Освободившееся окно предлагаем тем, кто добавил мастера в избранное.
     await notifyFavoritesAboutWindow({

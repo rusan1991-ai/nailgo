@@ -2,11 +2,15 @@ import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { cn } from "../utils/cn";
 
-const navItems = [{ to: "/admin/reviews", label: "Отзывы" }];
+const navItems = [
+  { to: "/admin/reviews", label: "Отзывы" },
+  { to: "/admin/deliveries", label: "Доставка" },
+  { to: "/admin/payments", label: "Платежи" },
+];
 
 /**
- * Каркас админки: пока один раздел — модерация отзывов.
- * Остальные разделы (мастера, контент, файлы) появятся вместе с пунктом 10 карты.
+ * Каркас админки: модерация отзывов, очередь доставки сообщений и предоплаты.
+ * Управление мастерами и контентом — пункт 10 карты.
  */
 export function AdminLayout() {
   const { user, signOut } = useAuth();

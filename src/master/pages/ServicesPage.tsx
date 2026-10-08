@@ -47,9 +47,17 @@ function ServiceThumb({ category }: { category: string }) {
 }
 
 /** Черновик формы: строки, чтобы поля ввода не спорили с числами в базе. */
-type Draft = { name: string; category: string; duration: string; price: string; active: boolean };
+type Draft = {
+  name: string;
+  category: string;
+  duration: string;
+  price: string;
+  /** Предоплата в процентах — строкой, как остальные числовые поля формы. */
+  prepayment: string;
+  active: boolean;
+};
 
-const emptyDraft: Draft = { name: "", category: CATEGORIES[0], duration: "60", price: "1500", active: true };
+const emptyDraft: Draft = { name: "", category: CATEGORIES[0], duration: "60", price: "1500", prepayment: "0", active: true };
 
 function draftOf(service: CabinetService): Draft {
   return {
@@ -57,6 +65,7 @@ function draftOf(service: CabinetService): Draft {
     category: service.category,
     duration: String(service.durationMinutes),
     price: String(service.price),
+    prepayment: String(service.prepaymentPercent ?? 0),
     active: service.active,
   };
 }
@@ -126,6 +135,7 @@ export function ServicesPage() {
       category: draft.category.trim(),
       durationMinutes: Number(draft.duration) || 0,
       price: Number(draft.price) || 0,
+      prepaymentPercent: Math.min(100, Math.max(0, Number(draft.prepayment) || 0)),
       active: draft.active,
     };
     const ok =
@@ -219,6 +229,7 @@ export function ServicesPage() {
                     <th className="px-5 py-3 font-medium">Категория</th>
                     <th className="px-5 py-3 font-medium">Длительность</th>
                     <th className="px-5 py-3 font-medium">Цена</th>
+                    <th className="px-5 py-3 font-medium">Предоплата</th>
                     <th className="px-5 py-3 font-medium">Статус</th>
                     <th className="px-5 py-3 text-right font-medium">Действия</th>
                   </tr>
@@ -240,6 +251,16 @@ export function ServicesPage() {
                       <td className="px-5 py-3.5 text-slate-500">{row.category}</td>
                       <td className="px-5 py-3.5 text-slate-500">{durationLabel(row.durationMinutes)}</td>
                       <td className="px-5 py-3.5 font-medium text-slate-700">{formatRub(row.price)}</td>
+                      <td className="px-5 py-3.5" data-prepayment={row.prepaymentPercent}>
+                        {row.prepaymentPercent > 0 ? (
+                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-600">
+                            {row.prepaymentPercent}% ·{" "}
+                            {formatRub(Math.round((row.price * row.prepaymentPercent) / 100))}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400">без предоплаты</span>
+                        )}
+                      </td>
                       <td className="px-5 py-3.5">
                         <button
                           type="button"
@@ -406,6 +427,20 @@ export function ServicesPage() {
                 />
               </label>
             </div>
+            <label className="block text-sm text-slate-600">
+              Предоплата, % от цены
+              <input
+                value={draft.prepayment}
+                onChange={(event) => setDraft({ ...draft, prepayment: event.target.value.replace(/\D/g, "").slice(0, 3) })}
+                inputMode="numeric"
+                placeholder="0"
+                data-field="prepayment"
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-pink-400"
+              />
+              <span className="mt-1 block text-xs text-slate-400">
+                0 — платить не нужно. Деньги придут вам, запись подтвердится после предоплаты.
+              </span>
+            </label>
             <label className="flex items-center gap-2 text-sm text-slate-600">
               <input
                 type="checkbox"

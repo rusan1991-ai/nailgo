@@ -1,3 +1,4 @@
+import type { FastifyInstance } from "fastify";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
@@ -5,6 +6,7 @@ import { env, isDev } from "./env.js";
 import { closeDb, db, pingDb, runMigrations } from "./db/index.js";
 import { masters, bookings } from "./db/schema.js";
 import { adminRoutes } from "./routes/admin.js";
+import { dispatchDue } from "./lib/delivery/outbox.js";
 import { authRoutes } from "./routes/auth.js";
 import { BookingError, bookingRoutes } from "./routes/bookings.js";
 import { cabinetRoutes } from "./routes/cabinet.js";
@@ -13,6 +15,7 @@ import { clientRoutes } from "./routes/client.js";
 import { favoriteRoutes } from "./routes/favorites.js";
 import { messageRoutes } from "./routes/messages.js";
 import { notificationRoutes } from "./routes/notifications.js";
+import { paymentRoutes } from "./routes/payments.js";
 import { reviewRoutes } from "./routes/reviews.js";
 import { serviceRoutes } from "./routes/services.js";
 
@@ -75,6 +78,7 @@ export async function buildServer() {
       await instance.register(serviceRoutes);
       await instance.register(favoriteRoutes);
       await instance.register(clientRoutes);
+      await instance.register(paymentRoutes);
     },
     { prefix: "/api" },
   );
@@ -88,10 +92,38 @@ async function start() {
     await runMigrations();
     await app.listen({ port: env.port, host: env.host });
     app.log.info(`NailGo API: http://${env.host}:${env.port}/api/health`);
+
+    startDeliveryWorker(app);
   } catch (error) {
     app.log.error(error);
     process.exit(1);
   }
+}
+
+/**
+ * Рассыльщик очереди доставки.
+ *
+ * Раз в `DELIVERY_INTERVAL_SECONDS` забирает сообщения, которым пора уходить
+ * (напоминания о визите, коды входа, отмены), и отправляет их транспортом.
+ * Сбой провайдера не роняет сервер: ошибка ложится в строку очереди, и попытка
+ * повторится. Интервал можно выключить нулём — тогда отправка только вручную
+ * из админки (так удобнее в проверках).
+ */
+function startDeliveryWorker(app: FastifyInstance): void {
+  if (env.deliveryIntervalSeconds <= 0) {
+    app.log.info("Рассыльщик доставки выключен (DELIVERY_INTERVAL_SECONDS=0)");
+    return;
+  }
+
+  // Один прогон на старте: подхватываем то, что накопилось до перезапуска.
+  setTimeout(() => {
+    void dispatchDue().catch((error) => app.log.error({ error }, "Очередь доставки: сбой прогона"));
+  }, 1_000).unref?.();
+
+  const timer = setInterval(() => {
+    void dispatchDue().catch((error) => app.log.error({ error }, "Очередь доставки: сбой прогона"));
+  }, env.deliveryIntervalSeconds * 1_000);
+  timer.unref?.();
 }
 
 const isDirectRun = process.argv[1]?.includes("server");

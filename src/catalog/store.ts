@@ -40,6 +40,8 @@ export type Service = {
   category: string;
   durationMinutes: number;
   price: number;
+  /** Предоплата в процентах от цены: 0 — платить не нужно. */
+  prepaymentPercent?: number;
   /** Услуга принадлежит мастеру: страница записи показывает прайс выбранного. */
   masterSlug?: string;
   masterName?: string;

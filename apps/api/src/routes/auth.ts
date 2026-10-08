@@ -6,6 +6,7 @@ import { db } from "../db/index.js";
 import { masters, otpCodes, sessions, users } from "../db/schema.js";
 import { env, isDev } from "../env.js";
 import { requireAuth, signAccessToken, signRefreshToken, verifyRefreshToken } from "../lib/auth.js";
+import { DELIVERY_KINDS, enqueueDelivery, sendDelivery } from "../lib/delivery/outbox.js";
 import { slugify } from "../lib/slug.js";
 
 const phoneSchema = z
@@ -99,18 +100,34 @@ export async function authRoutes(app: FastifyInstance) {
     });
 
     // Куда уходит код — определяет OTP_DELIVERY (см. env.ts).
+    // Реальная отправка идёт через очередь доставки: строка в deliveries видна
+    // администратору, при сбое провайдера попытка повторяется, а не теряется.
     if (env.otpDelivery === "sms") {
-      app.log.error(
-        "OTP_DELIVERY=sms, но SMS-провайдер не подключён: код никуда не отправлен. " +
-          "Укажите OTP_DELIVERY=log для закрытого стенда или подключите провайдера.",
-      );
-      return reply.code(503).send({
-        error: "sms_not_configured",
-        message: "Отправка SMS ещё не подключена",
+      const queued = await enqueueDelivery({
+        channel: "sms",
+        kind: DELIVERY_KINDS.otp,
+        recipient: phone,
+        body: `NailGo: код подтверждения ${code}. Никому его не сообщайте.`,
       });
+      const sent = await sendDelivery(queued.id);
+
+      if (!sent || sent.status !== "sent") {
+        app.log.error({ phone, error: sent?.error }, "SMS с кодом не ушла — проверьте настройки провайдера");
+        return reply.code(503).send({
+          error: "sms_not_configured",
+          message: sent?.error ? `SMS не отправлена: ${sent.error}` : "Отправка SMS ещё не подключена",
+        });
+      }
     }
 
     if (env.otpDelivery === "log") {
+      // Код остаётся в логе сервера, но и в очереди: видно, что SMS «ушла».
+      await enqueueDelivery({
+        channel: "sms",
+        kind: DELIVERY_KINDS.otp,
+        recipient: phone,
+        body: `NailGo: код подтверждения ${code}. Никому его не сообщайте.`,
+      });
       app.log.warn({ phone }, `SMS не подключён — код подтверждения: ${code}`);
     } else {
       app.log.info({ phone }, "OTP: код сгенерирован");

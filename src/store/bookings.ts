@@ -30,6 +30,9 @@ export type Booking = {
   serviceName: string;
   durationMinutes: number;
   price: number;
+  /** Предоплата по записи: 0 — платить не нужно. */
+  prepaymentAmount: number;
+  paymentStatus: "none" | "pending" | "paid" | "refunded";
   /** «2024-05-22» */
   dateISO: string;
   /** «22 мая» — как показывает интерфейс */
@@ -148,6 +151,8 @@ type ApiBooking = {
   serviceName: string;
   durationMinutes: number;
   price: number;
+  prepaymentAmount?: number;
+  paymentStatus?: "none" | "pending" | "paid" | "refunded";
   dateISO: string;
   startMinutes: number;
   clientName: string;
@@ -170,6 +175,8 @@ function mapBooking(item: ApiBooking): Booking {
     serviceName: item.serviceName,
     durationMinutes: item.durationMinutes,
     price: item.price,
+    prepaymentAmount: item.prepaymentAmount ?? 0,
+    paymentStatus: item.paymentStatus ?? "none",
     dateISO: item.dateISO,
     dateLabel: formatDateLabel(item.dateISO),
     dayIndex: dayIndexForDate(item.dateISO),

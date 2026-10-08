@@ -8,11 +8,14 @@
 import { eq } from "drizzle-orm";
 import { normalizePhone } from "../lib/phone.js";
 import { recalcMasterRating } from "../lib/reviews.js";
+import { prepaymentFor } from "../lib/payments.js";
 import { db } from "./index.js";
 import {
   bookings,
   conversations,
+  deliveries,
   favorites,
+  payments,
   masters,
   messages,
   notifications,
@@ -102,7 +105,14 @@ const mastersSeed = [
  * он меняет в кабинете, не задевая остальных. `key` — только для сидов:
  * по нему записи и отзывы находят услугу нужного мастера.
  */
-const servicesSeed = [
+const servicesSeed: {
+  key: string;
+  name: string;
+  category: string;
+  durationMinutes: number;
+  price: number;
+  prepaymentPercent?: number;
+}[] = [
   { key: "s1", name: "Маникюр классический", category: "Маникюр", durationMinutes: 60, price: 1500 },
   { key: "s2", name: "Маникюр аппаратный", category: "Маникюр", durationMinutes: 90, price: 2000 },
   { key: "s3", name: "Покрытие гель-лак", category: "Покрытие", durationMinutes: 60, price: 1800 },
@@ -236,6 +246,9 @@ export async function seed() {
   // уведомления прошлых прогонов).
   await db.delete(notifications);
   await db.delete(favorites);
+  // Очередь доставки — тоже демо-состояние: после сброса она пустая,
+  // а настройки провайдера (таблица settings) остаются.
+  await db.delete(deliveries);
   await db.delete(bookings);
   await db.delete(reviews);
   await db.delete(workingHours);
@@ -287,6 +300,7 @@ export async function seed() {
           category: service.category,
           durationMinutes: service.durationMinutes,
           price: service.price,
+          prepaymentPercent: service.prepaymentPercent ?? 0,
         })),
       ),
     )
@@ -306,6 +320,8 @@ export async function seed() {
   const bookingRows = bookingsSeed.map(
     ([day, start, duration, clientName, clientPhone, serviceKey, masterSlug, status, price]) => {
       const service = servicesSeed.find((item) => item.key === serviceKey)!;
+      const priceValue = price ?? service.price;
+      const prepaymentAmount = prepaymentFor(priceValue, service.prepaymentPercent ?? 0);
       return {
         masterId: masterBySlug.get(masterSlug)!,
         serviceId: serviceIdOf(masterSlug, serviceKey),
@@ -314,13 +330,57 @@ export async function seed() {
         clientPhone: normalizePhone(clientPhone),
         startAt: at(day, start),
         endAt: at(day, start + duration),
-        price: price ?? service.price,
+        price: priceValue,
+        prepaymentAmount,
+        paymentStatus: prepaymentAmount > 0 ? "pending" : "none",
         status,
         source: "client" as const,
       };
     },
   );
   const insertedBookings = await db.insert(bookings).values(bookingRows).returning();
+
+  // Демо-платежи: по одной записи видно, как выглядят внесённая предоплата
+  // и возврат. Без этого страницы «Платежи» и кабинет мастера выглядели бы
+  // пустыми, хотя функция работает.
+  const paymentDemo = insertedBookings
+    .filter((booking) => booking.prepaymentAmount > 0)
+    .sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
+  const paidDemo = paymentDemo[0];
+  const refundedDemo = paymentDemo[1];
+
+  if (paidDemo) {
+    const [row] = await db
+      .insert(payments)
+      .values({
+        bookingId: paidDemo.id,
+        amount: paidDemo.prepaymentAmount,
+        provider: "manual",
+        status: "paid",
+        payUrl: null,
+        paidAt: at(3, 720),
+        createdAt: at(3, 700),
+      })
+      .returning();
+    await db.update(bookings).set({ paymentStatus: "paid" }).where(eq(bookings.id, paidDemo.id));
+    if (paidDemo.status === "pending") {
+      await db.update(bookings).set({ status: "confirmed" }).where(eq(bookings.id, paidDemo.id));
+    }
+    void row;
+  }
+
+  if (refundedDemo) {
+    await db.insert(payments).values({
+      bookingId: refundedDemo.id,
+      amount: refundedDemo.prepaymentAmount,
+      provider: "manual",
+      status: "refunded",
+      paidAt: at(3, 900),
+      refundedAt: at(4, 720),
+      createdAt: at(3, 890),
+    });
+    await db.update(bookings).set({ paymentStatus: "refunded" }).where(eq(bookings.id, refundedDemo.id));
+  }
   // Запись ищем по телефону и мастеру: по ней отзыв привязывается к визиту.
   const bookingByPhone = new Map(
     insertedBookings.map((booking) => [`${booking.clientPhone}|${booking.masterId}`, booking]),

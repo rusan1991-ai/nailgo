@@ -254,6 +254,8 @@ export async function catalogRoutes(app: FastifyInstance) {
         category: service.category,
         durationMinutes: service.durationMinutes,
         price: service.price,
+        // Клиент должен знать про предоплату до записи, а не на её последнем шаге.
+        prepaymentPercent: service.prepaymentPercent,
         masterSlug: master.slug,
         masterName: master.name,
       })),
@@ -282,6 +284,7 @@ export async function catalogRoutes(app: FastifyInstance) {
         category: service.category,
         durationMinutes: service.durationMinutes,
         price: service.price,
+        prepaymentPercent: service.prepaymentPercent,
       })),
     };
   });

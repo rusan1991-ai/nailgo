@@ -4,6 +4,8 @@ import { AuthProvider, isMaster, useAuth } from "./auth/AuthContext";
 import { CityProvider } from "./city/CityContext";
 import { AdminLayout } from "./admin/AdminLayout";
 import { AdminReviewsPage } from "./admin/pages/AdminReviewsPage";
+import { AdminDeliveriesPage } from "./admin/pages/AdminDeliveriesPage";
+import { AdminPaymentsPage } from "./admin/pages/AdminPaymentsPage";
 import { BookingProvider } from "./bookings/BookingContext";
 import { BookingPage } from "./pages/BookingPage";
 import { FavoritesPage } from "./pages/FavoritesPage";
@@ -13,6 +15,7 @@ import { LastMinutePage } from "./pages/LastMinutePage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { AdminLoginPage } from "./pages/AdminLoginPage";
+import { PayPage } from "./pages/PayPage";
 import { MasterPage } from "./pages/MasterPage";
 import { MessagesClientPage } from "./pages/MessagesClientPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
@@ -193,6 +196,14 @@ export default function App() {
               }
             />
             <Route
+              path="/pay/:id"
+              element={
+                <RequireAuth>
+                  <PayPage />
+                </RequireAuth>
+              }
+            />
+            <Route
               path="/account"
               element={
                 <RequireAuth>
@@ -226,6 +237,8 @@ export default function App() {
             >
               <Route index element={<Navigate to="reviews" replace />} />
               <Route path="reviews" element={<AdminReviewsPage />} />
+              <Route path="deliveries" element={<AdminDeliveriesPage />} />
+              <Route path="payments" element={<AdminPaymentsPage />} />
             </Route>
             <Route path="/home" element={<Navigate to="/" replace />} />
             <Route path="*" element={<NotFoundPage />} />

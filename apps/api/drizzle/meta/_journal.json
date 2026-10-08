@@ -78,6 +78,20 @@
       "when": 1791442973754,
       "tag": "0010_real_solo",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791444473665,
+      "tag": "0011_gigantic_old_lace",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791444761088,
+      "tag": "0012_milky_diamondback",
+      "breakpoints": true
     }
   ]
 }

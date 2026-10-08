@@ -7,6 +7,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { formatDateLabel, formatTimeLabel, parseTimeLabel } from "../store/bookings";
+import type { StartedPayment } from "../api/payments";
 
 export type BookingItem = {
   id: string;
@@ -23,6 +24,9 @@ export type BookingItem = {
   service: string;
   address: string;
   price: number;
+  /** Предоплата по записи: 0 — платить не нужно. */
+  prepaymentAmount: number;
+  paymentStatus: "none" | "pending" | "paid" | "refunded";
   status: "upcoming" | "completed" | "cancelled";
   /** Отзыв по визиту: null, если его ещё нет — тогда интерфейс предлагает оставить. */
   review: {
@@ -44,6 +48,8 @@ type ApiBooking = {
   dateISO: string;
   startMinutes: number;
   price: number;
+  prepaymentAmount?: number;
+  paymentStatus?: "none" | "pending" | "paid" | "refunded";
   status: "pending" | "confirmed" | "completed" | "cancelled";
   address: string;
   /** Отзыв по визиту: null, если отзыва ещё нет. */
@@ -73,7 +79,8 @@ type BookingContextValue = {
   loading: boolean;
   error: string | null;
   reload: () => Promise<void>;
-  createBooking: (payload: CreateBookingPayload) => Promise<BookingItem>;
+  /** Создание записи: вместе с записью приходит и ссылка на предоплату. */
+  createBooking: (payload: CreateBookingPayload) => Promise<{ booking: BookingItem; payment: StartedPayment }>;
   cancelBooking: (id: string) => Promise<void>;
 };
 
@@ -93,6 +100,8 @@ function toItem(booking: ApiBooking): BookingItem {
     service: booking.serviceName,
     address: booking.address ?? "",
     price: booking.price,
+    prepaymentAmount: booking.prepaymentAmount ?? 0,
+    paymentStatus: booking.paymentStatus ?? "none",
     status: booking.status === "cancelled" ? "cancelled" : booking.status === "completed" ? "completed" : "upcoming",
     review: booking.review ?? null,
   };
@@ -138,7 +147,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         const clientPhone = payload.clientPhone?.trim() || phone;
         const clientName = payload.clientName?.trim() || user?.name || "Клиент NailGo";
         try {
-          const response = await api.post<{ booking: ApiBooking }>("/bookings", {
+          const response = await api.post<{ booking: ApiBooking; payment?: StartedPayment }>("/bookings", {
             masterSlug: payload.masterSlug,
             serviceId: payload.serviceId,
             dateISO: payload.dateISO,
@@ -149,7 +158,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
           });
           const item = toItem(response.booking);
           setBookings((current) => [item, ...current.filter((booking) => booking.id !== item.id)]);
-          return item;
+          return { booking: item, payment: response.payment ?? { status: "none" } };
         } catch (caught) {
           const message = caught instanceof ApiError ? caught.message : "Не удалось создать запись";
           setError(message);

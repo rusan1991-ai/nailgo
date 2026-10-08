@@ -10,6 +10,8 @@ import { db, schema } from "../db/index.js";
 import { masters, notifications, users } from "../db/schema.js";
 import { formatMinutes, toISODate } from "./time.js";
 import { normalizePhone } from "./phone.js";
+import { cancelBookingReminders, scheduleBookingReminder } from "./delivery/reminders.js";
+import { DELIVERY_KINDS, enqueueDelivery } from "./delivery/outbox.js";
 
 export type NotificationType =
   | "booking_created"
@@ -55,24 +57,26 @@ export async function notifyStudio(
 }
 
 /**
- * Уведомление клиенту: адресат — телефон из записи.
+ * Разрешена ли клиенту эта категория уведомлений?
  *
- * Перед вставкой спрашиваем настройки клиента: «Акции и новости» выключают
- * предложения вроде освободившегося окна, «Уведомления о записи» — события
- * визита. Так переключатели в настройках действительно что-то меняют.
+ * Спрашиваем настройки клиента (пункт «Профиль и настройки»): «Акции и новости»
+ * выключают предложения вроде освободившегося окна, «Уведомления о записи» —
+ * события визита. Правило одно для уведомлений в приложении и для SMS: иначе
+ * выключенный переключатель продолжал бы слать сообщения наружу.
  */
+export async function clientNotificationAllowed(phone: string, type: NotificationType): Promise<boolean> {
+  const [user] = await db.select().from(users).where(eq(users.phone, normalizePhone(phone))).limit(1);
+  if (!user) return true; // незнакомый номер — не наш клиент, решает не он
+  return type === "favorite_slot" ? user.notifyNews : user.notifyBookings;
+}
+
+/** Уведомление клиенту: адресат — телефон из записи. */
 export async function notifyClient(
   phone: string,
   input: { type: NotificationType; title: string; body: string; bookingId?: string },
 ): Promise<void> {
   const normalized = normalizePhone(phone);
-  const [user] = await db.select().from(users).where(eq(users.phone, normalized)).limit(1);
-
-  if (user) {
-    const isBookingEvent = input.type !== "favorite_slot";
-    if (isBookingEvent && !user.notifyBookings) return;
-    if (!isBookingEvent && !user.notifyNews) return;
-  }
+  if (!(await clientNotificationAllowed(normalized, input.type))) return;
 
   await db.insert(notifications).values({
     audience: "client",
@@ -102,6 +106,10 @@ export async function notifyBookingEvent(
     | "rescheduled_by_master",
 ): Promise<void> {
   const when = whenLabel(booking.startAt);
+
+  // SMS и напоминания идут тем же путём, что уведомления в приложении:
+  // событие одно, а каналов доставки у него может быть несколько.
+  await deliverBookingMessage(booking, service, event);
 
   if (event === "created_by_client") {
     await notifyStudio(booking.masterId, {
@@ -184,5 +192,71 @@ export async function notifyBookingEvent(
     title: "Запись отменена мастером",
     body: `${service.name} · ${when}`,
     bookingId: booking.id,
+  });
+}
+
+/**
+ * Внешние сообщения по событию записи: SMS через очередь и напоминания.
+ *
+ * Уведомление в приложении человек увидит, только если зайдёт на сайт; SMS
+ * доходит сама. Настройки клиента уважаем: выключены «уведомления о записи» —
+ * наружу ничего не уходит. Напоминание ставится не «сразу», а на время до
+ * визита, поэтому отмена и перенос снимают старое и ставят новое.
+ */
+async function deliverBookingMessage(
+  booking: BookingRow,
+  service: { name: string },
+  event: Parameters<typeof notifyBookingEvent>[2],
+): Promise<void> {
+  const [master] = await db.select().from(masters).where(eq(masters.id, booking.masterId)).limit(1);
+  const masterName = master?.name ?? "Мастер";
+  const when = whenLabel(booking.startAt);
+
+  /** Отправка SMS клиенту: с проверкой его настроек. */
+  const smsToClient = async (kind: string, body: string) => {
+    if (!(await clientNotificationAllowed(booking.clientPhone, "booking_created"))) return;
+    await enqueueDelivery({ channel: "sms", kind, recipient: booking.clientPhone, body, bookingId: booking.id });
+  };
+
+  if (event === "created_by_client" || event === "created_by_master") {
+    await smsToClient(
+      DELIVERY_KINDS.bookingCreated,
+      `${masterName}: заявка на ${service.name} ${when} принята. Ждите подтверждения.`,
+    );
+  }
+
+  if (event === "confirmed") {
+    await smsToClient(
+      DELIVERY_KINDS.bookingConfirmed,
+      `${masterName}: запись подтверждена — ${service.name}, ${when}.`,
+    );
+  }
+
+  if (event === "rescheduled_by_master") {
+    await smsToClient(
+      DELIVERY_KINDS.bookingRescheduled,
+      `${masterName}: визит перенесён на ${when} — ${service.name}.`,
+    );
+  }
+
+  if (event === "cancelled_by_master") {
+    await smsToClient(
+      DELIVERY_KINDS.bookingCancelled,
+      `${masterName}: визит ${when} отменён. Запишитесь на другое время в NailGo.`,
+    );
+  }
+
+  // Снятая или прошедшая запись напоминаний не получает, остальные — получают:
+  // напоминание всегда ставится на актуальное время визита.
+  if (event === "cancelled_by_client" || event === "cancelled_by_master" || event === "completed") {
+    await cancelBookingReminders(booking.id);
+    return;
+  }
+
+  await scheduleBookingReminder({
+    booking,
+    masterName,
+    serviceName: service.name,
+    address: master?.address ?? null,
   });
 }

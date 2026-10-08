@@ -85,3 +85,40 @@ export function useCabinetReviews(status?: string): Resource<CabinetReviews> {
 export async function replyToReview(id: string, text: string): Promise<{ replyText: string | null }> {
   return api.post<{ replyText: string | null }>(`/cabinet/reviews/${id}/reply`, { text });
 }
+
+/**
+ * Деньги по записи в кабинете мастера.
+ *
+ * Мастер отмечает поступление предоплаты (перевод или наличные) и возвращает
+ * её, если визит не состоялся по его вине. Предоплата, которую клиент внёс
+ * через шлюз, отмечается сама — вебхуком провайдера.
+ */
+export type BookingPayment = {
+  id: string;
+  amount: number;
+  provider: string;
+  status: "pending" | "paid" | "failed" | "refunded";
+  payUrl: string | null;
+  error: string | null;
+  paidAt: string | null;
+  refundedAt: string | null;
+  createdAt: string;
+};
+
+export type BookingPayments = {
+  items: BookingPayment[];
+  prepaymentAmount: number;
+  paymentStatus: "none" | "pending" | "paid" | "refunded";
+};
+
+export function useBookingPayments(bookingId: string | null): Resource<BookingPayments> {
+  return useApiResource<BookingPayments>(bookingId ? `/cabinet/bookings/${bookingId}/payments` : null);
+}
+
+export async function confirmBookingPayment(bookingId: string): Promise<void> {
+  await api.post(`/cabinet/bookings/${bookingId}/payment/paid`);
+}
+
+export async function refundBookingPayment(bookingId: string): Promise<void> {
+  await api.post(`/cabinet/bookings/${bookingId}/payment/refund`);
+}

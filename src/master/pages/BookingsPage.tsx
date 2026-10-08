@@ -26,6 +26,7 @@ import {
   weekdayForDate,
   type Booking,
 } from "../../store/bookings";
+import { confirmBookingPayment, refundBookingPayment } from "../../api/cabinet";
 import { cn } from "../../utils/cn";
 
 const statusChips: Record<BookingRow["status"], { label: string; tone: "green" | "amber" | "red" | "blue" }> = {
@@ -35,8 +36,27 @@ const statusChips: Record<BookingRow["status"], { label: string; tone: "green" |
   completed: { label: "Завершена", tone: "blue" },
 };
 
+/**
+ * Действия мастера по записи: обычные шаги визита плюс деньги.
+ *
+ * Предоплата — не формальность: пока её нет, запись ждёт оплаты. Поэтому
+ * «деньги пришли» живёт рядом с «подтвердить», а не в отдельном разделе.
+ */
+type RowAction = "confirm" | "complete" | "cancel" | "payment-paid" | "payment-refund";
+
+function paymentActionsFor(row: BookingRow): { action: RowAction; label: string }[] {
+  if (!row.prepaymentAmount || row.prepaymentAmount <= 0) return [];
+  if (row.paymentStatus === "pending" && row.status !== "cancelled") {
+    return [{ action: "payment-paid", label: "Деньги пришли" }];
+  }
+  if (row.paymentStatus === "paid") {
+    return [{ action: "payment-refund", label: "Вернуть предоплату" }];
+  }
+  return [];
+}
+
 /** Действия мастера зависят от текущего статуса записи. */
-function actionsFor(status: BookingRow["status"]): { action: "confirm" | "complete" | "cancel"; label: string }[] {
+function actionsFor(status: BookingRow["status"]): { action: RowAction; label: string }[] {
   if (status === "pending") {
     return [
       { action: "confirm", label: "Подтвердить" },
@@ -84,6 +104,8 @@ export function BookingsPage() {
         master: booking.masterName,
         status: booking.status,
         price: booking.price,
+        prepaymentAmount: booking.prepaymentAmount,
+        paymentStatus: booking.paymentStatus,
       })),
     [stored],
   );
@@ -135,14 +157,22 @@ export function BookingsPage() {
   const masters = Array.from(new Set(baseRows.map((row) => row.master)));
   const services = Array.from(new Set(baseRows.map((row) => row.service)));
 
-  const runAction = async (row: BookingRow, action: "confirm" | "complete" | "cancel") => {
-    const names = { confirm: "Подтвердить", complete: "Завершить", cancel: "Отменить" } as const;
+  const runAction = async (row: BookingRow, action: RowAction) => {
+    const names = {
+      confirm: "Подтвердить",
+      complete: "Завершить",
+      cancel: "Отменить",
+      "payment-paid": "Отметить предоплату",
+      "payment-refund": "Вернуть предоплату",
+    } as const;
     setOpenMenu(null);
     setActionError(null);
     setBusyId(row.id);
     try {
       if (action === "confirm") await confirmBooking(row.id);
       else if (action === "complete") await completeBooking(row.id);
+      else if (action === "payment-paid") await confirmBookingPayment(row.id);
+      else if (action === "payment-refund") await refundBookingPayment(row.id);
       else await cancelBooking(row.id);
     } catch (error) {
       setActionError(
@@ -213,7 +243,7 @@ export function BookingsPage() {
             </thead>
             <tbody>
               {rows.map((row) => {
-                const actions = live ? actionsFor(row.status) : [];
+                const actions = live ? [...actionsFor(row.status), ...paymentActionsFor(row)] : [];
                 return (
                   <tr key={row.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
                     <td className="px-5 py-3.5">
@@ -242,7 +272,28 @@ export function BookingsPage() {
                     <td className="px-5 py-3.5">
                       <Chip tone={statusChips[row.status].tone}>{statusChips[row.status].label}</Chip>
                     </td>
-                    <td className="px-5 py-3.5 font-medium text-slate-700">{formatRub(row.price)}</td>
+                    <td className="px-5 py-3.5 font-medium text-slate-700">
+                      {formatRub(row.price)}
+                      {row.prepaymentAmount && row.prepaymentAmount > 0 ? (
+                        <span
+                          data-payment={row.paymentStatus}
+                          className={cn(
+                            "mt-1 block w-fit rounded-full px-2 py-0.5 text-xs font-normal",
+                            row.paymentStatus === "paid"
+                              ? "bg-emerald-50 text-emerald-600"
+                              : row.paymentStatus === "pending"
+                                ? "bg-amber-50 text-amber-600"
+                                : "bg-slate-100 text-slate-500",
+                          )}
+                        >
+                          {row.paymentStatus === "paid"
+                            ? `предоплата ${formatRub(row.prepaymentAmount)} внесена`
+                            : row.paymentStatus === "pending"
+                              ? `ждём предоплату ${formatRub(row.prepaymentAmount)}`
+                              : `предоплата ${formatRub(row.prepaymentAmount)} возвращена`}
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center justify-end gap-1.5">
                         <button
@@ -276,7 +327,9 @@ export function BookingsPage() {
                                     onClick={() => void runAction(row, item.action)}
                                     className={cn(
                                       "block w-full px-4 py-2 text-left text-sm transition hover:bg-slate-50",
-                                      item.action === "cancel" ? "text-rose-500" : "text-slate-700",
+                                      item.action === "cancel" || item.action === "payment-refund"
+                                      ? "text-rose-500"
+                                      : "text-slate-700",
                                     )}
                                   >
                                     {item.label}
@@ -380,6 +433,19 @@ export function BookingsPage() {
               <dt className="text-slate-400">Источник</dt>
               <dd className="mt-1 text-slate-700">{details.source === "master" ? "Кабинет мастера" : "Онлайн-запись"}</dd>
             </div>
+            {details.prepaymentAmount > 0 && (
+              <div>
+                <dt className="text-slate-400">Предоплата</dt>
+                <dd className="mt-1" data-payment={details.paymentStatus}>
+                  {formatRub(details.prepaymentAmount)} ·{" "}
+                  {details.paymentStatus === "paid"
+                    ? "получена"
+                    : details.paymentStatus === "pending"
+                      ? "ждём оплату"
+                      : "возвращена"}
+                </dd>
+              </div>
+            )}
             <div className="col-span-2">
               <dt className="text-slate-400">Комментарий</dt>
               <dd className="mt-1 text-slate-700">{details.comment || "—"}</dd>

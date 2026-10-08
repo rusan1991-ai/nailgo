@@ -93,6 +93,12 @@ export const services = pgTable(
     category: text("category").notNull(),
     durationMinutes: integer("duration_minutes").notNull(),
     price: integer("price").notNull(),
+    /**
+     * Предоплата по услуге в процентах от цены: 0 — платить не нужно.
+     * Мастер решает по каждой услуге отдельно: на дорогое наращивание просят
+     * предоплату, на короткий дизайн — нет.
+     */
+    prepaymentPercent: integer("prepayment_percent").notNull().default(0),
     active: boolean("active").notNull().default(true),
   },
   (table) => [index("services_master").on(table.masterId)],
@@ -128,6 +134,13 @@ export const bookings = pgTable(
     startAt: timestamp("start_at", { withTimezone: true }).notNull(),
     endAt: timestamp("end_at", { withTimezone: true }).notNull(),
     price: integer("price").notNull(),
+    /**
+     * Предоплата, зафиксированная на момент записи: процент мог измениться
+     * позже, а сумма по этой записи уже согласована.
+     */
+    prepaymentAmount: integer("prepayment_amount").notNull().default(0),
+    /** none — платить не нужно, pending — ждём оплату, paid — внесена, refunded — возвращена. */
+    paymentStatus: text("payment_status").notNull().default("none"), // none | pending | paid | refunded
     status: text("status").notNull().default("pending"), // pending | confirmed | completed | cancelled
     source: text("source").notNull().default("client"), // client | master
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -252,6 +265,86 @@ export const favorites = pgTable(
   ],
 );
 
+/**
+ * Настройки интеграций: ключ → значение.
+ *
+ * Это то, что администратор может менять без перезапуска сервера —
+ * например, канал доставки SMS (лог, вебхук или реальный провайдер). Если
+ * значения нет, берём из переменных окружения.
+ */
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Очередь доставки сообщений (outbox).
+ *
+ * SMS, письма и push не отправляются «в момент действия»: любое сообщение
+ * сначала ложится сюда строкой `queued`, а рассыльщик отправляет его через
+ * транспорт (лог, вебхук, провайдер). Так видно, что и кому ушло, можно
+ * повторить отправку и не потерять сообщение при сбое провайдера.
+ *
+ * `scheduledFor` — время отправки: напоминания о визите ставятся заранее.
+ * `kind` — зачем сообщение (otp, напоминание, отмена), по нему же отменяем
+ * запланированные сообщения, когда запись меняется.
+ */
+export const deliveries = pgTable(
+  "deliveries",
+  {
+    id: id(),
+    channel: text("channel").notNull(), // sms | email | push
+    kind: text("kind").notNull(),
+    /** Телефон, почта или id устройства — смотря какой канал. */
+    recipient: text("recipient").notNull(),
+    subject: text("subject"),
+    body: text("body").notNull(),
+    bookingId: text("booking_id"),
+    status: text("status").notNull().default("queued"), // queued | sent | failed | cancelled
+    attempts: integer("attempts").notNull().default(0),
+    provider: text("provider"),
+    providerId: text("provider_id"),
+    error: text("error"),
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("deliveries_queue").on(table.status, table.scheduledFor),
+    index("deliveries_recipient").on(table.recipient, table.createdAt),
+    index("deliveries_booking").on(table.bookingId),
+  ],
+);
+
+/**
+ * Платежи по предоплате.
+ *
+ * Одна запись — одна платёжная операция: сколько просили, кто провайдер, что
+ * он ответил, когда деньги пришли и когда вернулись. Платёж без оплаты
+ * (`pending`) — обычная ситуация: клиент открыл страницу оплаты и не заплатил.
+ */
+export const payments = pgTable(
+  "payments",
+  {
+    id: id(),
+    bookingId: text("booking_id")
+      .notNull()
+      .references(() => bookings.id, { onDelete: "cascade" }),
+    amount: integer("amount").notNull(),
+    provider: text("provider").notNull(), // manual | webhook
+    status: text("status").notNull().default("pending"), // pending | paid | failed | refunded
+    /** Номер операции у провайдера и ссылка на его страницу оплаты. */
+    externalId: text("external_id"),
+    payUrl: text("pay_url"),
+    error: text("error"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    refundedAt: timestamp("refunded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("payments_booking").on(table.bookingId, table.createdAt)],
+);
+
 export const otpCodes = pgTable(
   "otp_codes",
   {
@@ -266,6 +359,8 @@ export const otpCodes = pgTable(
 );
 
 export type Favorite = typeof favorites.$inferSelect;
+export type Delivery = typeof deliveries.$inferSelect;
+export type Payment = typeof payments.$inferSelect;
 export type Master = typeof masters.$inferSelect;
 export type Service = typeof services.$inferSelect;
 export type Booking = typeof bookings.$inferSelect;

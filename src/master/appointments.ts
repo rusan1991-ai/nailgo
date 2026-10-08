@@ -31,7 +31,14 @@ export function bookingToAppointment(booking: Booking): Appointment | null {
     client: booking.clientName,
     service: booking.serviceName,
     kind: kindForService(booking.serviceName),
-    status: booking.status === "completed" ? "confirmed" : booking.status,
+    // В сетке расписания «завершена» показывается тем же цветом, что
+    // подтверждённая, а неявка гасится как отменённая: сетка не про статусы.
+    status:
+      booking.status === "completed"
+        ? "confirmed"
+        : booking.status === "no_show"
+          ? "cancelled"
+          : booking.status,
     masterSlug: booking.masterSlug,
   };
 }

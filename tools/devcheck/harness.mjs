@@ -218,3 +218,111 @@ export function setFieldByValue(dom, currentValue, value) {
   input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   return input;
 }
+
+/* ------------------------- демо-даты для проверок ------------------------- */
+
+/**
+ * Проверки живут в тех же датах, что и сид: «текущая неделя», а не фиксированный
+ * май 2024. Пояс — пояс площадки (Europe/Moscow), иначе на границе суток
+ * браузер песочницы (UTC) и API разойдутся на день.
+ */
+const DEMO_TZ = process.env.DEMO_TZ ?? "Europe/Moscow";
+
+const isoInDemoTz = (date) => date.toLocaleDateString("sv-SE", { timeZone: DEMO_TZ });
+
+function shiftISO(iso, days) {
+  const date = new Date(`${iso}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Сегодня по часам площадки: «2026-10-08». */
+export const demoTodayISO = isoInDemoTz(new Date());
+
+/** Дата со сдвигом от сегодняшней: demoDay(1) — завтра. */
+export function demoDay(daysFromToday) {
+  return shiftISO(demoTodayISO, daysFromToday);
+}
+
+/** Понедельник текущей недели — начало демо-недели в сиде. */
+export const demoWeekStartISO = (() => {
+  const weekday = (new Date(`${demoTodayISO}T00:00:00Z`).getUTCDay() + 6) % 7;
+  return shiftISO(demoTodayISO, -weekday);
+})();
+
+/** Смещение от начала недели: demoWeekDay(0) — понедельник. */
+export function demoWeekDay(offsetFromMonday) {
+  return shiftISO(demoWeekStartISO, offsetFromMonday);
+}
+
+/** Текущий месяц: сид и статистика кабинета по умолчанию смотрят на него. */
+export const demoMonthISO = demoTodayISO.slice(0, 7);
+
+/**
+ * Ближайший рабочий день мастера (в сиде рабочие дни — пн–сб),
+ * начиная с сегодняшнего. Нужен сценариям, которые создают записи.
+ */
+export function nextWorkingISO(fromDaysFromToday = 0) {
+  for (let step = fromDaysFromToday; step < fromDaysFromToday + 10; step += 1) {
+    const iso = demoDay(step);
+    const weekday = (new Date(`${iso}T00:00:00Z`).getUTCDay() + 6) % 7;
+    if (weekday !== 6) return iso;
+  }
+  return demoDay(fromDaysFromToday);
+}
+
+/**
+ * Момент времени в поясе демо: `demoMoment(0, 600)` — сегодня в 10:00 по
+ * Europe/Moscow в виде ISO. Нужен проверкам правил по времени: они подменяют
+ * «сейчас» на сервере в dev (`now` в теле запроса), чтобы воспроизвести
+ * «визит уже начался» или «отмена позже бесплатного дедлайна».
+ */
+export function demoMoment(daysFromToday = 0, minuteOfDay = 0) {
+  return isoMoment(demoDay(daysFromToday), minuteOfDay);
+}
+
+/** То же, но для конкретной даты: isoMoment(nextWorkingISO(1), 600) — 10:00. */
+export function isoMoment(dateISO, minuteOfDay = 0) {
+  const [year, month, day] = dateISO.split("-").map(Number);
+  // Настенное время цели: «та же дата, минута дня», как если бы пояс был UTC.
+  const wall = Date.UTC(year, month - 1, day, 0, 0, 0) + minuteOfDay * 60_000;
+  // Смещение пояса берём у полудня того же дня (в РФ переходов на летнее время нет).
+  const offset = zoneOffsetMs(new Date(Date.UTC(year, month - 1, day, 12, 0, 0)));
+  return new Date(wall - offset).toISOString();
+}
+
+/** Смещение DEMO_TZ в миллисекундах для момента `date` (МСК = +3 ч). */
+function zoneOffsetMs(date) {
+  const parts = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: DEMO_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+  const wall = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  return wall - date.getTime();
+}
+
+/** Сдвиг ISO-момента на часы и минуты: demoMoment(0, 600) → +(-3 ч) = 07:00. */
+export function isoShift(iso, { hours = 0, minutes = 0 } = {}) {
+  return new Date(new Date(iso).getTime() + (hours * 60 + minutes) * 60_000).toISOString();
+}
+
+/**
+ * Ближайшая дата с нужным днём недели (0 = понедельник … 6 = воскресенье),
+ * не раньше «сегодня + fromDaysFromToday». Позволяет проверкам говорить
+ * «ближайшее воскресенье», а не привязываться к числам демо-недели.
+ */
+export function nextWeekdayISO(weekday, fromDaysFromToday = 0) {
+  for (let step = fromDaysFromToday; step < fromDaysFromToday + 14; step += 1) {
+    const iso = demoDay(step);
+    const index = (new Date(`${iso}T00:00:00Z`).getUTCDay() + 6) % 7;
+    if (index === weekday) return iso;
+  }
+  return demoDay(fromDaysFromToday);
+}

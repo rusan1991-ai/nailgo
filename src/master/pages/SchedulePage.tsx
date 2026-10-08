@@ -28,18 +28,36 @@ import { cn } from "../../utils/cn";
 
 const hourHeight = 54;
 const dayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+const MONTH_NAMES = [
+  "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+  "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+];
+
+/** Сегодняшнее число и месяц — сетка кабинета идёт по живым дням. */
+const TODAY_DATE = new Date().getDate();
+/** 0 = понедельник … 6 = воскресенье — индекс сегодняшнего дня в сетке. */
+const TODAY_INDEX = (new Date().getDay() + 6) % 7;
+const DAYS_IN_MONTH = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+const TODAY_MONTH_LABEL = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"][
+  new Date().getMonth()
+]!;
 
 /* ------------------------------ мини-календарь ------------------------------ */
 
 function MiniCalendar({ selected, onSelect }: { selected: number; onSelect: (day: number) => void }) {
-  // Май 2024 начинается в среду: перед ним идут 29 и 30 апреля.
+  // Сетка строится по текущему месяцу: пустые клетки до первого числа и
+  // «хвост» соседнего месяца — как в обычном календаре.
+  const now = new Date();
+  const firstWeekday = (new Date(now.getFullYear(), now.getMonth(), 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const cells: { day: number; muted?: boolean }[] = [
-    { day: 29, muted: true },
-    { day: 30, muted: true },
-    ...Array.from({ length: 31 }, (_, index) => ({ day: index + 1 })),
-    { day: 1, muted: true },
-    { day: 2, muted: true },
+    ...Array.from({ length: firstWeekday }, (_, index) => ({
+      day: new Date(now.getFullYear(), now.getMonth(), -firstWeekday + index + 1).getDate(),
+      muted: true,
+    })),
+    ...Array.from({ length: daysInMonth }, (_, index) => ({ day: index + 1 })),
   ];
+  while (cells.length % 7 !== 0) cells.push({ day: cells.length - firstWeekday - daysInMonth + 1, muted: true });
 
   return (
     <Card>
@@ -47,7 +65,9 @@ function MiniCalendar({ selected, onSelect }: { selected: number; onSelect: (day
         <button className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-50">
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <p className="text-sm font-medium text-slate-700">Май 2024</p>
+        <p className="text-sm font-medium text-slate-700">
+          {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}
+        </p>
         <button className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-50">
           <ChevronRight className="h-4 w-4" />
         </button>
@@ -136,7 +156,7 @@ function AppointmentBlock({ appointment }: { appointment: Appointment }) {
 export function SchedulePage() {
   const { masters } = useCatalog();
   const [view, setView] = useState("Неделя");
-  const [selectedDay, setSelectedDay] = useState(22);
+  const [selectedDay, setSelectedDay] = useState(TODAY_DATE);
   const [master, setMaster] = useState("all");
   const [modalOpen, setModalOpen] = useState(false);
   const [service, setService] = useState("all");
@@ -177,17 +197,17 @@ export function SchedulePage() {
   );
 
   const hours = Array.from({ length: dayEndHour - dayStartHour }, (_, index) => dayStartHour + index);
-  const todayAppointments = visible.filter((item) => item.day === 2 && item.status !== "cancelled");
+  const todayAppointments = visible.filter((item) => item.day === TODAY_INDEX && item.status !== "cancelled");
   const load = Math.round((todayAppointments.reduce((acc, item) => acc + item.duration, 0) / 600) * 100);
 
-  const dayColumns = view === "День" ? weekDays.filter((day) => day.date === 22) : weekDays;
+  const dayColumns = view === "День" ? weekDays.filter((day) => day.date === TODAY_DATE) : weekDays;
 
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Расписание</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <GhostButton onClick={() => setSelectedDay(22)}>Сегодня</GhostButton>
+          <GhostButton onClick={() => setSelectedDay(TODAY_DATE)}>Сегодня</GhostButton>
           <div className="flex items-center gap-1">
             <button className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-400 transition hover:bg-slate-50">
               <ChevronLeft className="h-4 w-4" />
@@ -300,21 +320,21 @@ export function SchedulePage() {
               <div className="grid grid-cols-7 gap-1">
                 {Array.from({ length: 35 }, (_, index) => {
                   const dayNumber = index - 1;
-                  const isMay = dayNumber >= 1 && dayNumber <= 31;
-                  const count = weekAppointments.filter((item) => item.day === (index % 7) && isMay).length;
+                  const isCurrentMonth = dayNumber >= 1 && dayNumber <= DAYS_IN_MONTH;
+                  const count = weekAppointments.filter((item) => item.day === (index % 7) && isCurrentMonth).length;
                   return (
                     <div
                       key={index}
                       className={cn(
                         "min-h-[86px] rounded-xl border p-2 text-left text-xs",
-                        isMay ? "border-slate-200 bg-white" : "border-transparent bg-slate-50/60 text-slate-300",
-                        isMay && dayNumber === 22 && "border-[#e11d48] bg-rose-50/60",
+                        isCurrentMonth ? "border-slate-200 bg-white" : "border-transparent bg-slate-50/60 text-slate-300",
+                        isCurrentMonth && dayNumber === TODAY_DATE && "border-[#e11d48] bg-rose-50/60",
                       )}
                     >
-                      <p className={cn("font-medium", isMay ? "text-slate-700" : "text-slate-300")}>
-                        {isMay ? dayNumber : ""}
+                      <p className={cn("font-medium", isCurrentMonth ? "text-slate-700" : "text-slate-300")}>
+                        {isCurrentMonth ? dayNumber : ""}
                       </p>
-                      {isMay && count > 0 && (
+                      {isCurrentMonth && count > 0 && (
                         <p className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-600">
                           {count} записи
                         </p>
@@ -420,7 +440,7 @@ export function SchedulePage() {
             size={32}
           />
           <p className="text-sm font-medium text-slate-700">
-            Записи на {selectedDay} мая ·{" "}
+            Записи на {selectedDay} {TODAY_MONTH_LABEL} ·{" "}
             {master === "all" ? masterProfile.name : (masters.find((item) => item.slug === master)?.name ?? "")}
           </p>
         </div>

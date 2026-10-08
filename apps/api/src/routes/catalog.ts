@@ -5,7 +5,7 @@ import { db } from "../db/index.js";
 import { masters, reviews, services, workingHours, bookings } from "../db/schema.js";
 import { env } from "../env.js";
 import { scheduleForDay } from "../lib/schedule.js";
-import { minutesOfDay, parseISODate, toISODate } from "../lib/time.js";
+import { isValidISODate, platformTimezone, toISODate } from "../lib/time.js";
 import { freeSlotsForDay, freeWindows, windowLabel } from "../lib/slots.js";
 import { collectWindows } from "../lib/lastMinute.js";
 import { windowService } from "../lib/favorites.js";
@@ -80,9 +80,7 @@ export async function catalogRoutes(app: FastifyInstance) {
       }
 
       const service = await windowService(master.id);
-      const found = service
-        ? await freeWindows(master.id, service.durationMinutes, { days: 7, max: 4 })
-        : [];
+      const found = service ? await freeWindows(master, service.durationMinutes, { days: 7, max: 4 }) : [];
       items.push({
         ...base,
         nextWindows: found.map((window) => ({
@@ -221,7 +219,7 @@ export async function catalogRoutes(app: FastifyInstance) {
         score: review.score,
         text: review.text,
         service: review.service,
-        dateISO: toISODate(review.createdAt),
+        dateISO: toISODate(review.createdAt, platformTimezone()),
         replyText: review.replyText,
         repliedAt: review.repliedAt?.toISOString() ?? null,
         masterName: master.name,
@@ -302,18 +300,23 @@ export async function catalogRoutes(app: FastifyInstance) {
       .filter((master) => !region || region === "all" || master.region === region)
       .sort((a, b) => b.rating - a.rating);
 
-    const withServices = [];
+    type WindowService = { id: string; name: string; durationMinutes: number; price: number };
+    const withServices: { master: typeof masters.$inferSelect; service: WindowService }[] = [];
     for (const master of rows) {
       const service = await windowService(master.id);
       if (service) withServices.push({ master, service });
     }
 
+    // Отсечку «уже прошло» считает сам сборщик окон — по поясу мастера.
     const collected = await collectWindows({
-      masterIds: withServices.map((row) => ({ id: row.master.id, durationMinutes: row.service.durationMinutes })),
+      masters: withServices.map((row) => ({
+        id: row.master.id,
+        timezone: row.master.timezone,
+        slotStepMinutes: row.master.slotStepMinutes,
+        durationMinutes: row.service.durationMinutes,
+      })),
       days,
       perMaster,
-      limit,
-      skipBeforeMinutes: minutesOfDay(new Date()),
     });
 
     const byId = new Map(withServices.map((row) => [row.master.id, row]));
@@ -352,7 +355,7 @@ export async function catalogRoutes(app: FastifyInstance) {
       items: offers,
       count: offers.length,
       days,
-      today: toISODate(new Date()),
+      today: toISODate(new Date(), platformTimezone()),
     };
   });
 
@@ -364,8 +367,9 @@ export async function catalogRoutes(app: FastifyInstance) {
     const { slug } = request.params as { slug: string };
     const { date, serviceId } = slotsQuery.parse(request.query ?? {});
 
-    const day = parseISODate(date);
-    if (!day) return reply.code(400).send({ error: "bad_request", message: "Некорректная дата" });
+    if (!isValidISODate(date)) {
+      return reply.code(400).send({ error: "bad_request", message: "Некорректная дата" });
+    }
 
     const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Мастер не найден" });
@@ -393,7 +397,7 @@ export async function catalogRoutes(app: FastifyInstance) {
     }
 
     // Расчёт окон общий с избранным и горящими окнами: правила не разъезжаются.
-    const daySlots = await freeSlotsForDay(master.id, date, service.durationMinutes);
+    const daySlots = await freeSlotsForDay(master, date, service.durationMinutes);
     if (!daySlots) return reply.code(400).send({ error: "bad_request", message: "Некорректная дата" });
 
     if (!daySlots.working) {
@@ -403,7 +407,8 @@ export async function catalogRoutes(app: FastifyInstance) {
         serviceId: service.id,
         durationMinutes: service.durationMinutes,
         workingHours: { start: 0, end: 0 },
-        dayOff: true,
+        dayOff: !daySlots.past,
+        past: daySlots.past,
         slots: [],
       };
     }
@@ -414,6 +419,8 @@ export async function catalogRoutes(app: FastifyInstance) {
       serviceId: service.id,
       durationMinutes: service.durationMinutes,
       workingHours: { start: daySlots.start, end: daySlots.end },
+      dayOff: false,
+      past: daySlots.past,
       slots: daySlots.slots.map((start) => ({ startMinute: start, label: windowLabel(start) })),
     };
   });

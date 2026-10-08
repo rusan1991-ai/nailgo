@@ -94,7 +94,11 @@ const created = await apiAs(client, "/reviews", {
   body: { bookingId: completed[0].id, score: 4, text: "Аккуратно, но пришлось подождать пять минут." },
 });
 assert("отзыв по своему визиту создаётся", created.status === 201, `status=${created.status}`);
-assert("новый отзыв уходит на модерацию", created.data?.review?.status === "moderation", created.data?.review?.status);
+assert(
+  "отзыв по завершённому визиту публикуется сразу",
+  created.data?.review?.status === "published",
+  created.data?.review?.status,
+);
 const reviewId = created.data.review.id;
 
 const twice = await apiAs(client, "/reviews", {
@@ -112,7 +116,7 @@ assert(
 
 const bookingsAfter = await apiAs(client, "/bookings");
 const withReview = bookingsAfter.data.items.find((item) => item.id === completed[0].id);
-assert("запись показывает статус оставленного отзыва", withReview?.review?.status === "moderation", withReview?.review?.status);
+assert("запись показывает статус оставленного отзыва", withReview?.review?.status === "published", withReview?.review?.status);
 
 /* --- API: модерация на стороне администратора --- */
 const cabinet = await apiAs(master, "/cabinet/reviews?status=all");
@@ -136,11 +140,13 @@ const clientModerate = await apiAs(client, `/admin/reviews/${reviewId}/moderate`
 });
 assert("клиенту админка недоступна", clientModerate.status === 403, `status=${clientModerate.status}`);
 
-const queue = await apiAs(admin, "/admin/reviews?status=moderation");
+// Модерация «на входе» больше не нужна: отзыв привязан к реальному визиту.
+// Админ видит его в общем списке и вмешивается только по жалобе мастера.
+const queue = await apiAs(admin, "/admin/reviews?status=published");
 assert(
-  "отзыв ждёт решения администратора",
+  "опубликованный отзыв виден администратору",
   queue.status === 200 && queue.data.items.some((item) => item.id === reviewId),
-  `в очереди=${queue.data?.items?.length}`,
+  `в списке=${queue.data?.items?.length}`,
 );
 
 const published = await apiAs(admin, `/admin/reviews/${reviewId}/moderate`, {
@@ -169,9 +175,20 @@ assert(
 );
 
 // Скрытие тоже пересчитывает рейтинг: негатив уходит из витрины только решением модератора.
-const hidden = await apiAs(admin, `/admin/reviews/${reviewId}/moderate`, {
+// Причина обязательна: без неё непонятно, за что отзыв сняли.
+const hiddenWithoutReason = await apiAs(admin, `/admin/reviews/${reviewId}/moderate`, {
   method: "POST",
   body: { status: "hidden" },
+});
+assert(
+  "скрытие отзыва требует причину",
+  hiddenWithoutReason.status === 400 && hiddenWithoutReason.data.error === "reason_required",
+  `status=${hiddenWithoutReason.status} ${hiddenWithoutReason.data?.error}`,
+);
+
+const hidden = await apiAs(admin, `/admin/reviews/${reviewId}/moderate`, {
+  method: "POST",
+  body: { status: "hidden", note: "жалоба мастера: отзыв не про услугу" },
 });
 const cardHidden = await api(`/masters/${MASTER_SLUG}`);
 assert(
@@ -244,9 +261,9 @@ await wait(900);
 
 const afterSubmit = rootText(account.dom);
 assert(
-  "после отправки видно, что отзыв на модерации",
-  afterSubmit.includes("На модерации") || afterSubmit.includes("Отзыв отправлен на модерацию"),
-  afterSubmit.slice(0, 120),
+  "после отправки видно, что отзыв опубликован",
+  afterSubmit.includes("Опубликован") || afterSubmit.includes("Отзыв отправлен"),
+  afterSubmit.slice(0, 140),
 );
 
 const uiReviews = await apiAs(clientSession, "/reviews/mine");
@@ -276,8 +293,8 @@ assert("в списке отзывов виден блок «Ваш ответ»
 const cardAfterUi = await api(`/masters/${MASTER_SLUG}`);
 const uiReviewInCard = cardAfterUi.data.reviews.find((item) => item.text.includes("Всё аккуратно"));
 assert(
-  "отзыв из интерфейса ждёт модерации и в витрину не попал",
-  !uiReviewInCard,
+  "отзыв из интерфейса сразу попал в витрину",
+  Boolean(uiReviewInCard) && uiReviewInCard?.score === 4,
   `отзывов в карточке=${cardAfterUi.data.reviewsCount}`,
 );
 

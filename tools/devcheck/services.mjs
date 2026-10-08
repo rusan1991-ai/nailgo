@@ -8,14 +8,14 @@
  * Запуск (при живых Vite и API):
  *   cd tools/devcheck && npm run services
  */
-import { api, apiAs, check, click, clickActionIn, login, loginMaster, makeDom, resetDemo, rootText, setField, wait } from "./harness.mjs";
+import { api, apiAs, check, click, clickActionIn, login, loginMaster, makeDom, resetDemo, rootText, setField, wait, nextWorkingISO } from "./harness.mjs";
 
 let failures = 0;
 const assert = (label, ok, extra = "") => {
   if (!check(label, ok, extra)) failures += 1;
 };
 
-const DATE = "2024-05-22";
+const DATE = nextWorkingISO(0);
 const master = await loginMaster();
 await resetDemo(master);
 

@@ -55,6 +55,7 @@ export function ReviewsProPage() {
       text: row.text,
       service: row.service,
       status: row.status as ReviewStatus,
+      hiddenReason: null,
       replyText: null,
       repliedAt: null,
       createdAt: "2024-05-22T12:00:00.000Z",
@@ -188,6 +189,11 @@ export function ReviewsProPage() {
                   {row.service} · Мастер: {data?.masterName ?? "Анна Смирнова"}
                 </p>
                 <p className="mt-2 text-sm text-slate-600">{row.text}</p>
+                {row.status === "hidden" && row.hiddenReason && (
+                  <p className="mt-2 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-600">
+                    Скрыт модератором: {row.hiddenReason}
+                  </p>
+                )}
                 {row.replyText && (
                   <div className="mt-2 rounded-xl bg-[#fdf2f7] px-3 py-2" data-master-reply>
                     <p className="text-xs font-medium text-pink-500">Ваш ответ</p>

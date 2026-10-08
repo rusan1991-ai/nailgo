@@ -3,24 +3,14 @@
  * мастер создаёт запись в кабинете → клиент видит её у себя → клиент отменяет →
  * кабинет видит отмену.
  */
-import {
-  api,
-  apiAs,
-  check,
-  click,
-  clickIn,
-  login,
-  loginMaster,
-  makeDom,
-  rootText,
-  resetDemo,
-  rowByText,
-  setField,
-  wait,
-} from "./harness.mjs";
+import { api, apiAs, check, click, clickIn, login, loginMaster, makeDom, rootText, resetDemo, rowByText, setField, wait, nextWorkingISO } from "./harness.mjs";
 
 const PHONE = "+79990001122";
-const DATE = "2024-05-22";
+/**
+ * Дата для сквозного сценария — ближайший рабочий день мастера.
+ * На фиксированное число завязываться нельзя: запись в прошлое запрещена.
+ */
+const DATE = nextWorkingISO(0);
 
 let failures = 0;
 const assert = (label, ok, extra = "") => {

@@ -9,7 +9,7 @@ import { useSyncExternalStore } from "react";
 import { api, ApiError } from "../api/client";
 import { safeStorage } from "../utils/storage";
 
-export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled";
+export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled" | "no_show";
 export type BookingSource = "client" | "master";
 
 /** Отзыв, оставленный по записи: нужен, чтобы клиент видел свой отзыв и его статус. */
@@ -63,15 +63,45 @@ export type NewBookingInput = {
 
 const CACHE_KEY = "nailgo_bookings_cache_v3";
 
-/** Демо-неделя, на которую наложена сетка расписания. */
-export const demoWeek = [
-  { label: "22 мая", iso: "2024-05-22", dayIndex: 2, weekday: "ср" },
-  { label: "23 мая", iso: "2024-05-23", dayIndex: 3, weekday: "чт" },
-  { label: "24 мая", iso: "2024-05-24", dayIndex: 4, weekday: "пт" },
-  { label: "25 мая", iso: "2024-05-25", dayIndex: 5, weekday: "сб" },
+const WEEKDAY_SHORT = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
+const MONTH_GENITIVE = [
+  "января", "февраля", "марта", "апреля", "мая", "июня",
+  "июля", "августа", "сентября", "октября", "ноября", "декабря",
 ];
 
-export const demoWeekStartISO = "2024-05-20";
+function isoOfLocal(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/** Полночь понедельника текущей недели — начало сетки расписания кабинета. */
+function mondayOfThisWeek(): Date {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  // getDay(): 0 — воскресенье; переводим в 0 — понедельник.
+  const offset = (today.getDay() + 6) % 7;
+  today.setDate(today.getDate() - offset);
+  return today;
+}
+
+export const demoWeekStartISO = isoOfLocal(mondayOfThisWeek());
+
+/**
+ * Неделя кабинета — текущая, а не «демо-неделя» из прошлого.
+ *
+ * Раньше сетка расписания была нарисована на 20–26 мая 2024, и после запрета
+ * записи в прошлое (этап 1) мастер не мог создать ни одной записи: сервер
+ * отказывал с кодом `past_slot`. Теперь сетка идёт от сегодняшнего дня.
+ */
+export const demoWeek = Array.from({ length: 7 }, (_, dayIndex) => {
+  const date = mondayOfThisWeek();
+  date.setDate(date.getDate() + dayIndex);
+  return {
+    label: `${date.getDate()} ${MONTH_GENITIVE[date.getMonth()]}`,
+    iso: isoOfLocal(date),
+    dayIndex,
+    weekday: WEEKDAY_SHORT[dayIndex]!,
+  };
+});
 
 /**
  * Настоящие ближайшие дни для записи клиента.
@@ -313,6 +343,26 @@ export async function confirmBooking(id: string): Promise<void> {
 
 export async function completeBooking(id: string): Promise<void> {
   await setStatus(id, "complete");
+}
+
+/**
+ * Мастер отметил неявку клиента.
+ *
+ * Не то же самое, что отмена: время мастера пропало, услуга не оказана.
+ * Сервер принимает отметку только после начала визита и на второй неявке
+ * ограничивает клиенту запись — ответ об этом говорит полем `discipline`.
+ */
+export async function noShowBooking(id: string): Promise<{ blacklisted: boolean; noShowCount: number } | null> {
+  updateStatus(id, "no_show");
+  try {
+    const response = await api.post<{
+      discipline: { noShowCount: number; blacklisted: boolean } | null;
+    }>(`/cabinet/bookings/${id}/no-show`);
+    return response.discipline ? { blacklisted: response.discipline.blacklisted, noShowCount: response.discipline.noShowCount } : null;
+  } catch (error) {
+    await refresh();
+    throw error;
+  }
 }
 
 /**

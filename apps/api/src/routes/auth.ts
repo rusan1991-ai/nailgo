@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { z } from "zod";
@@ -7,6 +7,16 @@ import { masters, otpCodes, sessions, users } from "../db/schema.js";
 import { env, isDev } from "../env.js";
 import { requireAuth, signAccessToken, signRefreshToken, verifyRefreshToken } from "../lib/auth.js";
 import { DELIVERY_KINDS, enqueueDelivery, sendDelivery } from "../lib/delivery/outbox.js";
+import { ERROR_CODES } from "../lib/errors.js";
+import {
+  RATE_LIMIT_PREFIX,
+  RATE_LIMIT_SETTINGS,
+  checkRateLimit,
+  effectiveLimit,
+  hitRateLimit,
+  rateLimitKey,
+  resetRateLimit,
+} from "../lib/rate-limit.js";
 import { slugify } from "../lib/slug.js";
 
 const phoneSchema = z
@@ -52,12 +62,34 @@ async function ensureMasterProfile(userId: string, name: string): Promise<void> 
 }
 
 function generateCode(): string {
-  return String(Math.floor(1000 + Math.random() * 9000));
+  // randomInt — криптостойкий источник: Math.random() предсказуем,
+  // для кодов входа это недопустимо.
+  return String(randomInt(1000, 10000));
 }
 
 /** Хеш refresh-токена: в базе лежит только он, сам токен — у клиента. */
 function refreshHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * Хеш OTP-кода для базы: `sha256(code + OTP_PEPPER)`.
+ *
+ * Сам код живёт минуты и известен только человеку, а таблица `otp_codes`
+ * доступна админу БД — открытые коды оттуда позволяли бы входить под кем угодно.
+ * Соль-перец из окружения не даёт перебрать 4 цифры по дампу базы.
+ */
+function codeHash(code: string): string {
+  return createHash("sha256").update(`${code}${env.otpPepper}`).digest("hex");
+}
+
+/** IP запроса — ключ лимита на отправку кодов. За прокси берём X-Forwarded-For. */
+function requestIp(request: { ip: string; headers: Record<string, unknown> }): string {
+  const forwarded = request.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.length > 0) {
+    return forwarded.split(",")[0]!.trim();
+  }
+  return request.ip;
 }
 
 /**
@@ -91,11 +123,54 @@ export async function authRoutes(app: FastifyInstance) {
    */
   app.post("/auth/request-otp", async (request, reply) => {
     const { phone } = z.object({ phone: phoneSchema }).parse(request.body ?? {});
+    const ip = requestIp({ ip: request.ip, headers: request.headers as Record<string, unknown> });
+
+    // Лимиты против «SMS-бомбинга»: и по номеру, и по адресу. Оба берут
+    // значения из настроек админки, если они там заданы.
+    const perPhone = await hitRateLimit({
+      key: rateLimitKey(RATE_LIMIT_PREFIX.requestPerPhone, phone),
+      limit: await effectiveLimit(RATE_LIMIT_SETTINGS.requestPerPhone, env.otpRequestLimitPerPhone),
+      windowSeconds: env.otpWindowSeconds,
+    });
+    if (!perPhone.allowed) {
+      return reply
+        .header("retry-after", String(perPhone.retryAfterSeconds))
+        .code(429)
+        .send({
+          error: ERROR_CODES.otpRateLimited,
+          message: `Слишком много запросов кода. Попробуйте через ${Math.ceil(perPhone.retryAfterSeconds / 60)} мин.`,
+          retryAfterSeconds: perPhone.retryAfterSeconds,
+        });
+    }
+
+    const perIp = await hitRateLimit({
+      key: rateLimitKey(RATE_LIMIT_PREFIX.requestPerIp, ip),
+      limit: await effectiveLimit(RATE_LIMIT_SETTINGS.requestPerIp, env.otpRequestLimitPerIp),
+      windowSeconds: env.otpWindowSeconds,
+    });
+    if (!perIp.allowed) {
+      return reply
+        .header("retry-after", String(perIp.retryAfterSeconds))
+        .code(429)
+        .send({
+          error: ERROR_CODES.otpRateLimited,
+          message: "Слишком много запросов кода с этого устройства. Попробуйте позже.",
+          retryAfterSeconds: perIp.retryAfterSeconds,
+        });
+    }
 
     const code = generateCode();
+
+    // Прежние живые коды этого номера гасим: действующим должен быть ровно
+    // один код — последний отправленный. Иначе старые «висят» до TTL.
+    await db
+      .update(otpCodes)
+      .set({ consumed: true })
+      .where(and(eq(otpCodes.phone, phone), eq(otpCodes.consumed, false)));
+
     await db.insert(otpCodes).values({
       phone,
-      code,
+      codeHash: codeHash(code),
       expiresAt: new Date(Date.now() + env.otpTtlSeconds * 1000),
     });
 
@@ -170,20 +245,67 @@ export async function authRoutes(app: FastifyInstance) {
       })
       .parse(request.body ?? {});
 
+    // Лимит на ввод: 4 цифры — это 10 000 вариантов, без ограничения их
+    // можно перебрать за минуты. Считаем по телефону (IP тут не спасает:
+    // подбор идёт по конкретному номеру).
+    const verifyLimit = await effectiveLimit(RATE_LIMIT_SETTINGS.verifyPerPhone, env.otpVerifyLimit);
+    const verifyKey = rateLimitKey(RATE_LIMIT_PREFIX.verifyPerPhone, phone);
+    const verify = await checkRateLimit({
+      key: verifyKey,
+      limit: verifyLimit,
+      windowSeconds: env.otpWindowSeconds,
+    });
+    if (!verify.allowed) {
+      return reply
+        .header("retry-after", String(verify.retryAfterSeconds))
+        .code(429)
+        .send({
+          error: ERROR_CODES.tooManyAttempts,
+          message: "Слишком много попыток ввода кода. Запросите новый код позже.",
+          retryAfterSeconds: verify.retryAfterSeconds,
+        });
+    }
+
+    // В базе только хеш: сравниваем хеш введённого кода с сохранённым.
+    const candidateHash = codeHash(code);
     const [otp] = await db
       .select()
       .from(otpCodes)
       .where(
-        and(eq(otpCodes.phone, phone), eq(otpCodes.code, code), eq(otpCodes.consumed, false), gt(otpCodes.expiresAt, new Date())),
+        and(
+          eq(otpCodes.phone, phone),
+          eq(otpCodes.codeHash, candidateHash),
+          eq(otpCodes.consumed, false),
+          gt(otpCodes.expiresAt, new Date()),
+        ),
       )
       .orderBy(desc(otpCodes.createdAt))
       .limit(1);
 
     if (!otp) {
+      // Считаем только неудачные попытки: неверный код — шаг к блокировке,
+      // верный (ниже) окно сбрасывает. Так честный клиент не упирается в лимит.
+      const attempt = await hitRateLimit({
+        key: verifyKey,
+        limit: verifyLimit,
+        windowSeconds: env.otpWindowSeconds,
+      });
+      if (!attempt.allowed) {
+        return reply
+          .header("retry-after", String(attempt.retryAfterSeconds))
+          .code(429)
+          .send({
+            error: ERROR_CODES.tooManyAttempts,
+            message: "Слишком много попыток ввода кода. Запросите новый код позже.",
+            retryAfterSeconds: attempt.retryAfterSeconds,
+          });
+      }
       return reply.code(401).send({ error: "invalid_code", message: "Код неверный или истёк" });
     }
 
     await db.update(otpCodes).set({ consumed: true }).where(eq(otpCodes.id, otp.id));
+    // Код верный — окно попыток сбрасываем: человек доказал, что номер его.
+    await resetRateLimit(verifyKey);
 
     const [existing] = await db.select().from(users).where(eq(users.phone, phone)).limit(1);
 

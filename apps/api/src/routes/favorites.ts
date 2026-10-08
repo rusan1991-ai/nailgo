@@ -46,7 +46,7 @@ export async function favoriteRoutes(app: FastifyInstance) {
     const items = [];
     for (const row of rows) {
       const service = await windowService(row.master.id);
-      const window = service ? await nextFreeWindow(row.master.id, service.durationMinutes) : null;
+      const window = service ? await nextFreeWindow(row.master, service.durationMinutes) : null;
 
       items.push({
         slug: row.master.slug,

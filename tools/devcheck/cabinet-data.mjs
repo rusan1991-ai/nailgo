@@ -5,9 +5,9 @@
  * Запуск (из корня репозитория, при живых Vite и API):
  *   node tools/devcheck/cabinet-data.mjs
  */
-import { api, apiAs, check, clickActionIn, login, loginAdmin, loginMaster, makeDom, resetDemo, rootText, wait } from "./harness.mjs";
+import { api, apiAs, check, clickActionIn, login, loginAdmin, loginMaster, makeDom, resetDemo, rootText, wait, demoMonthISO, demoWeekStartISO, demoWeekDay } from "./harness.mjs";
 
-const MONTH = "2024-05";
+const MONTH = demoMonthISO;
 
 const nbsp = (value) => value.replace(/\u00a0|\u202f/g, " ");
 const normalize = (value) => nbsp(value).replace(/\s+/g, " ").trim();
@@ -42,7 +42,7 @@ assert(
   `всего=${bookingRows.data.items.length} чужих=${foreign.length} mySlug=${mySlug}`,
 );
 
-const schedule = await apiAs(master, "/cabinet/schedule?from=2024-05-20&to=2024-05-26");
+const schedule = await apiAs(master, `/cabinet/schedule?from=${demoWeekStartISO}&to=${demoWeekDay(6)}`);
 const foreignSchedule = schedule.data.items.filter((item) => item.masterSlug !== mySlug);
 assert(
   "в расписании только свои записи",
@@ -131,14 +131,11 @@ assert(
 assert("на странице нет ошибок", reviewsPage.errors.length === 0 && reviewsPage.consoleErrors.length === 0, reviewsPage.errors[0] ?? "");
 reviewsPage.dom.window.close();
 
-// Модерация — на администраторе: мастер отзывы публиковать не может.
-// Возвращаем отзыв на проверку и публикуем его уже из админки.
+// Модерация — на администраторе: мастер отзывы публиковать не может, а админ
+// вмешивается по жалобе — скрывает отзыв с причиной (решение 7: опубликованные
+// отзывы живут в витрине сразу, скрытие требует объяснения).
 const admin = await loginAdmin();
 const toModerate = reviews.data.items[0];
-await apiAs(admin, `/admin/reviews/${toModerate.id}/moderate`, {
-  method: "POST",
-  body: { status: "moderation" },
-});
 
 const masterPage = makeDom("/pro/reviews", { session: master });
 await wait(1600);
@@ -158,18 +155,40 @@ masterPage.dom.window.close();
 
 const adminPage = makeDom("/admin/reviews", { session: admin });
 await wait(1800);
-const clicked = clickActionIn(adminPage.dom, toModerate.text, "Опубликовать");
-assert("кнопка «Опубликовать» найдена в админке", clicked, toModerate.clientName);
-await wait(1500);
-const after = await apiAs(admin, "/admin/reviews");
-const updated = after.data.items.find((review) => review.id === toModerate.id);
-assert("публикация отзыва дошла до базы", updated?.status === "published", updated?.status);
+const adminButtons = [...adminPage.dom.window.document.querySelectorAll("button")].map((button) =>
+  (button.textContent ?? "").trim(),
+);
 assert(
-  "решение модератора видно в кабинете мастера",
-  updated?.status === "published" && after.data.byStatus.moderation >= 0,
-  `ждёт модерации: ${after.data.byStatus.moderation}`,
+  "админка открывается на опубликованных отзывах",
+  adminButtons.includes("Снять с публикации"),
+  adminButtons.filter((label) => label.includes("публик")).join(", ") || "нет",
+);
+
+// Причину скрытия админка спрашивает у модератора — в проверке отвечаем за него.
+const HIDDEN_REASON = "жалоба мастера: отзыв не про услугу";
+adminPage.dom.window.prompt = () => HIDDEN_REASON;
+const clicked = clickActionIn(adminPage.dom, toModerate.text, "Снять с публикации");
+assert("кнопка скрытия найдена в админке", clicked, toModerate.clientName);
+await wait(1500);
+const after = await apiAs(admin, "/admin/reviews?status=hidden");
+const updated = after.data.items.find((review) => review.id === toModerate.id);
+assert(
+  "скрытие отзыва дошло до базы вместе с причиной",
+  updated?.status === "hidden" && updated?.hiddenReason === HIDDEN_REASON,
+  `${updated?.status}/${updated?.hiddenReason}`,
+);
+assert(
+  "скрытый отзыв ушёл из витрины",
+  (await api("/reviews?limit=20")).data.items.every((review) => review.id !== toModerate.id),
+  toModerate.id,
 );
 adminPage.dom.window.close();
+
+// Возвращаем отзыв в витрину: он не виноват, что попал в проверку.
+await apiAs(admin, `/admin/reviews/${toModerate.id}/moderate`, {
+  method: "POST",
+  body: { status: "published" },
+});
 
 /* --- Клиентская витрина отзывов: только опубликованные --- */
 const publicReviews = await api("/reviews?limit=20");

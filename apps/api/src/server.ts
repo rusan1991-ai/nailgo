@@ -7,6 +7,7 @@ import { closeDb, db, pingDb, runMigrations } from "./db/index.js";
 import { masters, bookings } from "./db/schema.js";
 import { adminRoutes } from "./routes/admin.js";
 import { dispatchDue } from "./lib/delivery/outbox.js";
+import { runSchedulerTick } from "./lib/scheduler.js";
 import { authRoutes } from "./routes/auth.js";
 import { BookingError, bookingRoutes } from "./routes/bookings.js";
 import { cabinetRoutes } from "./routes/cabinet.js";
@@ -94,6 +95,7 @@ async function start() {
     app.log.info(`NailGo API: http://${env.host}:${env.port}/api/health`);
 
     startDeliveryWorker(app);
+    startBookingScheduler(app);
   } catch (error) {
     app.log.error(error);
     process.exit(1);
@@ -123,6 +125,36 @@ function startDeliveryWorker(app: FastifyInstance): void {
   const timer = setInterval(() => {
     void dispatchDue().catch((error) => app.log.error({ error }, "Очередь доставки: сбой прогона"));
   }, env.deliveryIntervalSeconds * 1_000);
+  timer.unref?.();
+}
+
+/**
+ * Планировщик записей: авто-отмена брошенных заявок и авто-закрытие визитов,
+ * которые мастер забыл отметить (правила — в `lib/scheduler.ts`).
+ *
+ * Интервал задаёт `SCHEDULER_INTERVAL_SECONDS`; ноль выключает планировщик,
+ * и тогда проверки (devcheck) вызывают прогон вручную.
+ */
+function startBookingScheduler(app: FastifyInstance): void {
+  if (env.schedulerIntervalSeconds <= 0) {
+    app.log.info("Планировщик записей выключен (SCHEDULER_INTERVAL_SECONDS=0)");
+    return;
+  }
+
+  const tick = () =>
+    void runSchedulerTick()
+      .then((result) => {
+        if (result.cancelled > 0 || result.completed > 0 || result.failed > 0) {
+          app.log.info(
+            { cancelled: result.cancelled, completed: result.completed, failed: result.failed },
+            "Планировщик записей: прогон",
+          );
+        }
+      })
+      .catch((error) => app.log.error({ error }, "Планировщик записей: сбой прогона"));
+
+  setTimeout(tick, 2_000).unref?.();
+  const timer = setInterval(tick, env.schedulerIntervalSeconds * 1_000);
   timer.unref?.();
 }
 

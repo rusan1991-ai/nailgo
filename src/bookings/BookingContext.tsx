@@ -27,7 +27,7 @@ export type BookingItem = {
   /** Предоплата по записи: 0 — платить не нужно. */
   prepaymentAmount: number;
   paymentStatus: "none" | "pending" | "paid" | "refunded";
-  status: "upcoming" | "completed" | "cancelled";
+  status: "upcoming" | "completed" | "cancelled" | "no_show";
   /** Отзыв по визиту: null, если его ещё нет — тогда интерфейс предлагает оставить. */
   review: {
     id: string;
@@ -50,7 +50,7 @@ type ApiBooking = {
   price: number;
   prepaymentAmount?: number;
   paymentStatus?: "none" | "pending" | "paid" | "refunded";
-  status: "pending" | "confirmed" | "completed" | "cancelled";
+  status: "pending" | "confirmed" | "completed" | "cancelled" | "no_show";
   address: string;
   /** Отзыв по визиту: null, если отзыва ещё нет. */
   review: {
@@ -102,7 +102,16 @@ function toItem(booking: ApiBooking): BookingItem {
     price: booking.price,
     prepaymentAmount: booking.prepaymentAmount ?? 0,
     paymentStatus: booking.paymentStatus ?? "none",
-    status: booking.status === "cancelled" ? "cancelled" : booking.status === "completed" ? "completed" : "upcoming",
+    // Неявка — визит не состоялся: в интерфейсе клиента она живёт рядом
+    // с отменами, но подписана отдельно («Неявка»).
+    status:
+      booking.status === "cancelled" || booking.status === "no_show"
+        ? booking.status === "no_show"
+          ? "no_show"
+          : "cancelled"
+        : booking.status === "completed"
+          ? "completed"
+          : "upcoming",
     review: booking.review ?? null,
   };
 }

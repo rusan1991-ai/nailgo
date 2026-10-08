@@ -15,6 +15,8 @@ type SlotResponse = {
   date: string;
   durationMinutes: number;
   dayOff?: boolean;
+  /** День уже прошёл: причина пустого списка не «выходной», а время. */
+  past?: boolean;
   slots: Array<{ startMinute: number; label: string }>;
 };
 
@@ -36,6 +38,7 @@ export function ReschedulePanel({ booking, as, onDone }: Props) {
   const [dateISO, setDateISO] = useState(booking.dateISO);
   const [slots, setSlots] = useState<SlotResponse["slots"]>([]);
   const [dayOff, setDayOff] = useState(false);
+  const [past, setPast] = useState(false);
   const [loading, setLoading] = useState(false);
   const [chosen, setChosen] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -53,6 +56,7 @@ export function ReschedulePanel({ booking, as, onDone }: Props) {
         if (cancelled) return;
         setSlots(response.slots);
         setDayOff(Boolean(response.dayOff));
+        setPast(Boolean(response.past));
       })
       .catch((caught) => {
         if (!cancelled) setError(caught instanceof ApiError ? caught.message : "Не удалось загрузить окна");
@@ -107,8 +111,9 @@ export function ReschedulePanel({ booking, as, onDone }: Props) {
       </div>
 
       {loading && <p className="mt-2 text-sm text-slate-500">Считаем свободные окна…</p>}
-      {!loading && dayOff && <p className="mt-2 text-sm text-slate-500">В этот день мастер не принимает.</p>}
-      {!loading && !dayOff && slots.length === 0 && !error && (
+      {!loading && past && <p className="mt-2 text-sm text-slate-500">Этот день уже прошёл — выберите другой.</p>}
+      {!loading && !past && dayOff && <p className="mt-2 text-sm text-slate-500">В этот день мастер не принимает.</p>}
+      {!loading && !past && !dayOff && slots.length === 0 && !error && (
         <p className="mt-2 text-sm text-slate-500">Свободных окон нет — выберите другой день.</p>
       )}
 

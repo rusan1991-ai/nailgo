@@ -4,13 +4,21 @@ import { z } from "zod";
 import { db } from "../db/index.js";
 import { bookings, masters, reviews, services } from "../db/schema.js";
 import { requireAuth } from "../lib/auth.js";
+import { applyBookingStatus, bookingHistory, logBookingEvent } from "../lib/booking-status.js";
+import {
+  assertClientCanBook,
+  isLateCancellation,
+  registerLateCancellation,
+  type ClientPolicy,
+} from "../lib/booking-policy.js";
+import { BookingError as DomainError, ERROR_CODES } from "../lib/errors.js";
 import { notifyBookingEvent } from "../lib/notify.js";
 import { initiatePayment, prepaymentFor, refundBookingPayment } from "../lib/payments.js";
 import { notifyFavoritesAboutWindow } from "../lib/favorites.js";
 import { env } from "../env.js";
 import { scheduleForDay } from "../lib/schedule.js";
 import { normalizePhone, samePhone } from "../lib/phone.js";
-import { atMinutes, minutesOfDay, parseISODate, toISODate, weekdayIndex } from "../lib/time.js";
+import { atMinutes, devNow, isValidISODate, minutesOfDay, toISODate } from "../lib/time.js";
 import { serializeBooking } from "../lib/serialize.js";
 
 export const createBookingSchema = z.object({
@@ -28,19 +36,21 @@ export const createBookingSchema = z.object({
     .transform((value) => normalizePhone(value))
     .refine((value) => value.length >= 12, "Укажите телефон полностью"),
   comment: z.string().trim().max(500).optional(),
+  /**
+   * «Сейчас» для проверки правил времени. Принимается только в dev
+   * (см. `devNow`): проверки воспроизводят прошедшее окно в любое время суток.
+   */
+  now: z.string().datetime().optional(),
 });
 
 export type CreateBookingInput = z.infer<typeof createBookingSchema>;
 
-export class BookingError extends Error {
-  constructor(
-    readonly statusCode: number,
-    readonly code: string,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+/**
+ * Ошибки записи. Сам класс живёт в `lib/errors.ts` — его бросает и автомат
+ * статусов, который не должен зависеть от маршрутов; здесь реэкспорт, чтобы
+ * импорт `BookingError` из этого файла продолжал работать.
+ */
+export { BookingError } from "../lib/errors.js";
 
 /**
  * Проверка слота: рабочий день, часы мастера и анти-овербукинг.
@@ -50,30 +60,42 @@ export class BookingError extends Error {
  */
 export async function assertSlotFree(params: {
   masterId: string;
+  timezone: string;
   dateISO: string;
   startMinutes: number;
   durationMinutes: number;
   excludeBookingId?: string;
+  now?: Date;
 }): Promise<{ startAt: Date; endAt: Date; dayStart: number; dayEnd: number }> {
-  const day = parseISODate(params.dateISO);
-  if (!day) throw new BookingError(400, "bad_date", "Некорректная дата");
+  if (!isValidISODate(params.dateISO)) throw new DomainError(400, "bad_date", "Некорректная дата");
 
-  const schedule = await scheduleForDay(params.masterId, day);
-  if (!schedule.working) throw new BookingError(409, "day_off", "В этот день мастер не принимает");
+  const schedule = await scheduleForDay(params.masterId, params.dateISO);
+  if (!schedule.working) throw new DomainError(409, "day_off", "В этот день мастер не принимает");
 
   const dayStart = schedule.start;
   const dayEnd = schedule.end;
 
   if (params.startMinutes < dayStart || params.startMinutes + params.durationMinutes > dayEnd) {
-    throw new BookingError(
+    throw new DomainError(
       409,
       "outside_working_hours",
       `Мастер принимает с ${Math.floor(dayStart / 60)}:00 до ${Math.floor(dayEnd / 60)}:00`,
     );
   }
 
-  const startAt = atMinutes(day, params.startMinutes);
-  const endAt = atMinutes(day, params.startMinutes + params.durationMinutes);
+  const startAt = atMinutes(params.dateISO, params.startMinutes, params.timezone);
+  const endAt = atMinutes(params.dateISO, params.startMinutes + params.durationMinutes, params.timezone);
+
+  // Записаться в прошлое нельзя: и «вчера», и «через десять минут» — это уже
+  // не планирование. Запас задаёт BOOKING_MIN_LEAD_MINUTES.
+  const now = params.now ?? new Date();
+  if (startAt.getTime() < now.getTime() + env.bookingMinLeadMinutes * 60_000) {
+    throw new DomainError(
+      409,
+      ERROR_CODES.pastSlot,
+      `Записаться можно не раньше, чем за ${env.bookingMinLeadMinutes} мин до начала: выберите время позже`,
+    );
+  }
 
   const [conflict] = await db
     .select({ id: bookings.id })
@@ -89,7 +111,7 @@ export async function assertSlotFree(params: {
     )
     .limit(1);
 
-  if (conflict) throw new BookingError(409, "slot_taken", "Это время уже занято, выберите другое");
+  if (conflict) throw new DomainError(409, "slot_taken", "Это время уже занято, выберите другое");
 
   return { startAt, endAt, dayStart, dayEnd };
 }
@@ -100,26 +122,38 @@ export async function assertSlotFree(params: {
  */
 export async function createBooking(
   input: CreateBookingInput,
-  options: { source: "client" | "master"; status: "pending" | "confirmed" },
+  options: { source: "client" | "master"; status: "pending" | "confirmed"; now?: Date },
 ) {
   const [master] = await db.select().from(masters).where(eq(masters.slug, input.masterSlug)).limit(1);
-  if (!master) throw new BookingError(404, "master_not_found", "Мастер не найден");
+  if (!master) throw new DomainError(404, "master_not_found", "Мастер не найден");
+
+  // Дисциплина клиента: чёрный список — отказ, накопленные поздние отмены —
+  // полная предоплата. Мастер, вносящий запись вручную, ничего не проверяет:
+  // он уже поговорил с человеком и решает сам.
+  let policy: ClientPolicy | null = null;
+  if (options.source === "client") policy = await assertClientCanBook(input.clientPhone);
 
   const [service] = await db.select().from(services).where(eq(services.id, input.serviceId)).limit(1);
   if (!service || !service.active || service.masterId !== master.id) {
-    throw new BookingError(404, "service_not_found", "Услуга не найдена у этого мастера");
+    throw new DomainError(404, "service_not_found", "Услуга не найдена у этого мастера");
   }
 
   const { startAt, endAt } = await assertSlotFree({
     masterId: master.id,
+    timezone: master.timezone,
     dateISO: input.dateISO,
     startMinutes: input.startMinutes,
     durationMinutes: service.durationMinutes,
+    now: options.now,
   });
 
   // Предоплата фиксируется на момент записи: процент по услуге мастер может
   // поменять хоть завтра, но по этой записи сумма уже согласована.
-  const prepaymentAmount = prepaymentFor(service.price, service.prepaymentPercent);
+  // Клиенту с ограничением («много поздних отмен») нужна полная предоплата —
+  // иначе записываться он сможет, только оплатив визит целиком.
+  const prepaymentAmount = policy?.prepaymentRequired
+    ? service.price
+    : prepaymentFor(service.price, service.prepaymentPercent);
 
   const [booking] = await db
     .insert(bookings)
@@ -139,8 +173,19 @@ export async function createBooking(
     })
     .returning();
 
+  await logBookingEvent({
+    bookingId: booking!.id,
+    action: "created",
+    toStatus: booking!.status,
+    actor: options.source === "master" ? { role: "master" } : { role: "client" },
+    reason:
+      policy?.prepaymentRequired && prepaymentAmount === service.price
+        ? "клиенту нужна полная предоплата: накоплены поздние отмены"
+        : null,
+  });
+
   // Возвращаем и строку записи: по ней строятся уведомления участникам.
-  return { row: booking!, service, payload: serializeBooking(booking!, master, service) };
+  return { row: booking!, service, payload: serializeBooking(booking!, master, service), policy };
 }
 
 export const rescheduleSchema = z.object({
@@ -162,15 +207,32 @@ export async function rescheduleBooking(
   by: "client" | "master",
 ): Promise<typeof bookings.$inferSelect> {
   if (booking.status === "cancelled") {
-    throw new BookingError(409, "cancelled", "Запись отменена — перенести её нельзя");
+    throw new DomainError(409, "cancelled", "Запись отменена — перенести её нельзя");
   }
-  if (booking.status === "completed") {
-    throw new BookingError(409, "completed", "Визит уже состоялся");
+  if (booking.status === "completed" || booking.status === "no_show") {
+    throw new DomainError(409, "completed", "Визит уже состоялся — перенести его нельзя");
+  }
+
+  const [master] = await db.select().from(masters).where(eq(masters.id, booking.masterId)).limit(1);
+  if (!master) throw new DomainError(404, "master_not_found", "Мастер не найден");
+
+  // Перенос — новая договорённость: клиент с ограничением переносит только
+  // ту запись, которая оплачена целиком (правило то же, что при создании).
+  if (by === "client") {
+    const policy = await assertClientCanBook(booking.clientPhone);
+    if (policy.prepaymentRequired && booking.paymentStatus !== "paid") {
+      throw new DomainError(
+        409,
+        "prepayment_required",
+        "Перенос доступен после полной предоплаты: накопились поздние отмены",
+      );
+    }
   }
 
   const durationMinutes = Math.round((booking.endAt.getTime() - booking.startAt.getTime()) / 60_000);
   const { startAt, endAt } = await assertSlotFree({
     masterId: booking.masterId,
+    timezone: master.timezone,
     dateISO: input.dateISO,
     startMinutes: input.startMinutes,
     durationMinutes,
@@ -179,9 +241,18 @@ export async function rescheduleBooking(
 
   const [updated] = await db
     .update(bookings)
-    .set({ startAt, endAt })
+    .set({ startAt, endAt, updatedAt: new Date() })
     .where(eq(bookings.id, booking.id))
     .returning();
+
+  await logBookingEvent({
+    bookingId: booking.id,
+    action: "rescheduled",
+    fromStatus: booking.status,
+    toStatus: booking.status,
+    actor: by === "client" ? { role: "client" } : { role: "master" },
+    reason: `новое время: ${input.dateISO} ${input.startMinutes}`,
+  });
 
   const [service] = await db.select().from(services).where(eq(services.id, booking.serviceId)).limit(1);
   await notifyBookingEvent(
@@ -192,12 +263,12 @@ export async function rescheduleBooking(
 
   // Старое время освободилось — у избранных клиентов появился шанс записаться.
   // Того, кто перенёс, не уведомляем: он про своё окно знает.
-  const freedISO = toISODate(booking.startAt);
-  if (freedISO !== input.dateISO || minutesOfDay(booking.startAt) !== input.startMinutes) {
+  const freedISO = toISODate(booking.startAt, master.timezone);
+  if (freedISO !== input.dateISO || minutesOfDay(booking.startAt, master.timezone) !== input.startMinutes) {
     await notifyFavoritesAboutWindow({
       masterId: booking.masterId,
       dateISO: freedISO,
-      startMinutes: minutesOfDay(booking.startAt),
+      startMinutes: minutesOfDay(booking.startAt, master.timezone),
       excludePhone: booking.clientPhone,
     });
   }
@@ -221,7 +292,11 @@ export async function bookingRoutes(app: FastifyInstance) {
   /** Клиент записывается к мастеру. */
   app.post("/bookings", async (request, reply) => {
     const input = createBookingSchema.parse(request.body ?? {});
-    const { row, service, payload } = await createBooking(input, { source: "client", status: "pending" });
+    const { row, service, payload } = await createBooking(input, {
+      source: "client",
+      status: "pending",
+      now: devNow(input.now),
+    });
     await notifyBookingEvent(row, service, "created_by_client");
 
     // Если услуга с предоплатой — сразу отдаём ссылку на оплату, чтобы клиент
@@ -284,6 +359,28 @@ export async function bookingRoutes(app: FastifyInstance) {
     };
   });
 
+  /**
+   * История записи: кто и когда её подтвердил, отменил, отметил неявку.
+   * Нужна обеим сторонам: клиент видит, что мастер тянул с подтверждением,
+   * мастер — что клиент отменял в последний момент.
+   */
+  app.get("/bookings/:id/history", { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const me = request.currentUser!;
+
+    const [booking] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
+    if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
+
+    const isOwner = samePhone(booking.clientPhone, me.phone);
+    const isAdmin = me.role === "admin";
+    // Мастеру историю его записи отдаёт кабинет: там проверка по своему слагу.
+    if (!isOwner && !isAdmin) {
+      return reply.code(403).send({ error: "forbidden", message: "Это не ваша запись" });
+    }
+
+    return { items: await bookingHistory(id) };
+  });
+
   /** Перенос клиентом: только своя запись и только на свободное окно. */
   app.post("/bookings/:id/reschedule", { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -310,23 +407,42 @@ export async function bookingRoutes(app: FastifyInstance) {
     if (!samePhone(booking.clientPhone, me.phone) && me.role !== "admin") {
       return reply.code(403).send({ error: "forbidden", message: "Это не ваша запись" });
     }
-    if (booking.status === "cancelled") return { ok: true };
+    if (booking.status === "cancelled") return { ok: true, late: false };
 
-    await db.update(bookings).set({ status: "cancelled" }).where(eq(bookings.id, id));
-    const [service] = await db.select().from(services).where(eq(services.id, booking.serviceId)).limit(1);
-    await notifyBookingEvent(booking, service ?? { name: "Услуга" }, "cancelled_by_client");
-
-    // Внесённая предоплата не остаётся у мастера: отмена возвращает деньги.
-    if (booking.paymentStatus === "paid") await refundBookingPayment(booking);
-
-    // Освободившееся окно предлагаем тем, кто добавил мастера в избранное.
-    await notifyFavoritesAboutWindow({
-      masterId: booking.masterId,
-      dateISO: toISODate(booking.startAt),
-      startMinutes: minutesOfDay(booking.startAt),
-      excludePhone: booking.clientPhone,
+    // Поздняя отмена — позже бесплатного дедлайна. Штрафовать деньгами площадка
+    // не может (мы агрегатор), поэтому считаем: после LATE_CANCEL_LIMIT отмен
+    // клиент записывается только с полной предоплатой.
+    const now = devNow((request.body as { now?: string } | undefined)?.now);
+    const late = isLateCancellation(booking, now);
+    const change = await applyBookingStatus(booking, "cancelled", { role: "client", userId: me.id }, {
+      reason: late ? "поздняя отмена клиентом" : "отмена клиентом",
     });
 
-    return { booking: await withRelations(id) };
+    const [service] = await db.select().from(services).where(eq(services.id, booking.serviceId)).limit(1);
+    if (change.changed) {
+      await notifyBookingEvent(booking, service ?? { name: "Услуга" }, "cancelled_by_client");
+
+      // Внесённая предоплата не остаётся у мастера: отмена возвращает деньги.
+      if (booking.paymentStatus === "paid") await refundBookingPayment(booking);
+
+      // Освободившееся окно предлагаем тем, кто добавил мастера в избранное.
+      const [master] = await db.select().from(masters).where(eq(masters.id, booking.masterId)).limit(1);
+      if (master) {
+        await notifyFavoritesAboutWindow({
+          masterId: booking.masterId,
+          dateISO: toISODate(booking.startAt, master.timezone),
+          startMinutes: minutesOfDay(booking.startAt, master.timezone),
+          excludePhone: booking.clientPhone,
+        });
+      }
+    }
+
+    const discipline = late ? await registerLateCancellation(booking.clientPhone) : null;
+    return {
+      booking: await withRelations(id),
+      late,
+      /** Что теперь с клиентом: сколько поздних отмен и нужна ли предоплата. */
+      discipline,
+    };
   });
 }

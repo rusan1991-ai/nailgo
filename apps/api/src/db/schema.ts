@@ -27,6 +27,19 @@ export const users = pgTable("users", {
    */
   notifyBookings: boolean("notify_bookings").notNull().default(true),
   notifyNews: boolean("notify_news").notNull().default(true),
+  /**
+   * Дисциплина клиента. Площадка не списывает деньги (мы агрегатор), поэтому
+   * «штраф» — это учёт: поздние отмены и неявки. После `lateCancelLimit`
+   * клиент может записываться только с полной предоплатой, после
+   * `noShowLimit` неявок — попадает в чёрный список (см. lib/booking-policy.ts).
+   */
+  lateCancellations: integer("late_cancellations").notNull().default(0),
+  noShowCount: integer("no_show_count").notNull().default(0),
+  /** Момент, с которого клиенту нужна полная предоплата. null — не нужна. */
+  prepaymentRequiredAt: timestamp("prepayment_required_at", { withTimezone: true }),
+  /** Чёрный список: неявки. Снимается только администратором. */
+  blacklistedAt: timestamp("blacklisted_at", { withTimezone: true }),
+  blacklistReason: text("blacklist_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -62,6 +75,18 @@ export const masters = pgTable("masters", {
   metro: text("metro").notNull(),
   distance: text("distance").notNull(),
   address: text("address"),
+  /**
+   * Пояс мастера (IANA). Все «минуты дня» и тексты сообщений считаются в нём,
+   * а не в поясе сервера: визит происходит там, где работает мастер.
+   */
+  timezone: text("timezone").notNull().default("Europe/Moscow"),
+  /** Свой шаг сетки слотов (15/30/60). 0 — брать общий из SLOT_STEP_MINUTES. */
+  slotStepMinutes: integer("slot_step_minutes").notNull().default(0),
+  /**
+   * Задел на вторую версию: салон как место работы. Пока всегда null —
+   * «один мастер = одна локация», но схему потом не придётся переписывать.
+   */
+  salonId: text("salon_id"),
   /** Город и регион: по ним выбирается город на входе и фильтруется каталог. */
   city: text("city").notNull().default("Санкт-Петербург"),
   region: text("region").notNull().default("Санкт-Петербург"),
@@ -141,15 +166,51 @@ export const bookings = pgTable(
     prepaymentAmount: integer("prepayment_amount").notNull().default(0),
     /** none — платить не нужно, pending — ждём оплату, paid — внесена, refunded — возвращена. */
     paymentStatus: text("payment_status").notNull().default("none"), // none | pending | paid | refunded
-    status: text("status").notNull().default("pending"), // pending | confirmed | completed | cancelled
+    /** pending | confirmed | completed | cancelled | no_show */
+    status: text("status").notNull().default("pending"),
     source: text("source").notNull().default("client"), // client | master
+    /**
+     * Кто и почему отменил визит. `system` — авто-отмена по дедлайну
+     * подтверждения (`lib/scheduler.ts`), а не человек.
+     */
+    cancelledBy: text("cancelled_by"), // client | master | admin | system
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancellationReason: text("cancellation_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("bookings_master_start").on(table.masterId, table.startAt),
     index("bookings_phone").on(table.clientPhone),
     index("bookings_status").on(table.status),
   ],
+);
+
+/**
+ * Журнал жизненного цикла записи. Строки только добавляются: по ним видно,
+ * кто и когда подтвердил визит, кто отменил и почему, когда мастер отметил
+ * неявку. Это основа для споров («я отменял заранее») и для разбора спорных
+ * отмен администратором — и единственный источник истории, ведь сама запись
+ * хранит только текущее состояние.
+ */
+export const bookingEvents = pgTable(
+  "booking_events",
+  {
+    id: id(),
+    bookingId: text("booking_id")
+      .notNull()
+      .references(() => bookings.id, { onDelete: "cascade" }),
+    /** created | confirmed | completed | cancelled | no_show | rescheduled | payment_paid | payment_refunded */
+    action: text("action").notNull(),
+    fromStatus: text("from_status"),
+    toStatus: text("to_status"),
+    /** client | master | admin | system */
+    actorRole: text("actor_role").notNull(),
+    actorUserId: text("actor_user_id"),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("booking_events_booking").on(table.bookingId, table.createdAt)],
 );
 
 export const reviews = pgTable(
@@ -172,6 +233,11 @@ export const reviews = pgTable(
     text: text("text").notNull(),
     service: text("service").notNull(),
     status: text("status").notNull().default("published"), // published | moderation | hidden
+    /**
+     * Причина скрытия по жалобе мастера (решение 7): админ прячет отзыв и
+     * объясняет, почему. Видно только в админке — это служебное поле.
+     */
+    hiddenReason: text("hidden_reason"),
     /** Ответ мастера: одна реплика на отзыв. */
     replyText: text("reply_text"),
     repliedAt: timestamp("replied_at", { withTimezone: true }),
@@ -345,12 +411,16 @@ export const payments = pgTable(
   (table) => [index("payments_booking").on(table.bookingId, table.createdAt)],
 );
 
+/**
+ * Коды входа хранятся только хешем (`sha256(code + pepper)`): утечка базы
+ * не даёт войти под клиентом. Прежние коды гасятся при запросе нового.
+ */
 export const otpCodes = pgTable(
   "otp_codes",
   {
     id: id(),
     phone: text("phone").notNull(),
-    code: text("code").notNull(),
+    codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     consumed: boolean("consumed").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -359,6 +429,25 @@ export const otpCodes = pgTable(
 );
 
 export type Favorite = typeof favorites.$inferSelect;
+/**
+ * Попытки обращения к защищённым ручкам (сейчас — запрос и ввод кода входа).
+ *
+ * Скользящее окно: считаем строки за последние N минут. Так лимит работает
+ * без внешнего Redis и переживает перезапуск процесса, а при нескольких
+ * инстансах API остаётся общим.
+ */
+export const rateLimitHits = pgTable(
+  "rate_limit_hits",
+  {
+    id: id(),
+    key: text("key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("rate_limit_key_time").on(table.key, table.createdAt)],
+);
+
+export type BookingEvent = typeof bookingEvents.$inferSelect;
+export type RateLimitHit = typeof rateLimitHits.$inferSelect;
 export type Delivery = typeof deliveries.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type Master = typeof masters.$inferSelect;

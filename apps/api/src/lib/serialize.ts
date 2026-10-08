@@ -1,5 +1,5 @@
 import type { Booking, Master, Service } from "../db/schema.js";
-import { minutesOfDay, toISODate } from "./time.js";
+import { minutesOfDay, toISODate, zoneLabel, zoneOffsetMinutes } from "./time.js";
 
 /** Единый формат записи для фронтенда. */
 export function serializeBooking(booking: Booking, master: Master, service: Service) {
@@ -14,10 +14,15 @@ export function serializeBooking(booking: Booking, master: Master, service: Serv
     /** Предоплата: 0 — платить не нужно, иначе ждём эту сумму. */
     prepaymentAmount: booking.prepaymentAmount,
     paymentStatus: booking.paymentStatus,
-    dateISO: toISODate(booking.startAt),
+    // Дата и «минуты дня» — в поясе мастера: клиент видит время визита так,
+    // как его видит сам мастер, независимо от часов сервера и браузера.
+    dateISO: toISODate(booking.startAt, master.timezone),
     startAt: booking.startAt.toISOString(),
     endAt: booking.endAt.toISOString(),
-    startMinutes: minutesOfDay(booking.startAt),
+    startMinutes: minutesOfDay(booking.startAt, master.timezone),
+    timezone: master.timezone,
+    utcOffsetMinutes: zoneOffsetMinutes(booking.startAt, master.timezone),
+    zoneLabel: zoneLabel(booking.startAt, master.timezone),
     clientName: booking.clientName,
     clientPhone: booking.clientPhone,
     comment: booking.comment,

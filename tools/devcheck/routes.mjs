@@ -2,7 +2,7 @@
  * Рендер всех маршрутов в jsdom против живого API: ловим падения и пустые экраны.
  * Запуск: node routes.mjs (сначала npm run bundle)
  */
-import { makeDom, rootText, rootHtmlLength, wait, login, loginMaster, loginAdmin } from "./harness.mjs";
+import { makeDom, rootText, rootHtmlLength, wait, login, loginMaster, loginAdmin, nextWorkingISO } from "./harness.mjs";
 
 // Кабинет /pro закрыт ролевым гейтом, поэтому для него нужна сессия мастера,
 // а для клиентских страниц — обычная.
@@ -16,7 +16,7 @@ const clientRoutes = [
   "/last-minute",
   "/login",
   "/master/anna-smirnova",
-  "/booking?master=anna-smirnova&service=anna-smirnova-s3&date=2024-05-22",
+  `/booking?master=anna-smirnova&service=anna-smirnova-s3&date=${nextWorkingISO(0)}`,
   "/favorites",
   "/messages",
   "/notifications",

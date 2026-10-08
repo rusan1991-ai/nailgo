@@ -51,6 +51,8 @@ export type CabinetReview = {
   text: string;
   service: string;
   status: "published" | "moderation" | "hidden";
+  /** Почему отзыв скрыт — решение модератора с причиной. */
+  hiddenReason: string | null;
   /** Ответ мастера: клиент видит его под отзывом. */
   replyText: string | null;
   repliedAt: string | null;

@@ -18,6 +18,7 @@ import {
   saveCabinetHours,
   saveCabinetProfile,
   useCabinetHours,
+  MASTER_TIMEZONES,
   useCabinetProfile,
   useHoursDraft,
 } from "../../api/profile";
@@ -48,7 +49,8 @@ export function SettingsProPage() {
 
   const [notifyNew, setNotifyNew] = useState(true);
   const [onlyAvailable, setOnlyAvailable] = useState(true);
-  const [timezone, setTimezone] = useState("(GMT+3) Москва, Санкт-Петербург");
+  const [timezone, setTimezone] = useState("Europe/Moscow");
+  const [slotStep, setSlotStep] = useState(0);
   const [language, setLanguage] = useState("Русский");
 
   const bookings = useBookingsStore();
@@ -68,6 +70,8 @@ export function SettingsProPage() {
     setMetro(profile.metro);
     setTags(profile.tags);
     setPriceFrom(String(profile.priceFrom));
+    setTimezone(profile.timezone);
+    setSlotStep(profile.slotStepMinutes);
   }, [profile]);
 
   const save = async () => {
@@ -83,6 +87,8 @@ export function SettingsProPage() {
         metro,
         experience: profile?.experience ?? "5 лет",
         priceFrom: Number.parseInt(priceFrom, 10) || 0,
+        timezone,
+        slotStepMinutes: slotStep,
       });
       if (hours) await saveCabinetHours(hours);
       profileResource.reload();
@@ -223,15 +229,30 @@ export function SettingsProPage() {
                 <Select
                   value={timezone}
                   onChange={setTimezone}
+                  options={MASTER_TIMEZONES}
+                />
+                <p className="mt-2 text-xs text-slate-400">
+                  Пояс мастера: в нём клиент видит окна записи, в нём же приходят времена
+                  в SMS и уведомлениях. Если мастер работает в другом регионе, выберите его
+                  пояс — иначе клиент увидит время со сдвигом.
+                </p>
+              </Card>
+
+              <Card>
+                <CardTitle>Шаг сетки записи</CardTitle>
+                <Select
+                  value={String(slotStep)}
+                  onChange={(value) => setSlotStep(Number.parseInt(value, 10))}
                   options={[
-                    { value: "(GMT+3) Москва, Санкт-Петербург", label: "(GMT+3) Москва, Санкт-Петербург" },
-                    { value: "(GMT+2) Калининград", label: "(GMT+2) Калининград" },
-                    { value: "(GMT+5) Екатеринбург", label: "(GMT+5) Екатеринбург" },
+                    { value: "0", label: "Как у площадки (30 минут)" },
+                    { value: "15", label: "15 минут" },
+                    { value: "30", label: "30 минут" },
+                    { value: "60", label: "1 час" },
                   ]}
                 />
                 <p className="mt-2 text-xs text-slate-400">
-                  Сейчас время в системе и расписании — московское. Смена пояса появится вместе с
-                  многогородностью.
+                  Как часто предлагать клиенту время начала. Мелкий шаг удобен для коротких
+                  услуг (снятие покрытия, дизайн), крупный — для длинных визитов.
                 </p>
               </Card>
 

@@ -8,25 +8,30 @@
  * почти сразу.
  */
 import { enqueueDelivery, cancelScheduled, DELIVERY_KINDS } from "./outbox.js";
-import { formatMinutes, toISODate } from "../time.js";
+import { momentText } from "../time.js";
 import type { Booking } from "../../db/schema.js";
 
 /** За сколько до визита напоминаем. */
 export const REMINDER_LEAD_HOURS = 24;
 
-const MONTHS = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
-
-/** «22 мая 15:30» — так время видно в SMS. */
-function whenText(startAt: Date): string {
-  const [, month, day] = toISODate(startAt).split("-").map(Number);
-  const minutes = startAt.getUTCHours() * 60 + startAt.getUTCMinutes();
-  return `${day} ${MONTHS[(month ?? 1) - 1]} ${formatMinutes(minutes)}`;
+/**
+ * «22 мая 15:30» — так время видно в SMS. Считается в поясе мастера: клиент
+ * должен увидеть то же время, что на экране записи, а не время сервера.
+ */
+function whenText(startAt: Date, timezone: string): string {
+  return momentText(startAt, timezone);
 }
 
 /** Текст напоминания клиенту. */
-export function reminderText(input: { masterName: string; serviceName: string; startAt: Date; address?: string | null }): string {
+export function reminderText(input: {
+  masterName: string;
+  serviceName: string;
+  startAt: Date;
+  timezone: string;
+  address?: string | null;
+}): string {
   const address = input.address ? `, ${input.address}` : "";
-  return `${input.masterName}: напоминаем о визите ${whenText(input.startAt)} — ${input.serviceName}${address}. Отменить или перенести можно в личном кабинете NailGo.`;
+  return `${input.masterName}: напоминаем о визите ${whenText(input.startAt, input.timezone)} — ${input.serviceName}${address}. Отменить или перенести можно в личном кабинете NailGo.`;
 }
 
 /** Время отправки напоминания: за сутки до визита, но не раньше «сейчас». */
@@ -44,6 +49,8 @@ function reminderTime(startAt: Date, now = new Date()): Date {
 export async function scheduleBookingReminder(input: {
   booking: Pick<Booking, "id" | "clientPhone" | "startAt" | "status">;
   masterName: string;
+  /** Пояс мастера — в нём считается текст напоминания. */
+  timezone: string;
   serviceName: string;
   address?: string | null;
 }): Promise<{ scheduled: boolean }> {
@@ -66,6 +73,7 @@ export async function scheduleBookingReminder(input: {
       masterName: input.masterName,
       serviceName: input.serviceName,
       startAt: booking.startAt,
+      timezone: input.timezone,
       address: input.address,
     }),
     bookingId: booking.id,

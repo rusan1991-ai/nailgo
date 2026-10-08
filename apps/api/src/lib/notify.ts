@@ -8,7 +8,7 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "../db/index.js";
 import { masters, notifications, users } from "../db/schema.js";
-import { formatMinutes, toISODate } from "./time.js";
+import { momentText, platformTimezone } from "./time.js";
 import { normalizePhone } from "./phone.js";
 import { cancelBookingReminders, scheduleBookingReminder } from "./delivery/reminders.js";
 import { DELIVERY_KINDS, enqueueDelivery } from "./delivery/outbox.js";
@@ -29,13 +29,22 @@ export type NotificationType =
 
 type BookingRow = typeof schema.bookings.$inferSelect;
 
-/** «22 мая, 15:30» — компактная подпись для текста уведомления. */
-function whenLabel(startAt: Date): string {
-  const date = toISODate(startAt);
-  const [, month, day] = date.split("-").map(Number);
-  const months = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
-  const minutes = startAt.getUTCHours() * 60 + startAt.getUTCMinutes();
-  return `${day} ${months[(month ?? 1) - 1]} ${formatMinutes(minutes)}`;
+/**
+ * Пояс мастера: время визита в уведомлении должно совпадать с тем, что клиент
+ * видит на экране, а не с часами сервера.
+ */
+export async function masterTimezone(masterId: string): Promise<string> {
+  const [master] = await db
+    .select({ timezone: masters.timezone })
+    .from(masters)
+    .where(eq(masters.id, masterId))
+    .limit(1);
+  return master?.timezone ?? platformTimezone();
+}
+
+/** «22 мая 15:30» — компактная подпись для текста уведомления. */
+function whenLabel(startAt: Date, timezone: string): string {
+  return momentText(startAt, timezone);
 }
 
 /** Уведомление мастеру студии: кто именно владеет кабинетом. */
@@ -101,15 +110,20 @@ export async function notifyBookingEvent(
     | "confirmed"
     | "cancelled_by_client"
     | "cancelled_by_master"
+    /** Авто-отмена: мастер не подтвердил заявку вовремя. */
+    | "cancelled_by_system"
+    /** Мастер отметил, что клиент не пришёл. */
+    | "no_show"
     | "completed"
     | "rescheduled_by_client"
     | "rescheduled_by_master",
 ): Promise<void> {
-  const when = whenLabel(booking.startAt);
+  const timezone = await masterTimezone(booking.masterId);
+  const when = whenLabel(booking.startAt, timezone);
 
   // SMS и напоминания идут тем же путём, что уведомления в приложении:
   // событие одно, а каналов доставки у него может быть несколько.
-  await deliverBookingMessage(booking, service, event);
+  await deliverBookingMessage(booking, service, event, timezone);
 
   if (event === "created_by_client") {
     await notifyStudio(booking.masterId, {
@@ -177,6 +191,32 @@ export async function notifyBookingEvent(
     return;
   }
 
+  if (event === "cancelled_by_system") {
+    await notifyStudio(booking.masterId, {
+      type: "booking_cancelled",
+      title: "Заявка отменена автоматически",
+      body: `${booking.clientName} · ${service.name} · ${when} — вы не подтвердили её вовремя`,
+      bookingId: booking.id,
+    });
+    await notifyClient(booking.clientPhone, {
+      type: "booking_cancelled",
+      title: "Запись отменена: мастер не подтвердил",
+      body: `${service.name} · ${when}. Выберите другое время — мастер не ответил вовремя.`,
+      bookingId: booking.id,
+    });
+    return;
+  }
+
+  if (event === "no_show") {
+    await notifyClient(booking.clientPhone, {
+      type: "booking_cancelled",
+      title: "Визит отмечен как неявка",
+      body: `${service.name} · ${when}. Мастер ждал вас, но вы не пришли.`,
+      bookingId: booking.id,
+    });
+    return;
+  }
+
   if (event === "cancelled_by_client") {
     await notifyStudio(booking.masterId, {
       type: "booking_cancelled",
@@ -207,10 +247,11 @@ async function deliverBookingMessage(
   booking: BookingRow,
   service: { name: string },
   event: Parameters<typeof notifyBookingEvent>[2],
+  timezone: string,
 ): Promise<void> {
   const [master] = await db.select().from(masters).where(eq(masters.id, booking.masterId)).limit(1);
   const masterName = master?.name ?? "Мастер";
-  const when = whenLabel(booking.startAt);
+  const when = whenLabel(booking.startAt, timezone);
 
   /** Отправка SMS клиенту: с проверкой его настроек. */
   const smsToClient = async (kind: string, body: string) => {
@@ -246,9 +287,29 @@ async function deliverBookingMessage(
     );
   }
 
+  if (event === "cancelled_by_system") {
+    await smsToClient(
+      DELIVERY_KINDS.bookingCancelled,
+      `${masterName} не подтвердил запись на ${when}, она отменена. Выберите другое время в NailGo.`,
+    );
+  }
+
+  if (event === "no_show") {
+    await smsToClient(
+      DELIVERY_KINDS.bookingCancelled,
+      `${masterName}: визит ${when} отмечен как неявка. Частые неявки ограничивают запись в NailGo.`,
+    );
+  }
+
   // Снятая или прошедшая запись напоминаний не получает, остальные — получают:
   // напоминание всегда ставится на актуальное время визита.
-  if (event === "cancelled_by_client" || event === "cancelled_by_master" || event === "completed") {
+  if (
+    event === "cancelled_by_client" ||
+    event === "cancelled_by_master" ||
+    event === "cancelled_by_system" ||
+    event === "no_show" ||
+    event === "completed"
+  ) {
     await cancelBookingReminders(booking.id);
     return;
   }
@@ -256,6 +317,7 @@ async function deliverBookingMessage(
   await scheduleBookingReminder({
     booking,
     masterName,
+    timezone,
     serviceName: service.name,
     address: master?.address ?? null,
   });

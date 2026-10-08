@@ -3,9 +3,23 @@ import { Check, Loader2 } from "lucide-react";
 import { GhostButton, Modal, PersonAvatar, PrimaryButton, Select, TextField } from "./ui";
 import { formatMinutes, formatRub } from "../data";
 import { useCatalog, durationLabel } from "../../catalog/store";
-import { cabinetOwnerSlug, createBooking, demoWeek, parseTimeLabel } from "../../store/bookings";
+import { cabinetOwnerSlug, createBooking, upcomingDays, parseTimeLabel } from "../../store/bookings";
+
+/**
+ * Дни для записи: сегодня и следующие две недели.
+ *
+ * Прошлое в списке не показываем: сервер такую запись не примет (`past_slot`),
+ * а мастеру незачем видеть невыбираемые даты.
+ */
+const dates = upcomingDays(14);
 
 const timeOptions = Array.from({ length: 22 }, (_, index) => 9 * 60 + index * 30);
+
+/** Подпись даты для сводки: «8 окт, чт» — как в списке. */
+function labelOf(dateISO: string): string {
+  const day = dates.find((item) => item.iso === dateISO);
+  return day ? `${day.label}, ${day.weekday}` : dateISO;
+}
 
 export function AppointmentModal({
   open,
@@ -23,7 +37,7 @@ export function AppointmentModal({
   const [clientPhone, setClientPhone] = useState("");
   const [serviceId, setServiceId] = useState("");
   const [masterSlug, setMasterSlug] = useState(cabinetOwnerSlug);
-  const [dateISO, setDateISO] = useState(demoWeek[0].iso);
+  const [dateISO, setDateISO] = useState(dates[0]!.iso);
   const [time, setTime] = useState("19:00");
   const [comment, setComment] = useState("");
   const [created, setCreated] = useState<string | null>(null);
@@ -63,7 +77,7 @@ export function AppointmentModal({
         comment,
         source: "master",
       });
-      setCreated(`${clientName.trim() || "Гость"}, ${demoWeek.find((day) => day.iso === dateISO)?.label ?? dateISO} в ${time}`);
+      setCreated(`${clientName.trim() || "Гость"}, ${labelOf(dateISO)} в ${time}`);
       setComment("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Не удалось создать запись");
@@ -137,7 +151,7 @@ export function AppointmentModal({
           <Select
             value={dateISO}
             onChange={setDateISO}
-            options={demoWeek.map((day) => ({ value: day.iso, label: `${day.label}, ${day.weekday}` }))}
+            options={dates.map((day) => ({ value: day.iso, label: `${day.label}, ${day.weekday}` }))}
           />
         </div>
         <div>
@@ -165,7 +179,7 @@ export function AppointmentModal({
           <p className="font-medium text-slate-800">{service?.name ?? "Услуга не выбрана"}</p>
           <p className="text-xs text-slate-500">
             {service ? `${formatRub(service.price)} · ${durationLabel(service.durationMinutes)} · ` : ""}
-            {demoWeek.find((day) => day.iso === dateISO)?.label ?? dateISO}, {time}
+            {labelOf(dateISO)}, {time}
           </p>
         </div>
       </div>

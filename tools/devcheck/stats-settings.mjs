@@ -5,16 +5,7 @@
  * Запуск (при живых Vite и API):
  *   cd tools/devcheck && npm run stats
  */
-import {
-  apiAs,
-  check,
-  loginMaster,
-  makeDom,
-  resetDemo,
-  rootText,
-  setFieldByValue,
-  wait,
-} from "./harness.mjs";
+import { apiAs, check, loginMaster, makeDom, nextWeekdayISO, resetDemo, rootText, setFieldByValue, wait, demoMonthISO } from "./harness.mjs";
 
 let failures = 0;
 const assert = (label, ok, extra = "") => {
@@ -25,7 +16,7 @@ const master = await loginMaster();
 const reset = await resetDemo(master);
 console.log(`Демо-данные сброшены: ${JSON.stringify(reset.counts)}`);
 
-const stats = await apiAs(master, "/cabinet/stats?month=2024-05");
+const stats = await apiAs(master, `/cabinet/stats?month=${demoMonthISO}`);
 const s = stats.data;
 assert("API отдаёт воронку по записям", Array.isArray(s.funnel) && s.funnel.length === 4, JSON.stringify(s.funnel));
 assert("API отдаёт динамику за 12 месяцев", Array.isArray(s.monthly) && s.monthly.length === 12, String(s.monthly?.length));
@@ -119,12 +110,12 @@ assert("в базе остался только выбранный день", en
 // Клиент больше не видит окон в закрытые дни — расписание действительно влияет на запись.
 const client = await import("./harness.mjs").then(({ login }) => login("+79990005566", "Клиент Расписания"));
 const slotsClosed = await import("./harness.mjs").then(({ api }) =>
-  api("/masters/anna-smirnova/slots?date=2024-05-22&serviceId=s1"),
+  api(`/masters/anna-smirnova/slots?date=${nextWeekdayISO(0, 1)}&serviceId=anna-smirnova-s1`),
 );
 assert("в закрытый день окон нет", slotsClosed.data.slots.length === 0,
   `окон=${slotsClosed.data.slots.length}`);
 const slotsOpen = await import("./harness.mjs").then(({ api }) =>
-  api("/masters/anna-smirnova/slots?date=2024-05-26&serviceId=s1"),
+  api(`/masters/anna-smirnova/slots?date=${nextWeekdayISO(6, 1)}&serviceId=anna-smirnova-s1`),
 );
 assert("в рабочий день окна есть", slotsOpen.data.slots.length > 0, `окон=${slotsOpen.data.slots.length}`);
 void client;
@@ -133,7 +124,7 @@ void client;
 const restored = await apiAs(master, "/cabinet/hours", { method: "PUT", body: { items: hoursBefore.data.items } });
 assert("демо-расписание восстановлено", restored.status === 200, `status=${restored.status}`);
 const cleanup = await resetDemo(master);
-assert("демо-данные сброшены после проверки", cleanup.counts.bookings === 21, JSON.stringify(cleanup.counts));
+assert("демо-данные сброшены после проверки", cleanup.counts.bookings === 22, JSON.stringify(cleanup.counts));
 
 console.log(failures === 0 ? "\nСтатистика и настройки работают на данных базы." : `\nПровалено проверок: ${failures}`);
 process.exit(failures === 0 ? 0 : 1);

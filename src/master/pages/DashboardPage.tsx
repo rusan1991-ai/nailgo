@@ -3,10 +3,14 @@ import { BadgeCheck, Check, Plus } from "lucide-react";
 import { Card, CardTitle, Chip, PersonAvatar, PrimaryButton, GhostButton } from "../components/ui";
 import { journalArticles, profileCompletion, formatRub } from "../data";
 import { useCabinetClients, useCabinetStats } from "../../api/cabinet";
-import { demoWeek, formatDateLabel, formatTimeLabel, useBookingsStore, weekdayForDate, type Booking } from "../../store/bookings";
+import { formatDateLabel, formatTimeLabel, useBookingsStore, weekdayForDate, type Booking } from "../../store/bookings";
 
 /** День, который кабинет показывает как «сегодня»: среда демо-недели. */
-const CABINET_TODAY_ISO = demoWeek[0].iso;
+/** Сегодня в кабинете: день, на который смотрим расписание. */
+const CABINET_TODAY_ISO = (() => {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+})();
 const CABINET_MONTH = CABINET_TODAY_ISO.slice(0, 7);
 /** Рабочий день мастера — из настроек: 10:00–20:00, как в расписании. */
 const DAY_START = 10 * 60;

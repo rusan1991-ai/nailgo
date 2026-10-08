@@ -3,8 +3,25 @@ import { and, asc, desc, eq, gte, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import { bookings, masters, reviews, services, users, workingHours } from "../db/schema.js";
-import { isDev } from "../env.js";
-import { atMinutes, minutesOfDay, parseISODate, toISODate, weekdayIndex } from "../lib/time.js";
+import { env, isDev } from "../env.js";
+import {
+  addDaysISO,
+  dayBounds,
+  devNow,
+  isValidISODate,
+  isValidTimeZone,
+  minutesOfDay,
+  monthBounds,
+  platformTimezone,
+  shiftMonth,
+  toISODate,
+  todayISO,
+  weekdayOfISODate,
+  zoneParts,
+} from "../lib/time.js";
+import { applyBookingStatus, bookingHistory } from "../lib/booking-status.js";
+import { clientPolicy, registerNoShow } from "../lib/booking-policy.js";
+import { normalizePhone } from "../lib/phone.js";
 import { serializeBooking } from "../lib/serialize.js";
 import { requireAuth, requireMaster } from "../lib/auth.js";
 import { createBooking, createBookingSchema, rescheduleSchema, rescheduleBooking, withRelations } from "./bookings.js";
@@ -15,7 +32,7 @@ import { notifyFavoritesAboutWindow, windowService } from "../lib/favorites.js";
 import { freeSlotsForDay } from "../lib/slots.js";
 
 const listQuery = z.object({
-  status: z.enum(["all", "pending", "confirmed", "completed", "cancelled"]).optional(),
+  status: z.enum(["all", "pending", "confirmed", "completed", "cancelled", "no_show"]).optional(),
   query: z.string().trim().optional(),
   masterSlug: z.string().trim().optional(),
   from: z.string().optional(),
@@ -36,32 +53,32 @@ const masterOnly = { preHandler: [requireAuth, requireMaster] };
  * сообщаем избранным клиентам. Возвращает число отправленных уведомлений.
  */
 async function notifyOpenedDays(
-  masterId: string,
+  master: { id: string; timezone: string; slotStepMinutes: number },
   opened: { weekday: number; startMinute: number; endMinute: number }[],
 ): Promise<number> {
   if (opened.length === 0) return 0;
-  const service = await windowService(masterId);
+  const service = await windowService(master.id);
   if (!service) return 0;
 
   let sent = 0;
   for (const day of opened) {
-    const dateISO = nextDateForWeekday(day.weekday);
-    const daySlots = await freeSlotsForDay(masterId, dateISO, service.durationMinutes);
+    const dateISO = nextDateForWeekday(day.weekday, master.timezone);
+    const daySlots = await freeSlotsForDay(master, dateISO, service.durationMinutes);
     const [first] = daySlots?.slots ?? [];
     if (first === undefined) continue;
-    sent += await notifyFavoritesAboutWindow({ masterId, dateISO, startMinutes: first });
+    sent += await notifyFavoritesAboutWindow({ masterId: master.id, dateISO, startMinutes: first });
   }
   return sent;
 }
 
-/** Ближайшая дата с нужным днём недели (0 — воскресенье), включая сегодня. */
-function nextDateForWeekday(weekday: number): string {
-  const today = new Date();
+/** Ближайшая дата с нужным днём недели, включая сегодня, — в поясе мастера. */
+function nextDateForWeekday(weekday: number, timezone: string): string {
+  const today = todayISO(timezone);
   for (let offset = 0; offset < 7; offset += 1) {
-    const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset);
-    if (weekdayIndex(day) === weekday) return toISODate(day);
+    const dateISO = addDaysISO(today, offset);
+    if (weekdayOfISODate(dateISO) === weekday) return dateISO;
   }
-  return toISODate(today);
+  return today;
 }
 
 /** Короткие названия месяцев для подписей графиков динамики. */
@@ -126,6 +143,13 @@ export async function cabinetRoutes(app: FastifyInstance) {
         experience: master.experience,
         rating: master.rating,
         reviewsCount: master.reviewsCount,
+        /**
+         * Пояс мастера и шаг сетки. Это не «настройки красоты»: от пояса
+         * зависит, какие окна увидит клиент и что напишут в SMS.
+         */
+        timezone: master.timezone,
+        slotStepMinutes: master.slotStepMinutes,
+        platformTimezone: platformTimezone(),
       },
     };
   });
@@ -146,6 +170,14 @@ export async function cabinetRoutes(app: FastifyInstance) {
         metro: z.string().trim().max(80).optional(),
         experience: z.string().trim().max(40).optional(),
         priceFrom: z.number().int().min(0).max(1_000_000).optional(),
+        /** Пояс мастера: только настоящие IANA-зоны, иначе слоты «уедут». */
+        timezone: z
+          .string()
+          .trim()
+          .refine((value) => isValidTimeZone(value), "Неизвестный часовой пояс")
+          .optional(),
+        /** 0 — общий шаг площадки, иначе 15/30/60 минут. */
+        slotStepMinutes: z.union([z.literal(0), z.literal(15), z.literal(30), z.literal(60)]).optional(),
       })
       .parse(request.body ?? {});
 
@@ -161,6 +193,8 @@ export async function cabinetRoutes(app: FastifyInstance) {
         ...(input.metro !== undefined ? { metro: input.metro } : {}),
         ...(input.experience !== undefined ? { experience: input.experience } : {}),
         ...(input.priceFrom !== undefined ? { priceFrom: input.priceFrom } : {}),
+        ...(input.timezone !== undefined ? { timezone: input.timezone } : {}),
+        ...(input.slotStepMinutes !== undefined ? { slotStepMinutes: input.slotStepMinutes } : {}),
       })
       .where(eq(masters.id, master.id));
 
@@ -245,7 +279,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
       const was = before.find((row) => row.weekday === item.weekday);
       return !was || was.startMinute > item.startMinute || was.endMinute < item.endMinute;
     });
-    const notified = await notifyOpenedDays(master.id, opened);
+    const notified = await notifyOpenedDays(master, opened);
     if (notified > 0) {
       await notifyStudio(master.id, {
         type: "favorite_slot",
@@ -265,8 +299,9 @@ export async function cabinetRoutes(app: FastifyInstance) {
     const master = await currentMaster(request.currentUser?.masterSlug ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
-    const fromDate = from ? parseISODate(from) : null;
-    const toDate = to ? parseISODate(to) : null;
+    // Границы диапазона — календарные даты в поясе мастера.
+    const fromDate = from && isValidISODate(from) ? from : null;
+    const toDate = to && isValidISODate(to) ? to : null;
 
     const rows = await db
       .select({ booking: bookings, master: masters, service: services })
@@ -279,8 +314,8 @@ export async function cabinetRoutes(app: FastifyInstance) {
           eq(bookings.masterId, master.id),
           status && status !== "all" ? eq(bookings.status, status) : undefined,
           masterSlug ? eq(masters.slug, masterSlug) : undefined,
-          fromDate ? gte(bookings.startAt, atMinutes(fromDate, 0)) : undefined,
-          toDate ? lt(bookings.startAt, atMinutes(toDate, 24 * 60)) : undefined,
+          fromDate ? gte(bookings.startAt, dayBounds(fromDate, master.timezone).start) : undefined,
+          toDate ? lt(bookings.startAt, dayBounds(toDate, master.timezone).end) : undefined,
         ),
       )
       .orderBy(asc(bookings.startAt));
@@ -311,19 +346,27 @@ export async function cabinetRoutes(app: FastifyInstance) {
     if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
     const { booking } = found;
 
-    await db.update(bookings).set({ status: "cancelled" }).where(eq(bookings.id, id));
+    const reason = (request.body as { reason?: string } | undefined)?.reason;
+    const change = await applyBookingStatus(booking, "cancelled", { role: "master", userId: request.currentUser?.id }, {
+      reason: reason ?? "отмена мастером",
+    });
+    if (!change.changed) return { ok: true };
+
     await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "cancelled_by_master");
 
     // Мастер отменил визит — предоплата возвращается клиенту.
     if (booking.paymentStatus === "paid") await refundBookingPayment(booking);
 
     // Окно освободилось: предлагаем его избранным клиентам (кроме самого клиента).
-    await notifyFavoritesAboutWindow({
-      masterId: booking.masterId,
-      dateISO: toISODate(booking.startAt),
-      startMinutes: minutesOfDay(booking.startAt),
-      excludePhone: booking.clientPhone,
-    });
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (master) {
+      await notifyFavoritesAboutWindow({
+        masterId: booking.masterId,
+        dateISO: toISODate(booking.startAt, master.timezone),
+        startMinutes: minutesOfDay(booking.startAt, master.timezone),
+        excludePhone: booking.clientPhone,
+      });
+    }
     return { ok: true };
   });
 
@@ -334,7 +377,9 @@ export async function cabinetRoutes(app: FastifyInstance) {
     if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
     const { booking } = found;
 
-    await db.update(bookings).set({ status: "confirmed" }).where(eq(bookings.id, id));
+    const change = await applyBookingStatus(booking, "confirmed", { role: "master", userId: request.currentUser?.id });
+    if (!change.changed) return { ok: true };
+
     await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "confirmed");
     return { ok: true };
   });
@@ -411,9 +456,65 @@ export async function cabinetRoutes(app: FastifyInstance) {
     if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
     const { booking } = found;
 
-    await db.update(bookings).set({ status: "completed" }).where(eq(bookings.id, id));
+    const change = await applyBookingStatus(booking, "completed", { role: "master", userId: request.currentUser?.id });
+    if (!change.changed) return { ok: true };
+
     await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "completed");
     return { ok: true };
+  });
+
+  /**
+   * Мастер отмечает, что клиент не пришёл.
+   *
+   * Неявка — не то же самое, что отмена: мастер ждал, время пропало. Отметить
+   * её можно только после начала визита. Вторая неявка отправляет клиента
+   * в чёрный список (`NO_SHOW_LIMIT`): запись закрыта до решения администратора.
+   */
+  app.post("/cabinet/bookings/:id/no-show", masterOnly, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
+    const { booking } = found;
+
+    const change = await applyBookingStatus(booking, "no_show", { role: "master", userId: request.currentUser?.id }, {
+      action: "no_show",
+      reason: "мастер отметил неявку клиента",
+      // В dev проверки могут подставить «визит уже начался» (см. devNow).
+      now: devNow((request.body as { now?: string } | undefined)?.now),
+    });
+    if (!change.changed) return { ok: true, discipline: null };
+
+    await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "no_show");
+    const discipline = await registerNoShow(booking.clientPhone);
+    return { ok: true, discipline }; 
+  });
+
+  /** Мастер видит историю своей записи: кто её подтвердил, отменил, отметил неявку. */
+  app.get("/cabinet/bookings/:id/history", masterOnly, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
+    return { items: await bookingHistory(id) };
+  });
+
+  /**
+   * Что известно о клиенте по дисциплине: поздние отмены, неявки, ограничения.
+   * Мастеру это нужно, чтобы понимать, просить ли предоплату и стоит ли
+   * записывать человека снова.
+   */
+  app.get("/cabinet/clients/:phone/policy", masterOnly, async (request, reply) => {
+    const { phone } = request.params as { phone: string };
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const [own] = await db
+      .select({ id: bookings.id })
+      .from(bookings)
+      .where(and(eq(bookings.masterId, master.id), eq(bookings.clientPhone, normalizePhone(phone))))
+      .limit(1);
+    if (!own) return reply.code(404).send({ error: "not_found", message: "Этот клиент к вам не записывался" });
+
+    return { policy: await clientPolicy(phone) };
   });
 
   /** Мастер переносит запись на свободное окно — правила те же, что у клиента. */
@@ -434,9 +535,9 @@ export async function cabinetRoutes(app: FastifyInstance) {
       .object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
       .parse(request.query ?? {});
 
-    const start = parseISODate(from);
-    const end = parseISODate(to);
-    if (!start || !end) return reply.code(400).send({ error: "bad_request", message: "Некорректные даты" });
+    if (!isValidISODate(from) || !isValidISODate(to)) {
+      return reply.code(400).send({ error: "bad_request", message: "Некорректные даты" });
+    }
 
     const master = await currentMaster(request.currentUser?.masterSlug ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
@@ -450,8 +551,8 @@ export async function cabinetRoutes(app: FastifyInstance) {
         and(
           eq(bookings.masterId, master.id),
           ne(bookings.status, "cancelled"),
-          gte(bookings.startAt, atMinutes(start, 0)),
-          lt(bookings.startAt, atMinutes(end, 24 * 60)),
+          gte(bookings.startAt, dayBounds(from, master.timezone).start),
+          lt(bookings.startAt, dayBounds(to, master.timezone).end),
         ),
       )
       .orderBy(asc(bookings.startAt));
@@ -500,7 +601,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
     for (const { booking, master, service } of rows) {
       const active = booking.status !== "cancelled";
-      const dateISO = toISODate(booking.startAt);
+      const dateISO = toISODate(booking.startAt, master.timezone);
       const entry = byPhone.get(booking.clientPhone);
 
       if (!entry) {
@@ -579,10 +680,12 @@ export async function cabinetRoutes(app: FastifyInstance) {
         text: review.text,
         service: review.service,
         status: review.status,
+        /** Почему отзыв скрыт: мастер должен знать причину решения модератора. */
+        hiddenReason: review.hiddenReason,
         replyText: review.replyText,
         repliedAt: review.repliedAt?.toISOString() ?? null,
         createdAt: review.createdAt.toISOString(),
-        dateISO: toISODate(review.createdAt),
+        dateISO: toISODate(review.createdAt, platformTimezone()),
       }));
 
     // Средний балл — только по опубликованным: он же показывается клиентам.
@@ -664,23 +767,27 @@ export async function cabinetRoutes(app: FastifyInstance) {
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
     const rows = await db.select().from(bookings).where(eq(bookings.masterId, master.id));
 
-    const today = new Date();
-    const [year, monthIndex] = month
-      ? [Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1]
-      : [today.getFullYear(), today.getMonth()];
-    const monthStart = new Date(year, monthIndex, 1);
-    const prevMonthStart = new Date(year, monthIndex - 1, 1);
-    const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    // «Сегодня» и границы месяца — по часам мастера: его кабинет, его день.
+    const tz = master.timezone;
+    const nowParts = zoneParts(new Date(), tz);
+    const [year, monthNumber] = month
+      ? [Number(month.slice(0, 4)), Number(month.slice(5, 7))]
+      : [nowParts.year, nowParts.month];
+    const monthStart = monthBounds(year, monthNumber, tz).start;
+    const prevMonth = shiftMonth(year, monthNumber, -1);
+    const prevMonthStart = monthBounds(prevMonth.year, prevMonth.month, tz).start;
+    const todayISOValue = todayISO(tz);
+    const dayStart = dayBounds(todayISOValue, tz).start;
+    const dayEnd = dayBounds(todayISOValue, tz).end;
 
     const inRange = (date: Date, from: Date, to?: Date) => date >= from && (!to || date < to);
     const active = rows.filter((booking) => booking.status !== "cancelled");
 
     const thisMonth = active.filter((booking) => inRange(booking.startAt, monthStart));
-    const prevMonth = active.filter((booking) => inRange(booking.startAt, prevMonthStart, monthStart));
+    const prevMonthBookings = active.filter((booking) => inRange(booking.startAt, prevMonthStart, monthStart));
 
     const income = thisMonth.reduce((sum, booking) => sum + booking.price, 0);
-    const prevIncome = prevMonth.reduce((sum, booking) => sum + booking.price, 0);
+    const prevIncome = prevMonthBookings.reduce((sum, booking) => sum + booking.price, 0);
 
     const firstSeen = new Map<string, Date>();
     for (const booking of active) {
@@ -725,29 +832,30 @@ export async function cabinetRoutes(app: FastifyInstance) {
     };
 
     // Динамика по дням месяца: и график, и подписи берутся отсюда.
-    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
-    const byDay = Array.from({ length: daysInMonth }, (_, index) => {
-      const day = new Date(year, monthIndex, index + 1);
-      const next = new Date(year, monthIndex, index + 2);
-      const dayBookings = thisMonth.filter((booking) => inRange(booking.startAt, day, next));
-      return {
-        dateISO: toISODate(day),
-        label: String(index + 1),
+    const monthPrefix = `${year}-${String(monthNumber).padStart(2, "0")}`;
+    const byDay: { dateISO: string; label: string; bookings: number; revenue: number }[] = [];
+    for (let cursor = `${monthPrefix}-01`; cursor.startsWith(monthPrefix); cursor = addDaysISO(cursor, 1)) {
+      const bounds = dayBounds(cursor, tz);
+      const dayBookings = thisMonth.filter((booking) => inRange(booking.startAt, bounds.start, bounds.end));
+      byDay.push({
+        dateISO: cursor,
+        label: String(Number(cursor.slice(8, 10))),
         bookings: dayBookings.length,
         revenue: dayBookings.reduce((sum, booking) => sum + booking.price, 0),
-      };
-    });
+      });
+    }
 
     // Динамика по месяцам: последние 12 месяцев, включая выбранный.
     const monthly = Array.from({ length: 12 }, (_, index) => {
-      const offset = index - 11;
-      const start = new Date(year, monthIndex + offset, 1);
-      const end = new Date(year, monthIndex + offset + 1, 1);
+      const shifted = shiftMonth(year, monthNumber, index - 11);
+      const bounds = monthBounds(shifted.year, shifted.month, tz);
+      const start = bounds.start;
+      const end = bounds.end;
       const monthBookings = active.filter((booking) => inRange(booking.startAt, start, end));
       const monthClients = new Set(monthBookings.map((booking) => booking.clientPhone));
       return {
-        monthISO: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}`,
-        label: monthShort[start.getMonth()]!,
+        monthISO: bounds.monthISO,
+        label: monthShort[shifted.month - 1]!,
         bookings: monthBookings.length,
         revenue: monthBookings.reduce((sum, booking) => sum + booking.price, 0),
         newClients: [...monthClients].filter((phone) => {
@@ -799,11 +907,11 @@ export async function cabinetRoutes(app: FastifyInstance) {
       funnel,
       clientsThisMonth: monthClients.size,
       repeatClientsThisMonth: repeatClients,
-      todayISO: toISODate(today),
-      monthISO: `${year}-${String(monthIndex + 1).padStart(2, "0")}`,
+      todayISO: todayISOValue,
+      monthISO: `${year}-${String(monthNumber).padStart(2, "0")}`,
       bookingsToday: active.filter((booking) => inRange(booking.startAt, dayStart, dayEnd)).length,
       bookingsThisMonth: thisMonth.length,
-      bookingsPrevMonth: prevMonth.length,
+      bookingsPrevMonth: prevMonthBookings.length,
       incomeThisMonth: income,
       incomeDeltaLabel: delta(income, prevIncome),
       newClientsThisMonth: newClients,

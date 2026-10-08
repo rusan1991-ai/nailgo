@@ -9,20 +9,7 @@
  * Запуск (при живых Vite и API):
  *   cd tools/devcheck && npm run reschedule
  */
-import {
-  api,
-  apiAs,
-  check,
-  click,
-  clickIn,
-  login,
-  loginMaster,
-  makeDom,
-  resetDemo,
-  rowByText,
-  rootText,
-  wait,
-} from "./harness.mjs";
+import { api, apiAs, check, click, clickIn, login, loginMaster, makeDom, resetDemo, rowByText, rootText, wait, demoWeekStartISO, demoWeekDay } from "./harness.mjs";
 
 let failures = 0;
 const assert = (label, ok, extra = "") => {
@@ -125,17 +112,26 @@ const afterVisit = await apiAs(client, `/bookings/${completed.id}/reschedule`, {
 });
 assert("завершённый визит не переносится", afterVisit.status === 409 && afterVisit.data.error === "completed", `status=${afterVisit.status} ${afterVisit.data?.error}`);
 
-const cancelled = await apiAs(client, `/bookings/${completed.id}/cancel`, { method: "POST" });
-assert("запись отменяется для проверки", cancelled.status === 200, `status=${cancelled.status}`);
-const afterCancel = await apiAs(client, `/bookings/${completed.id}/reschedule`, {
+// Завершённый визит отменить нельзя: он уже состоялся (правило автомата статусов).
+const cancelVisit = await apiAs(client, `/bookings/${completed.id}/cancel`, { method: "POST" });
+assert(
+  "завершённый визит не отменяется",
+  cancelVisit.status === 409,
+  `status=${cancelVisit.status} ${cancelVisit.data?.error}`,
+);
+
+const cancelled = await apiAs(client, `/bookings/${upcoming.id}/cancel`, { method: "POST" });
+assert("предстоящая запись отменяется", cancelled.status === 200, `status=${cancelled.status}`);
+const afterCancel = await apiAs(client, `/bookings/${upcoming.id}/reschedule`, {
   method: "POST",
-  body: { dateISO: completed.dateISO, startMinutes: 900 },
+  body: { dateISO: upcoming.dateISO, startMinutes: free[0] },
 });
 assert("отменённая запись не переносится", afterCancel.status === 409 && afterCancel.data.error === "cancelled", `status=${afterCancel.status} ${afterCancel.data?.error}`);
 
 /* --- API: мастер переносит запись, клиент узнаёт --- */
-const cabinet = await apiAs(master, "/cabinet/schedule?from=2024-05-20&to=2024-05-26");
-const masterBooking = cabinet.data.items.find((item) => item.status === "pending");
+// Заявку ищем без привязки к неделе: она может лежать на ближайший рабочий день.
+const cabinet = await apiAs(master, "/cabinet/bookings?status=pending");
+const masterBooking = cabinet.data.items[0];
 assert("у мастера есть заявка в ожидании", Boolean(masterBooking), masterBooking ? masterBooking.clientName : "нет");
 
 if (masterBooking) {
@@ -185,8 +181,8 @@ const accountText = rootText(account.dom);
 assert("после переноса видно подтверждение", Boolean(account.dom.window.document.querySelector("[data-reschedule-done]")), accountText.slice(0, 90));
 
 /* --- Интерфейс: мастер переносит из кабинета --- */
-const beforePro = await apiAs(master, "/cabinet/schedule?from=2024-05-20&to=2024-05-26");
-const proTarget = beforePro.data.items.find((item) => item.status === "pending");
+const beforePro = await apiAs(master, "/cabinet/bookings?status=pending");
+const proTarget = beforePro.data.items[0];
 assert("у мастера есть заявка для переноса в кабинете", Boolean(proTarget), proTarget?.clientName);
 
 const pro = makeDom("/pro/bookings", { session: master });
@@ -204,7 +200,7 @@ if (row) {
   await wait(1500);
 }
 
-const afterPro = await apiAs(master, "/cabinet/schedule?from=2024-05-20&to=2024-05-26");
+const afterPro = await apiAs(master, "/cabinet/bookings?status=pending");
 const movedRow = afterPro.data.items.find((item) => item.id === proTarget?.id);
 assert(
   "перенос мастера сохранён в базе",

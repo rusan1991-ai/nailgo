@@ -3,11 +3,11 @@
  *
  * Никаких «спецпредложений из мока»: окна считаются из расписания и занятых
  * записей тем же кодом, что и слоты при записи, — значит предложение всегда
- * можно занять. Подпись дня («Сегодня», «Завтра», «22 мая») считаем от текущей
- * даты сервера.
+ * можно занять. Подписи дня («Сегодня», «Завтра», «22 мая») считаются
+ * в поясе мастера, иначе у мастеров в разных регионах «сегодня» разъезжалось бы.
  */
-import { freeWindows, windowLabel } from "./slots.js";
-import { toISODate } from "./time.js";
+import { freeWindows, windowLabel, type SlotMaster } from "./slots.js";
+import { addDaysISO, dateLabel as shortDateLabel, todayISO } from "./time.js";
 
 export type LastMinuteWindow = {
   dateISO: string;
@@ -17,16 +17,11 @@ export type LastMinuteWindow = {
   dateLabel: string;
 };
 
-const MONTHS = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
-
 /** Подпись дня: сегодня и завтра называем словами. */
-export function dateLabel(dateISO: string, todayISO: string): string {
-  if (dateISO === todayISO) return "Сегодня";
-  const tomorrow = toISODate(new Date(new Date(`${todayISO}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000));
-  if (dateISO === tomorrow) return "Завтра";
-
-  const [, month, day] = dateISO.split("-").map(Number);
-  return `${day} ${MONTHS[(month ?? 1) - 1]}`;
+export function dateLabel(dateISO: string, today: string): string {
+  if (dateISO === today) return "Сегодня";
+  if (dateISO === addDaysISO(today, 1)) return "Завтра";
+  return shortDateLabel(dateISO);
 }
 
 /**
@@ -36,21 +31,20 @@ export function dateLabel(dateISO: string, todayISO: string): string {
  * должна быть разнообразной, а не состоять из слотов одного мастера.
  */
 export async function collectWindows(params: {
-  masterIds: { id: string; durationMinutes: number }[];
+  masters: (SlotMaster & { durationMinutes: number })[];
   days: number;
   perMaster: number;
-  limit: number;
-  /** Окна, начавшиеся раньше этого времени сегодня, не показываем. */
-  skipBeforeMinutes?: number;
+  now?: Date;
 }): Promise<{ masterId: string; windows: LastMinuteWindow[] }[]> {
-  const todayISO = toISODate(new Date());
   const result: { masterId: string; windows: LastMinuteWindow[] }[] = [];
 
-  for (const master of params.masterIds) {
-    const found = await freeWindows(master.id, master.durationMinutes, {
+  for (const master of params.masters) {
+    // «Сегодня» — в поясе мастера: у Дальнего Востока и Калининграда оно разное.
+    const today = todayISO(master.timezone);
+    const found = await freeWindows(master, master.durationMinutes, {
       days: params.days,
       max: params.perMaster,
-      skipBeforeMinutes: params.skipBeforeMinutes,
+      now: params.now,
     });
 
     result.push({
@@ -59,7 +53,7 @@ export async function collectWindows(params: {
         dateISO: window.dateISO,
         startMinutes: window.startMinutes,
         label: windowLabel(window.startMinutes),
-        dateLabel: dateLabel(window.dateISO, todayISO),
+        dateLabel: dateLabel(window.dateISO, today),
       })),
     });
   }

@@ -72,7 +72,7 @@ export function BookingReviewPanel({ booking, onSubmitted }: Props) {
   if (done) {
     return (
       <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700" data-review-block="thanks">
-        Спасибо! Отзыв отправлен на модерацию — после проверки он появится в витрине мастера.
+        Спасибо! Отзыв опубликован в карточке мастера — он виден клиентам сразу.
       </p>
     );
   }

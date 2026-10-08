@@ -10,6 +10,9 @@ function num(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/** Режим прод-эксплуатации: от него зависят дефолты лимитов и доставки. */
+const isProductionMode = (process.env.NODE_ENV ?? "development") === "production";
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: num(process.env.PORT, 4000),
@@ -65,7 +68,53 @@ export const env = {
   paymentReturnUrl: process.env.PAYMENT_RETURN_URL ?? "http://localhost:5173",
   paymentPublicApiUrl: process.env.PAYMENT_PUBLIC_API_URL ?? "http://127.0.0.1:4000",
 
+  /**
+   * Пояс площадки: нужен там, где мастера ещё нет (лендинг, поиск).
+   * У каждого мастера свой пояс — `masters.timezone`.
+   */
+  platformTimezone: process.env.PLATFORM_TIMEZONE ?? "Europe/Moscow",
+
   slotStepMinutes: num(process.env.SLOT_STEP_MINUTES, 30),
+
+  /**
+   * Правила записи.
+   *
+   * `bookingMinLeadMinutes` — записаться можно не раньше, чем за N минут
+   * до начала: окна в прошлом и «через 5 минут» не показываем.
+   * `bookingConfirmDeadlineMinutes` — сколько мастер может держать заявку
+   * неотвеченной: дальше система отменяет её сама.
+   * `bookingAutocompleteHours` — через сколько часов после начала визита
+   * запись закрывается автоматически, если мастер её не тронул.
+   * `cancelFreeHours` — бесплатная отмена: позже дедлайна клиент получает
+   * отметку «поздняя отмена» (см. «Правила отмены» в docs/ARCHITECTURE.md).
+   * `lateCancelLimit` и `noShowLimit` — сколько таких отметок допустимо до
+   * требования полной предоплаты и до чёрного списка.
+   */
+  bookingMinLeadMinutes: num(process.env.BOOKING_MIN_LEAD_MINUTES, 60),
+  bookingConfirmDeadlineMinutes: num(process.env.BOOKING_CONFIRM_DEADLINE_MINUTES, 120),
+  bookingAutocompleteHours: num(process.env.BOOKING_AUTOCOMPLETE_HOURS, 24),
+  cancelFreeHours: num(process.env.CANCEL_FREE_HOURS, 6),
+  lateCancelLimit: num(process.env.LATE_CANCEL_LIMIT, 3),
+  noShowLimit: num(process.env.NO_SHOW_LIMIT, 2),
+  /** Как часто планировщик закрывает просроченные записи, секунды (0 — выключен). */
+  schedulerIntervalSeconds: num(process.env.SCHEDULER_INTERVAL_SECONDS, 60),
+
+  /**
+   * Защита кода входа. Код хранится хешем (`sha256(code + pepper)`), поэтому
+   * утечка базы не даёт войти под клиентом. Лимиты считаются по телефону и IP
+   * в скользящем окне `otpWindowSeconds`; 0 — лимит выключен.
+   */
+  otpPepper: process.env.OTP_PEPPER ?? process.env.JWT_ACCESS_SECRET ?? "dev_otp_pepper_change_me",
+  /**
+   * Дефолты лимитов зависят от окружения: в проде — жёсткие (5 кодов на номер
+   * за 15 минут), в разработке — свободные. Иначе автотесты и ручные прогоны
+   * упираются в защиту от спама: они входят десятки раз за минуты. Значения
+   * для прода не «спрятаны» в коде — их видно в `.env.production.example`.
+   */
+  otpRequestLimitPerPhone: num(process.env.OTP_REQUEST_LIMIT_PER_PHONE, isProductionMode ? 5 : 200),
+  otpRequestLimitPerIp: num(process.env.OTP_REQUEST_LIMIT_PER_IP, isProductionMode ? 30 : 1000),
+  otpVerifyLimit: num(process.env.OTP_VERIFY_LIMIT, isProductionMode ? 5 : 200),
+  otpWindowSeconds: num(process.env.OTP_WINDOW_SECONDS, 900),
   defaultDayStartMinute: num(process.env.DEFAULT_DAY_START_MINUTE, 600),
   defaultDayEndMinute: num(process.env.DEFAULT_DAY_END_MINUTE, 1200),
 };

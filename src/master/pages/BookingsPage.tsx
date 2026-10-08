@@ -20,6 +20,7 @@ import {
   completeBooking,
   confirmBooking,
   formatTimeLabel,
+  noShowBooking,
   refresh,
   useBookingsStore,
   useStoreStatus,
@@ -29,11 +30,15 @@ import {
 import { confirmBookingPayment, refundBookingPayment } from "../../api/cabinet";
 import { cn } from "../../utils/cn";
 
-const statusChips: Record<BookingRow["status"], { label: string; tone: "green" | "amber" | "red" | "blue" }> = {
+const statusChips: Record<
+  BookingRow["status"],
+  { label: string; tone: "green" | "amber" | "red" | "blue" | "gray" }
+> = {
   confirmed: { label: "Подтверждена", tone: "green" },
   pending: { label: "Ожидает", tone: "amber" },
   cancelled: { label: "Отменена", tone: "red" },
   completed: { label: "Завершена", tone: "blue" },
+  no_show: { label: "Неявка", tone: "gray" },
 };
 
 /**
@@ -42,7 +47,7 @@ const statusChips: Record<BookingRow["status"], { label: string; tone: "green" |
  * Предоплата — не формальность: пока её нет, запись ждёт оплаты. Поэтому
  * «деньги пришли» живёт рядом с «подтвердить», а не в отдельном разделе.
  */
-type RowAction = "confirm" | "complete" | "cancel" | "payment-paid" | "payment-refund";
+type RowAction = "confirm" | "complete" | "cancel" | "no-show" | "payment-paid" | "payment-refund";
 
 function paymentActionsFor(row: BookingRow): { action: RowAction; label: string }[] {
   if (!row.prepaymentAmount || row.prepaymentAmount <= 0) return [];
@@ -66,6 +71,7 @@ function actionsFor(status: BookingRow["status"]): { action: RowAction; label: s
   if (status === "confirmed") {
     return [
       { action: "complete", label: "Завершить" },
+      { action: "no-show", label: "Клиент не пришёл" },
       { action: "cancel", label: "Отменить" },
     ];
   }
@@ -126,7 +132,7 @@ export function BookingsPage() {
     const byTab = baseRows.filter((row) => {
       if (tab === "upcoming") return row.status === "confirmed" || row.status === "pending";
       if (tab === "done") return row.status === "completed";
-      if (tab === "cancelled") return row.status === "cancelled";
+      if (tab === "cancelled") return row.status === "cancelled" || row.status === "no_show";
       return true;
     });
     const byQuery = query
@@ -150,7 +156,11 @@ export function BookingsPage() {
         count: count((row) => row.status === "confirmed" || row.status === "pending"),
       },
       { id: "done", label: "Завершённые", count: count((row) => row.status === "completed") },
-      { id: "cancelled", label: "Отменённые", count: count((row) => row.status === "cancelled") },
+      {
+        id: "cancelled",
+        label: "Отменённые",
+        count: count((row) => row.status === "cancelled" || row.status === "no_show"),
+      },
     ];
   }, [baseRows]);
 
@@ -162,6 +172,7 @@ export function BookingsPage() {
       confirm: "Подтвердить",
       complete: "Завершить",
       cancel: "Отменить",
+      "no-show": "Отметить неявку",
       "payment-paid": "Отметить предоплату",
       "payment-refund": "Вернуть предоплату",
     } as const;
@@ -171,7 +182,14 @@ export function BookingsPage() {
     try {
       if (action === "confirm") await confirmBooking(row.id);
       else if (action === "complete") await completeBooking(row.id);
-      else if (action === "payment-paid") await confirmBookingPayment(row.id);
+      else if (action === "no-show") {
+        const discipline = await noShowBooking(row.id);
+        if (discipline?.blacklisted) {
+          setActionError(
+            `${row.client}: ${discipline.noShowCount}-я неявка — клиент заблокирован для новых записей до решения администратора.`,
+          );
+        }
+      } else if (action === "payment-paid") await confirmBookingPayment(row.id);
       else if (action === "payment-refund") await refundBookingPayment(row.id);
       else await cancelBooking(row.id);
     } catch (error) {
@@ -189,6 +207,7 @@ export function BookingsPage() {
     { value: "confirmed", label: "Подтверждена" },
     { value: "completed", label: "Завершена" },
     { value: "cancelled", label: "Отменена" },
+    { value: "no_show", label: "Неявка" },
   ];
 
   return (

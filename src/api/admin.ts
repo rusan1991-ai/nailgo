@@ -15,6 +15,8 @@ export type AdminReview = {
   text: string;
   service: string;
   status: "published" | "moderation" | "hidden";
+  /** Причина скрытия: её указывает модератор при снятии с публикации. */
+  hiddenReason: string | null;
   replyText: string | null;
   repliedAt: string | null;
   createdAt: string;
@@ -47,6 +49,11 @@ export function useAdminSummary(): Resource<AdminSummary> {
 export async function moderateReviewAsAdmin(
   id: string,
   status: AdminReview["status"],
+  note?: string,
 ): Promise<{ rating: { rating: number; reviewsCount: number } }> {
-  return api.post<{ rating: { rating: number; reviewsCount: number } }>(`/admin/reviews/${id}/moderate`, { status });
+  // `note` — причина скрытия: сервер требует её для статуса hidden.
+  return api.post<{ rating: { rating: number; reviewsCount: number } }>(`/admin/reviews/${id}/moderate`, {
+    status,
+    note,
+  });
 }

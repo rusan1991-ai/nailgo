@@ -1,11 +1,17 @@
 /**
  * Сиды для локальной разработки: мастера, услуги, рабочие часы, записи
- * демо-недели 20–26 мая и отзывы.
+ * текущей недели и отзывы.
+ *
+ * Даты считаются от сегодняшнего дня, а не прибиты к фиксированному числу:
+ * записаться в прошлое нельзя (этап 1, `assertSlotFree`), поэтому демо-данные
+ * «на май 2024» сделали бы всё расписание нерабочим.
  *
  * Используются двумя путями: CLI `npm run db:seed` и dev-роут
  * `POST /api/cabinet/demo/reset`, поэтому живут внутри src.
  */
 import { eq } from "drizzle-orm";
+import { env } from "../env.js";
+import { addDaysISO, atMinutes, todayISO, weekdayOfISODate } from "../lib/time.js";
 import { normalizePhone } from "../lib/phone.js";
 import { recalcMasterRating } from "../lib/reviews.js";
 import { prepaymentFor } from "../lib/payments.js";
@@ -127,19 +133,44 @@ const servicesSeed: {
   { key: "s10", name: "SPA-уход для рук", category: "Дополнительно", durationMinutes: 40, price: 1000 },
 ];
 
-/** Демо-неделя: 20 мая 2024 — понедельник. */
-const weekStart = new Date(2024, 4, 20);
 /** Телефон владелицы кабинета: вход по нему открывает /pro. */
 export const DEMO_ADMIN_PHONE = "+79990000009";
 const DEMO_MASTER_PHONE = "+79990000001";
 
-const at = (dayOffset: number, minutes: number) => {
-  const date = new Date(weekStart);
-  date.setDate(date.getDate() + dayOffset);
-  date.setHours(0, 0, 0, 0);
-  date.setMinutes(minutes);
-  return date;
-};
+/**
+ * Демо-неделя — текущая, по часам площадки.
+ *
+ * Понедельник этой недели — начало отсчёта: записи сида ложатся на «живую»
+ * неделю, и клиент видит те же даты, что в календаре мастера.
+ */
+const tz = env.platformTimezone;
+const todayISOValue = todayISO(tz);
+const weekStartISO = addDaysISO(todayISOValue, -(weekdayOfISODate(todayISOValue) % 7));
+const at = (dayOffset: number, minutes: number) => atMinutes(addDaysISO(weekStartISO, dayOffset), minutes, tz);
+
+/** Смещение даты от начала недели (может выходить за 0–6 — это нормально). */
+function offsetOf(dateISO: string): number {
+  return Math.round(
+    (Date.parse(`${dateISO}T00:00:00Z`) - Date.parse(`${weekStartISO}T00:00:00Z`)) / 86_400_000,
+  );
+}
+
+/**
+ * Ближайший рабочий день мастера (в сиде это пн–сб) начиная с `fromDays`.
+ * Нужен клиентским сценариям: их записи всегда должны быть в будущем,
+ * а в какой день недели откроют демо — заранее неизвестно.
+ */
+function nextWorkingOffset(fromDays: number): number {
+  for (let step = fromDays; step < fromDays + 10; step += 1) {
+    const dateISO = addDaysISO(todayISOValue, step);
+    if (weekdayOfISODate(dateISO) !== 6) return offsetOf(dateISO);
+  }
+  return offsetOf(addDaysISO(todayISOValue, fromDays));
+}
+
+/** Записи клиентских сценариев: одна предстоящая и одна завершённая. */
+const CLIENT_UPCOMING_OFFSET = nextWorkingOffset(1);
+const CLIENT_PAST_OFFSET = nextWorkingOffset(-2);
 
 type SeedBooking = [number, number, number, string, string, string, string, string, number?];
 const bookingsSeed: SeedBooking[] = [
@@ -162,9 +193,14 @@ const bookingsSeed: SeedBooking[] = [
   [5, 660, 90, "Елена С.", "+7 (999) 111-11-17", "s2", "ekaterina-vlasova", "confirmed"],
   [5, 840, 90, "Полина Л.", "+7 (999) 111-11-18", "s2", "anna-smirnova", "confirmed"],
   [5, 1080, 90, "Вероника М.", "+7 (999) 111-11-19", "s5", "anna-smirnova", "confirmed"],
-  // Записи клиента из клиентского приложения
-  [2, 1140, 90, "Мария Петрова", "+7 (999) 111-22-33", "s3", "anna-smirnova", "completed", 2200],
-  [5, 1080, 120, "Мария Петрова", "+7 (999) 111-22-33", "s5", "ekaterina-vlasova", "confirmed", 2500],
+  // Записи клиента из клиентского приложения: одна уже прошла, вторая ждёт
+  // впереди — иначе после запрета записи в прошлое их нельзя ни оценить,
+  // ни перенести (сценарии проверок опираются именно на эти две).
+  [CLIENT_PAST_OFFSET, 1140, 90, "Мария Петрова", "+7 (999) 111-22-33", "s3", "anna-smirnova", "completed", 2200],
+  [CLIENT_UPCOMING_OFFSET, 1080, 120, "Мария Петрова", "+7 (999) 111-22-33", "s5", "ekaterina-vlasova", "confirmed", 2500],
+  // Заявка, которую мастер ещё не подтвердил: кабинет должен показывать её
+  // в списке и в расписании, а сценарии — уметь подтвердить/перенести.
+  [CLIENT_UPCOMING_OFFSET, 660, 90, "Ксения Р.", "+7 (999) 111-11-20", "s2", "anna-smirnova", "pending"],
 ];
 
 /**
@@ -319,23 +355,32 @@ export async function seed() {
   );
   await db.insert(workingHours).values(hours);
 
+  const now = new Date();
   const bookingRows = bookingsSeed.map(
     ([day, start, duration, clientName, clientPhone, serviceKey, masterSlug, status, price]) => {
       const service = servicesSeed.find((item) => item.key === serviceKey)!;
       const priceValue = price ?? service.price;
       const prepaymentAmount = prepaymentFor(priceValue, service.prepaymentPercent ?? 0);
+      const startAt = at(day, start);
+      const endAt = at(day, start + duration);
+      // Визит в прошлом, который никто не закрыл, для демо выглядит ошибкой:
+      // считаем его состоявшимся, как это сделал бы планировщик.
+      const finalStatus =
+        endAt.getTime() < now.getTime() && (status === "confirmed" || status === "pending")
+          ? "completed"
+          : status;
       return {
         masterId: masterBySlug.get(masterSlug)!,
         serviceId: serviceIdOf(masterSlug, serviceKey),
         clientName,
         // Канонический вид телефона — как при записи через приложение.
         clientPhone: normalizePhone(clientPhone),
-        startAt: at(day, start),
-        endAt: at(day, start + duration),
+        startAt,
+        endAt,
         price: priceValue,
         prepaymentAmount,
         paymentStatus: prepaymentAmount > 0 ? "pending" : "none",
-        status,
+        status: finalStatus,
         source: "client" as const,
       };
     },

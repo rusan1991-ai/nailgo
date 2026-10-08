@@ -18,7 +18,7 @@ import { requireAuth } from "../lib/auth.js";
 import { notifyStudio } from "../lib/notify.js";
 import { samePhone } from "../lib/phone.js";
 import { recalcMasterRating } from "../lib/reviews.js";
-import { toISODate } from "../lib/time.js";
+import { platformTimezone, toISODate } from "../lib/time.js";
 
 export async function reviewRoutes(app: FastifyInstance) {
   /** Оставить отзыв по завершённому визиту. */
@@ -56,6 +56,10 @@ export async function reviewRoutes(app: FastifyInstance) {
 
     const [service] = await db.select().from(services).where(eq(services.id, booking.serviceId)).limit(1);
 
+    // Отзыв по завершённому визиту публикуется сразу (решение 7): он привязан
+    // к реальной записи, поэтому «мусорного» отзыва из ниоткуда быть не может.
+    // Админ вмешивается только по жалобе мастера — и тогда скрывает отзыв,
+    // указывая причину.
     const [created] = await db
       .insert(reviews)
       .values({
@@ -66,14 +70,16 @@ export async function reviewRoutes(app: FastifyInstance) {
         score: input.score,
         text: input.text,
         service: service?.name ?? "Услуга",
-        status: "moderation",
+        status: "published",
       })
       .returning();
 
-    // Рейтинг считаем по опубликованным, поэтому здесь он ещё не меняется.
+    // Рейтинг мастера сразу учитывает новый отзыв: он уже в витрине.
+    const rating = await recalcMasterRating(booking.masterId);
+
     await notifyStudio(booking.masterId, {
       type: "review_created",
-      title: "Новый отзыв ждёт модерации",
+      title: "Новый отзыв опубликован",
       body: `${booking.clientName} · ${service?.name ?? "Услуга"} · оценка ${input.score}/5`,
       bookingId: booking.id,
     });
@@ -85,7 +91,8 @@ export async function reviewRoutes(app: FastifyInstance) {
         text: created!.text,
         status: created!.status,
         service: created!.service,
-        dateISO: toISODate(created!.createdAt),
+        dateISO: toISODate(created!.createdAt, platformTimezone()),
+        rating,
       },
     });
   });
@@ -113,7 +120,7 @@ export async function reviewRoutes(app: FastifyInstance) {
         status: review.status,
         replyText: review.replyText,
         repliedAt: review.repliedAt?.toISOString() ?? null,
-        dateISO: toISODate(review.createdAt),
+        dateISO: toISODate(review.createdAt, platformTimezone()),
       })),
     };
   });

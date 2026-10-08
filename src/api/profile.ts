@@ -18,7 +18,28 @@ export type CabinetProfile = {
   experience: string;
   rating: number;
   reviewsCount: number;
+  /** Пояс мастера: в нём считаются окна, расписание и тексты сообщений. */
+  timezone: string;
+  /** Свой шаг сетки слотов: 0 — общий шаг площадки. */
+  slotStepMinutes: number;
+  /** Пояс площадки: с ним сравнивается выбранный пояс. */
+  platformTimezone: string;
 };
+
+/** Пояса России для выбора в кабинете: запад → восток. */
+export const MASTER_TIMEZONES: { value: string; label: string }[] = [
+  { value: "Europe/Kaliningrad", label: "(UTC+2) Калининград" },
+  { value: "Europe/Moscow", label: "(UTC+3) Москва, Санкт-Петербург" },
+  { value: "Europe/Samara", label: "(UTC+4) Самара, Ижевск" },
+  { value: "Asia/Yekaterinburg", label: "(UTC+5) Екатеринбург, Уфа" },
+  { value: "Asia/Omsk", label: "(UTC+6) Омск" },
+  { value: "Asia/Krasnoyarsk", label: "(UTC+7) Красноярск, Новосибирск" },
+  { value: "Asia/Irkutsk", label: "(UTC+8) Иркутск, Улан-Удэ" },
+  { value: "Asia/Yakutsk", label: "(UTC+9) Якутск, Чита" },
+  { value: "Asia/Vladivostok", label: "(UTC+10) Владивосток, Хабаровск" },
+  { value: "Asia/Magadan", label: "(UTC+11) Магадан, Сахалин" },
+  { value: "Asia/Kamchatka", label: "(UTC+12) Камчатка" },
+];
 
 export type WorkDay = {
   weekday: number;
@@ -47,6 +68,8 @@ export async function saveCabinetProfile(input: {
   metro: string;
   experience: string;
   priceFrom: number;
+  timezone?: string;
+  slotStepMinutes?: number;
 }): Promise<void> {
   await api.patch("/cabinet/profile", input);
 }

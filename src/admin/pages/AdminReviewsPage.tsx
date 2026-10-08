@@ -17,7 +17,7 @@ type ReviewStatus = AdminReview["status"];
 
 const statusChips: Record<ReviewStatus, { label: string; tone: ChipTone }> = {
   published: { label: "Опубликован", tone: "green" },
-  moderation: { label: "Ждёт модерации", tone: "amber" },
+  moderation: { label: "Ждёт решения", tone: "amber" },
   hidden: { label: "Скрыт", tone: "red" },
 };
 
@@ -49,7 +49,9 @@ function actionsFor(status: ReviewStatus): { status: ReviewStatus; label: string
  * и решение по каждому отзыву — за модератором.
  */
 export function AdminReviewsPage() {
-  const [status, setStatus] = useState<string>("moderation");
+  // Отзывы публикуются сразу (решение 7): админ смотрит опубликованные и
+  // вмешивается по жалобе мастера — скрывает с причиной.
+  const [status, setStatus] = useState<string>("published");
   const [query, setQuery] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -70,9 +72,20 @@ export function AdminReviewsPage() {
 
   const decide = async (review: AdminReview, next: ReviewStatus) => {
     setActionError(null);
+    // Скрытие без причины сервер не примет: спрашиваем её здесь же.
+    let note: string | undefined;
+    if (next === "hidden") {
+      const reason = window.prompt("Причина скрытия отзыва (увидит мастер):", "жалоба мастера");
+      if (reason === null) return;
+      note = reason.trim();
+      if (!note) {
+        setActionError("Причина скрытия обязательна");
+        return;
+      }
+    }
     setBusyId(review.id);
     try {
-      await moderateReviewAsAdmin(review.id, next);
+      await moderateReviewAsAdmin(review.id, next, note);
       reload();
     } catch (caught) {
       setActionError(
@@ -89,8 +102,9 @@ export function AdminReviewsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Модерация отзывов</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Отзывы публикует администратор — мастер не может ни опубликовать, ни скрыть отзыв,
-            только ответить клиенту.
+            Отзыв по завершённому визиту публикуется сразу — он привязан к реальной записи.
+            Администратор снимает отзыв по жалобе мастера, указывая причину. Мастер сам
+            публиковать и скрывать отзывы не может — только отвечает.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-sm">
@@ -112,7 +126,7 @@ export function AdminReviewsPage() {
           value={status}
           onChange={setStatus}
           options={[
-            { value: "moderation", label: `Ждут модерации (${counts.moderation})` },
+            { value: "moderation", label: `На проверке (${counts.moderation})` },
             { value: "published", label: `Опубликованные (${counts.published})` },
             { value: "hidden", label: `Скрытые (${counts.hidden})` },
             { value: "all", label: "Все отзывы" },
@@ -137,6 +151,11 @@ export function AdminReviewsPage() {
                   {review.clientPhone ? ` · ${review.clientPhone}` : ""}
                 </p>
                 <p className="mt-2 text-sm text-slate-600">{review.text}</p>
+                {review.status === "hidden" && review.hiddenReason && (
+                  <p className="mt-2 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-600">
+                    Скрыт: {review.hiddenReason}
+                  </p>
+                )}
                 {review.replyText && (
                   <div className="mt-2 rounded-xl bg-[#fdf2f7] px-3 py-2">
                     <p className="text-xs font-medium text-pink-500">Ответ мастера</p>
@@ -173,7 +192,7 @@ export function AdminReviewsPage() {
               {loading
                 ? "Загружаем отзывы…"
                 : status === "moderation"
-                  ? "Очередь модерации пуста — все отзывы рассмотрены."
+                  ? "На проверке ничего нет — отзывы публикуются сразу."
                   : "Отзывов по фильтру нет."}
             </p>
           </Card>

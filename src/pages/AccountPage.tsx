@@ -14,7 +14,11 @@ export function AccountPage() {
   const [tab, setTab] = useState<"upcoming" | "completed" | "cancelled">("upcoming");
   const [movingId, setMovingId] = useState<string | null>(null);
 
-  const filtered = useMemo(() => bookings.filter((item) => item.status === tab), [bookings, tab]);
+  // Неявка — тот же раздел, что и отмены: визит не состоялся.
+  const filtered = useMemo(
+    () => bookings.filter((item) => (tab === "cancelled" ? item.status === "cancelled" || item.status === "no_show" : item.status === tab)),
+    [bookings, tab],
+  );
 
   return (
     <ClientShell title="Мой профиль">
@@ -56,7 +60,9 @@ export function AccountPage() {
                         ? "Предстоящая запись"
                         : booking.status === "completed"
                           ? "Завершено"
-                          : "Отменено"}
+                          : booking.status === "cancelled"
+                            ? "Отменено"
+                            : "Неявка"}
                     </p>
                     <p className="mt-2 text-lg font-semibold">{booking.date}</p>
                     <p className="text-sm text-slate-500">{booking.time}</p>

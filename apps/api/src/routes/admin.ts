@@ -15,10 +15,13 @@ import { deliveries, masters, reviews } from "../db/schema.js";
 import { requireAdmin, requireAuth } from "../lib/auth.js";
 import { notifyClient } from "../lib/notify.js";
 import { recalcMasterRating } from "../lib/reviews.js";
-import { toISODate } from "../lib/time.js";
-import { env } from "../env.js";
+import { platformTimezone, toISODate } from "../lib/time.js";
+import { env, isDev } from "../env.js";
 import { dispatchDue, listDeliveries, sendDelivery } from "../lib/delivery/outbox.js";
-import { clearSetting, currentTransport, currentWebhookUrl, saveSetting } from "../lib/delivery/transports.js";
+import { clearSetting, currentTransport, currentWebhookUrl, saveSetting, settingValue } from "../lib/delivery/transports.js";
+import { RATE_LIMIT_PREFIX, RATE_LIMIT_SETTINGS, clearRateLimits, rateLimitCountByPrefix } from "../lib/rate-limit.js";
+import { clientPolicy, clearClientRestrictions } from "../lib/booking-policy.js";
+import { runSchedulerTick, schedulerPreview } from "../lib/scheduler.js";
 import { paymentSettings, paymentsSummary, savePaymentSettings } from "../lib/payments.js";
 import { payments, services } from "../db/schema.js";
 
@@ -51,10 +54,12 @@ export async function adminRoutes(app: FastifyInstance) {
         text: review.text,
         service: review.service,
         status: review.status,
+        /** Причина скрытия: по ней видно, за что отзыв сняли с публикации. */
+        hiddenReason: review.hiddenReason,
         replyText: review.replyText,
         repliedAt: review.repliedAt?.toISOString() ?? null,
         createdAt: review.createdAt.toISOString(),
-        dateISO: toISODate(review.createdAt),
+        dateISO: toISODate(review.createdAt, platformTimezone()),
       }));
 
     return {
@@ -82,7 +87,16 @@ export async function adminRoutes(app: FastifyInstance) {
     if (!review) return reply.code(404).send({ error: "not_found", message: "Отзыв не найден" });
 
     const changed = review.status !== status;
-    await db.update(reviews).set({ status }).where(eq(reviews.id, id));
+    // Причина скрытия — обязательна: по ней потом видно, за что отзыв сняли
+    // (обычно это жалоба мастера на клевету или рекламу). При возврате
+    // в публикацию причину стираем, чтобы не путала.
+    if (status === "hidden" && !note) {
+      return reply.code(400).send({ error: "reason_required", message: "Укажите причину скрытия отзыва" });
+    }
+    await db
+      .update(reviews)
+      .set({ status, hiddenReason: status === "hidden" ? note ?? null : null })
+      .where(eq(reviews.id, id));
     const rating = await recalcMasterRating(review.masterId);
 
     // Клиент узнаёт о решении модератора: отзыв в витрине или снят с публикации.
@@ -318,6 +332,129 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post("/admin/deliveries/dispatch", adminOnly, async () => {
     const result = await dispatchDue();
     return { ok: true, ...result };
+  });
+
+  /**
+   * Лимиты кода входа: что действует сейчас и как поменять.
+   *
+   * Значения живут в настройках (`otp.*`), поэтому меняются без деплоя.
+   * Пустое значение возвращает лимит из окружения.
+   */
+  app.get("/admin/limits", adminOnly, async () => {
+    /**
+     * `prefix` — начало ключа в `rate_limit_hits`: по нему считаем, сколько
+     * обращений уже накопилось в текущем окне (по всем номерам и адресам).
+     */
+    const read = async (key: string, envValue: number, prefix: string) => {
+      const stored = await settingValue(key);
+      const parsed = stored === null ? null : Number.parseInt(stored, 10);
+      return {
+        key,
+        env: envValue,
+        stored: parsed,
+        effective: parsed === null ? envValue : parsed,
+        prefix,
+        hits: await rateLimitCountByPrefix(prefix, env.otpWindowSeconds),
+      };
+    };
+
+    return {
+      windowSeconds: env.otpWindowSeconds,
+      items: [
+        await read(RATE_LIMIT_SETTINGS.requestPerPhone, env.otpRequestLimitPerPhone, RATE_LIMIT_PREFIX.requestPerPhone),
+        await read(RATE_LIMIT_SETTINGS.requestPerIp, env.otpRequestLimitPerIp, RATE_LIMIT_PREFIX.requestPerIp),
+        await read(RATE_LIMIT_SETTINGS.verifyPerPhone, env.otpVerifyLimit, RATE_LIMIT_PREFIX.verifyPerPhone),
+      ],
+    };
+  });
+
+  /**
+   * Снять счётчики окна. Без аргументов — все, с `scope` — только по нему:
+   * `phone` (запросы кода на номера), `ip` (запросы с адресов), `verify` (ввод кода).
+   */
+  app.post("/admin/limits/reset", adminOnly, async (request) => {
+    const { scope } = z
+      .object({ scope: z.enum(["phone", "ip", "verify", "all"]).default("all") })
+      .parse(request.body ?? {});
+    const prefix =
+      scope === "phone"
+        ? RATE_LIMIT_PREFIX.requestPerPhone
+        : scope === "ip"
+          ? RATE_LIMIT_PREFIX.requestPerIp
+          : scope === "verify"
+            ? RATE_LIMIT_PREFIX.verifyPerPhone
+            : undefined;
+    return { ok: true, cleared: await clearRateLimits(prefix) };
+  });
+
+  /** Установить лимит кода входа. `null` — вернуться к значению окружения, 0 — выключить. */
+  app.put("/admin/limits", adminOnly, async (request, reply) => {
+    const { values } = z
+      .object({
+        values: z
+          .array(
+            z.object({
+              key: z.enum([RATE_LIMIT_SETTINGS.requestPerPhone, RATE_LIMIT_SETTINGS.requestPerIp, RATE_LIMIT_SETTINGS.verifyPerPhone]),
+              value: z.number().int().min(0).max(1000).nullable(),
+            }),
+          )
+          .min(1),
+      })
+      .parse(request.body ?? {});
+
+    for (const item of values) {
+      if (item.value === null) await clearSetting(item.key);
+      else await saveSetting(item.key, String(item.value));
+    }
+    return { ok: true };
+  });
+
+  /**
+   * Планировщик записей: что он сделает прямо сейчас и ручной прогон.
+   *
+   * Предпросмотр ничего не меняет — это кнопка «Показать, что закроется».
+   * Прогон закрывает просроченные заявки и визиты; в dev можно передать
+   * `now` — так проверки воспроизводят «через сутки» без ожидания.
+   */
+  app.get("/admin/scheduler", adminOnly, async (request) => {
+    const { now } = z
+      .object({ now: z.string().datetime().optional() })
+      .parse(request.query ?? {});
+    const parsed = now && isDev ? new Date(now) : undefined;
+    return { preview: await schedulerPreview(parsed) };
+  });
+
+  app.post("/admin/scheduler/run", adminOnly, async (request) => {
+    const { now } = z
+      .object({ now: z.string().datetime().optional() })
+      .parse(request.body ?? {});
+    const parsed = now ? new Date(now) : undefined;
+    if (parsed && !isDev) {
+      return { ok: false, message: "Параметр now доступен только в dev-окружении" };
+    }
+    const result = await runSchedulerTick({ now: parsed });
+    return { ok: true, ...result };
+  });
+
+  /**
+   * Дисциплина клиента: поздние отмены, неявки, ограничения.
+   * Админ видит, почему человек не может записаться, и может снять ограничение.
+   */
+  app.get("/admin/clients/:phone", adminOnly, async (request, reply) => {
+    const { phone } = request.params as { phone: string };
+    const policy = await clientPolicy(phone);
+    if (!policy.found) return reply.code(404).send({ error: "not_found", message: "Клиент не найден" });
+    return { policy };
+  });
+
+  app.post("/admin/clients/:phone/unblock", adminOnly, async (request, reply) => {
+    const { phone } = request.params as { phone: string };
+    const { keepCounters } = z
+      .object({ keepCounters: z.boolean().optional() })
+      .parse(request.body ?? {});
+    const policy = await clearClientRestrictions(phone, { keepCounters: keepCounters ?? false });
+    if (!policy.found) return reply.code(404).send({ error: "not_found", message: "Клиент не найден" });
+    return { ok: true, policy };
   });
 
   /** Повторить конкретное сообщение (после того как починили провайдера). */

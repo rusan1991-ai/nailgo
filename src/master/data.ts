@@ -35,15 +35,42 @@ export const statusMeta: Record<AppointmentStatus, { label: string; chip: string
   cancelled: { label: "Отменена", chip: "bg-rose-50 text-rose-500" },
 };
 
-export const weekDays = [
-  { short: "Пн", date: 20, iso: "2024-05-20" },
-  { short: "Вт", date: 21, iso: "2024-05-21" },
-  { short: "Ср", date: 22, iso: "2024-05-22", today: true },
-  { short: "Чт", date: 23, iso: "2024-05-23" },
-  { short: "Пт", date: 24, iso: "2024-05-24" },
-  { short: "Сб", date: 25, iso: "2024-05-25" },
-  { short: "Вс", date: 26, iso: "2024-05-26" },
-];
+const WEEKDAY_SHORT_UPPER = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+
+/** Понедельник текущей недели: сетка кабинета всегда живая. */
+function mondayOfThisWeek(): Date {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+  return date;
+}
+
+const mondayISO = (() => {
+  const date = mondayOfThisWeek();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+})();
+
+const todayLocalISO = (() => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+})();
+
+export const weekDays = Array.from({ length: 7 }, (_, index) => {
+  const date = mondayOfThisWeek();
+  date.setDate(date.getDate() + index);
+  const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return {
+    short: WEEKDAY_SHORT_UPPER[index]!,
+    date: date.getDate(),
+    iso,
+    today: iso === todayLocalISO,
+    /** Текущий ли месяц у этого дня: соседние месяцы в календаре гасятся. */
+    inMonth: date.getMonth() === new Date().getMonth(),
+  };
+});
+
+export const weekDaysStartISO = mondayISO;
+export const todayISOValue = todayLocalISO;
 
 export const dayStartHour = 9;
 export const dayEndHour = 21;
@@ -118,7 +145,7 @@ export type BookingRow = {
   service: string;
   duration: string;
   master: string;
-  status: "confirmed" | "pending" | "cancelled" | "completed";
+  status: "confirmed" | "pending" | "cancelled" | "completed" | "no_show";
   price: number;
   /** Предоплата: у строк макета её нет, у живых записей — есть. */
   prepaymentAmount?: number;

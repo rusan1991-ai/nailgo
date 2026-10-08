@@ -65,7 +65,7 @@ type NewBookingFields = {
 
 /** В ручной записи мастер задаётся только авторизованной сессией. */
 export type NewBookingInput =
-  | (NewBookingFields & { source: "master"; masterId?: string })
+  | (NewBookingFields & { source: "master"; masterId?: string; masterSlug: string })
   | (NewBookingFields & { source?: "client"; masterSlug: string });
 
 const CACHE_KEY = "nailgo_bookings_cache_v3";
@@ -300,11 +300,11 @@ export async function createBooking(input: NewBookingInput): Promise<{ booking: 
   const isMasterBooking = input.source === "master";
   const path = isMasterBooking ? "/cabinet/bookings" : "/bookings";
   const response = await api.post<{ booking: ApiBooking; greeting?: BookingGreeting | null }>(path, {
-    ...(isMasterBooking
-      ? input.masterId
-        ? { masterId: input.masterId }
-        : {}
-      : { masterSlug: input.masterSlug }),
+    // masterSlug — только совместимый идентификатор профиля из сессии; для
+    // ручной записи авторитетным остаётся masterId, который сервер сверяет
+    // с авторизованным пользователем.
+    masterSlug: input.masterSlug,
+    ...(isMasterBooking && input.masterId ? { masterId: input.masterId } : {}),
     serviceId: input.serviceId,
     dateISO: input.dateISO,
     startMinutes: input.startMinutes,

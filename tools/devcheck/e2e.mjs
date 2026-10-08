@@ -80,9 +80,9 @@ assert("модалка ручной записи открылась", rootText(m
 
 setField(master.dom, "Анна Смирнова", "Тест Клиент");
 setField(master.dom, "+7 (999) 123-45-67", PHONE);
-const currentMasterId = master.dom.window.document
-  .querySelector("[data-field='manual-booking-master']")
-  ?.getAttribute("data-master-id");
+const masterField = master.dom.window.document.querySelector("[data-field='manual-booking-master']");
+const currentMasterId = masterField?.getAttribute("data-master-id");
+const currentMasterSlug = masterField?.getAttribute("data-master-slug");
 setSelect(master.dom, "[data-field='manual-booking-service'] select", service.id);
 setSelect(master.dom, "[data-field='manual-booking-date'] select", DATE);
 setSelect(master.dom, "[data-field='manual-booking-time'] select", slot);
@@ -92,8 +92,12 @@ await wait(1200);
 assert("мастер увидел подтверждение создания", rootText(master.dom).includes("Запись создана"));
 const manualPayload = manualBookingRequests[0];
 assert(
-  "POST /cabinet/bookings отправил masterId из сессии без masterSlug",
-  manualBookingRequests.length === 1 && Boolean(currentMasterId) && manualPayload?.masterId === currentMasterId && !("masterSlug" in manualPayload),
+  "POST /cabinet/bookings отправил актуальные masterId и masterSlug профиля",
+  manualBookingRequests.length === 1 &&
+    Boolean(currentMasterId) &&
+    manualPayload?.masterId === currentMasterId &&
+    Boolean(currentMasterSlug) &&
+    manualPayload?.masterSlug === currentMasterSlug,
   `${manualPayload?.masterId ?? "нет masterId"} / ${manualPayload?.masterSlug ?? "без masterSlug"}`,
 );
 master.dom.window.close();

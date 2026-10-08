@@ -62,6 +62,12 @@ export function useCabinetProfile(): Resource<{ profile: CabinetProfile }> {
   return useApiResource<{ profile: CabinetProfile }>("/cabinet/profile");
 }
 
+/** Свежий профиль текущего мастера: нужен перед ручной записью, если сессия ещё не загружена. */
+export async function getCabinetProfile(): Promise<CabinetProfile> {
+  const response = await api.get<{ profile: CabinetProfile }>("/cabinet/profile");
+  return response.profile;
+}
+
 export function useCabinetHours(): Resource<{ items: WorkDay[] }> {
   return useApiResource<{ items: WorkDay[] }>("/cabinet/hours");
 }

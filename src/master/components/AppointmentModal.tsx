@@ -5,7 +5,7 @@ import { formatMinutes, formatRub } from "../data";
 import { durationLabel, useCabinetServices } from "../../api/services";
 import { createBooking, upcomingDays, parseTimeLabel } from "../../store/bookings";
 import { createMasterClient, useCabinetClients } from "../../api/cabinet";
-import { useCabinetProfile } from "../../api/profile";
+import { getCabinetProfile, useCabinetProfile } from "../../api/profile";
 import { useAuth } from "../../auth/AuthContext";
 import { rememberMessengerPreference, type ShareMessenger } from "../../api/greeting";
 
@@ -48,9 +48,10 @@ export function AppointmentModal({
     [serviceResource.data?.items],
   );
   const profile = profileResource.data?.profile;
-  const masterId = profile?.id ?? user?.masterId ?? undefined;
+  const [resolvedMaster, setResolvedMaster] = useState<{ id?: string; slug?: string }>({});
+  const masterId = profile?.id ?? resolvedMaster.id ?? user?.masterId ?? undefined;
   const masterName = profile?.name ?? user?.name ?? "Загрузка профиля…";
-  const masterSlug = profile?.slug ?? user?.masterSlug ?? "";
+  const masterSlug = profile?.slug ?? resolvedMaster.slug ?? user?.masterSlug ?? "";
   /**
    * Откуда берём клиента: из своей базы (мастер выбрал карточку) или заводим
    * нового прямо здесь — тогда после записи он сам появится в базе клиентов.
@@ -145,29 +146,48 @@ export function AppointmentModal({
   };
 
   const submit = async () => {
-    if (!service) {
-      setError(
-        serviceResource.error
-          ? `Не удалось загрузить ваш прайс: ${serviceResource.error}`
-          : serviceResource.loading
-            ? "Загружаем ваши услуги…"
-            : "В вашем прайсе нет активных услуг — добавьте услугу перед записью",
-      );
-      return;
-    }
-    // Из базы: имя и телефон сервер возьмёт из карточки, а если телефона в ней
-    // нет — подставим введённый здесь. Новый клиент: нужны оба поля.
-    const phone = pickedClient?.phone ?? clientPhone.trim();
-    if (!clientId && (clientName.trim().length < 2 || phone.replace(/\D/g, "").length < 10)) {
-      setError("Укажите имя и телефон клиента — по ним он находится в базе");
-      return;
-    }
-
+    if (pending) return;
     setPending(true);
     setError(null);
     try {
+      // Перед валидацией снимаем свежую identity-связку с защищённого API, если
+      // сессия или профиль ещё не успели загрузиться. Так masterId не теряется,
+      // а masterSlug остаётся совместимым с уже работающими клиентами API.
+      let currentMasterId = masterId || undefined;
+      let currentMasterSlug = masterSlug || undefined;
+      try {
+        const currentProfile = await getCabinetProfile();
+        // Профиль из API сессии приоритетнее кеша AuthContext: он гарантирует,
+        // что в payload попадёт актуальный ID, даже после обновления профиля.
+        currentMasterId = currentProfile.id || currentMasterId;
+        currentMasterSlug = currentProfile.slug || currentMasterSlug;
+      } catch (cause) {
+        // Сервер всё равно связывает запись с текущей сессией; slug из неё
+        // позволяет завершить запрос, если только обновление профиля не удалось.
+        if (!currentMasterSlug) throw cause;
+      }
+      if (!currentMasterSlug) throw new Error("Не удалось определить профиль мастера. Обновите страницу и попробуйте снова.");
+      setResolvedMaster({ id: currentMasterId, slug: currentMasterSlug });
+
+      if (!service) {
+        throw new Error(
+          serviceResource.error
+            ? `Не удалось загрузить ваш прайс: ${serviceResource.error}`
+            : serviceResource.loading
+              ? "Загружаем ваши услуги…"
+              : "В вашем прайсе нет активных услуг — добавьте услугу перед записью",
+        );
+      }
+      // Из базы: имя и телефон сервер возьмёт из карточки, а если телефона в ней
+      // нет — подставим введённый здесь. Новый клиент: нужны оба поля.
+      const phone = pickedClient?.phone ?? clientPhone.trim();
+      if (!clientId && (clientName.trim().length < 2 || phone.replace(/\D/g, "").length < 10)) {
+        throw new Error("Укажите имя и телефон клиента — по ним он находится в базе");
+      }
+
       const result = await createBooking({
-        masterId,
+        masterId: currentMasterId,
+        masterSlug: currentMasterSlug,
         serviceId: service.id,
         dateISO,
         startMinutes: parseTimeLabel(time),
@@ -222,7 +242,7 @@ export function AppointmentModal({
         ) : (
           <>
             <GhostButton onClick={onClose}>Отмена</GhostButton>
-            <PrimaryButton onClick={submit} className={pending ? "opacity-70" : ""}>
+            <PrimaryButton onClick={submit} disabled={pending} className={pending ? "opacity-70" : ""}>
               {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               Создать запись
             </PrimaryButton>
@@ -445,6 +465,8 @@ export function AppointmentModal({
           data-master-id={masterId ?? ""}
           data-master-slug={masterSlug}
         >
+          <input type="hidden" name="masterId" value={masterId ?? ""} readOnly />
+          <input type="hidden" name="masterSlug" value={masterSlug} readOnly />
           <label htmlFor="manual-booking-master-name" className="mb-1.5 block text-xs font-medium text-slate-500">
             Мастер
           </label>
@@ -452,12 +474,13 @@ export function AppointmentModal({
             <PersonAvatar name={masterName} size={32} />
             <input
               id="manual-booking-master-name"
+              name="masterName"
               type="text"
               aria-label="Мастер записи"
               value={masterName}
-              disabled
+              readOnly
               title="Запись создаётся от имени текущего профиля"
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600 disabled:cursor-not-allowed disabled:opacity-100"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600 read-only:cursor-not-allowed"
             />
           </div>
         </div>

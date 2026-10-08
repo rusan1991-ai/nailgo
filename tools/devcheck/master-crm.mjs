@@ -323,16 +323,16 @@ assert(
   foreignService?.id,
 );
 const masterField = schedulePage.dom.window.document.querySelector("[data-field='manual-booking-master']");
-const masterInput = masterField?.querySelector("input");
+const masterInput = masterField?.querySelector("input[aria-label='Мастер записи']");
 assert(
   "в форме указан мастер из текущей сессии",
   masterField?.getAttribute("data-master-id") === masterId && masterInput?.value === profile.data.profile.name,
   `${masterField?.getAttribute("data-master-id")} / ${masterInput?.value}`,
 );
 assert(
-  "выбор мастера заблокирован и выпадающего списка нет",
-  masterInput?.disabled === true && !masterField?.querySelector("select"),
-  masterInput?.disabled ? "disabled" : "не заблокировано",
+  "поле мастера readOnly, а выпадающего списка нет",
+  masterInput?.readOnly === true && !masterField?.querySelector("select"),
+  masterInput?.readOnly ? "readOnly" : "редактируется",
 );
 click(schedulePage.dom, "Из моей базы");
 await wait(400);

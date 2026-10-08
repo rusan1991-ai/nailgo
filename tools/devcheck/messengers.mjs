@@ -152,7 +152,7 @@ assert(
 const messages = await api("/messages");
 void messages;
 
-const deliveries = await apiAs(await login("+79990000009", "Администратор NailGo"), "/admin/deliveries?limit=20");
+const deliveries = await apiAs(await login("+79990000009", "Администратор Nail 2 Go"), "/admin/deliveries?limit=20");
 assert("админ видит очередь доставки", deliveries.status === 200, JSON.stringify(deliveries.data ?? {}).slice(0, 120));
 assert(
   "в очереди нет канала sms: платных SMS у площадки нет",

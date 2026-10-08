@@ -17,7 +17,7 @@ export function AdminLoginPage() {
       title="Вход для администратора"
       subtitle={
         screen.step === "phone"
-          ? "Модерация отзывов. Доступ только у администратора NailGo."
+          ? "Модерация отзывов. Доступ только у администратора Nail 2 Go."
           : `Код отправлен на ${screen.phone}. Он действует 5 минут.`
       }
       footer={

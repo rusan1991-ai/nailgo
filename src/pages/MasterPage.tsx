@@ -63,7 +63,7 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
     return (
       <main className="grid min-h-screen place-items-center bg-[#fff7fa] p-6 text-center text-slate-500">
         <div>
-          <p className="text-sm uppercase tracking-[0.2em] text-pink-500">NailGo</p>
+          <p className="text-sm uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
           <h1 className="mt-3 text-2xl font-semibold text-slate-900">Загружаем карточку мастера…</h1>
           <p className="mt-2 text-sm">Если API недоступен, вернитесь на главную и попробуйте позже.</p>
           <Link to="/" className="mt-5 inline-block text-sm text-pink-600 hover:text-pink-700">

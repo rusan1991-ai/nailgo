@@ -2,7 +2,7 @@
   "name": "nailgo-devcheck",
   "private": true,
   "type": "module",
-  "description": "Проверки фронтенда NailGo без браузера: сборка esbuild + рендер в jsdom против живого API.",
+  "description": "Проверки интерфейса Nail 2 Go без браузера: bundle esbuild + render jsdom против живого API.",
   "scripts": {
     "bundle": "node bundle.mjs",
     "routes": "node routes.mjs",
@@ -32,7 +32,8 @@
     "admin": "node admin.mjs",
     "short-links": "node short-links.mjs",
     "master-crm": "node master-crm.mjs",
-    "client-cabinet": "node client-cabinet.mjs"
+    "client-cabinet": "node client-cabinet.mjs",
+    "smart-notifications": "node smart-notifications.mjs"
   },
   "dependencies": {
     "jsdom": "^30.1.2"

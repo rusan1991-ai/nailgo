@@ -173,7 +173,7 @@ export async function loginMaster() {
 
 /** Сессия администратора — для модерации отзывов и админских ручек. */
 export async function loginAdmin() {
-  return login(ADMIN_PHONE, "Администратор NailGo");
+  return login(ADMIN_PHONE, "Администратор Nail 2 Go");
 }
 
 /** Вход по коду: возвращает сессию для localStorage. */

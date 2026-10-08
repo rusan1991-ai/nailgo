@@ -32,7 +32,7 @@ async function image(format = "png", width = 1600, height = 1200, quality = 90) 
         input: Buffer.from(
           `<svg width="${width}" height="${height}"><rect x="40" y="40" width="${width - 80}" height="${
             height - 80
-          }" fill="white"/><text x="80" y="${height / 2}" font-size="120" fill="#ec4899">NailGo photo</text></svg>`,
+          }" fill="white"/><text x="80" y="${height / 2}" font-size="120" fill="#ec4899">Nail 2 Go photo</text></svg>`,
         ),
         top: 0,
         left: 0,

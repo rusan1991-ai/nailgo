@@ -42,7 +42,7 @@ export function SettingsProPage() {
   const [tags, setTags] = useState("");
   const [priceFrom, setPriceFrom] = useState("0");
   /**
-   * Короткая ссылка мастера: `nailgo.ru/any_nails`. Хранится без ведущего
+   * Короткая ссылка мастера: `nail2go.ru/any_nails`. Хранится без ведущего
    * слэша и без собаки — их подставляет интерфейс, а сервер проверяет формат,
    * занятость и служебные слова (`admin`, `login`, …).
    */
@@ -204,13 +204,13 @@ export function SettingsProPage() {
 
                     {/*
                       Персональная ссылка мастера: короткий адрес витрины
-                      (`nailgo.ru/any_nails`). Пустое поле возвращает обычную
+                      (`nail2go.ru/any_nails`). Пустое поле возвращает обычную
                       ссылку `/master/<slug>`.
                     */}
                     <div className="sm:col-span-2" data-block="username-slug">
                       <p className="mb-1.5 text-xs font-medium text-slate-500">Ваша персональная ссылка</p>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm text-slate-400">nailgo.ru/</span>
+                        <span className="text-sm text-slate-400">nail2go.ru/</span>
                         <input
                           data-field="username-slug"
                           value={usernameSlug}
@@ -225,7 +225,7 @@ export function SettingsProPage() {
                           type="button"
                           data-action="copy-username"
                           onClick={() => {
-                            const link = `https://nailgo.ru/${usernameSlug || profile?.slug || ""}`;
+                            const link = `https://nail2go.ru/${usernameSlug || profile?.slug || ""}`;
                             void navigator.clipboard?.writeText(link).catch(() => undefined);
                             setCopied(true);
                           }}

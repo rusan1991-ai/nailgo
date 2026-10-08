@@ -23,7 +23,7 @@ export function ReviewsPage() {
       text: item.text,
       dateISO: "2024-05-22",
       dateLabel: item.date,
-      masterName: "Мастер NailGo",
+      masterName: "Мастер Nail 2 Go",
     }));
   }, [data]);
 

@@ -25,6 +25,8 @@ import {
   redirectUri,
 } from "../lib/oauth.js";
 import { messengerDeepLink, messengerConfigured, verifyTelegramWidget } from "../lib/messengers.js";
+import { checkMagicLink, consumeMagicLink } from "../lib/magic.js";
+import { BRAND, firstName } from "../lib/greeting.js";
 import { DELIVERY_KINDS, enqueueDelivery } from "../lib/delivery/outbox.js";
 import { normalizePhone } from "../lib/phone.js";
 import { BookingError, ERROR_CODES } from "../lib/errors.js";
@@ -241,7 +243,7 @@ export async function authRoutes(app: FastifyInstance) {
         channel: "log",
         kind: DELIVERY_KINDS.otp,
         recipient: phone,
-        body: `NailGo: код подтверждения ${code}. Никому его не сообщайте.`,
+        body: `Nail 2 Go: код подтверждения ${code}. Никому его не сообщайте.`,
       });
       app.log.warn({ phone }, `Код подтверждения (стенд, без SMS): ${code}`);
     } else {
@@ -399,7 +401,7 @@ export async function authRoutes(app: FastifyInstance) {
             .insert(users)
             .values({
               phone,
-              name: name ?? (requestedRole === "master" ? "Мастер NailGo" : "Клиент NailGo"),
+              name: name ?? (requestedRole === "master" ? "Мастер Nail 2 Go" : "Клиент Nail 2 Go"),
               role: requestedRole === "admin" ? "client" : (requestedRole ?? "client"),
             })
             .returning()
@@ -648,6 +650,79 @@ export async function authRoutes(app: FastifyInstance) {
     const session = await issueSession(user);
     await db.update(authFlows).set({ status: "consumed" }).where(eq(authFlows.id, flow.id));
     return { status: "confirmed" as const, ...session };
+  });
+
+  /* ---------------------------------------------------- «магия»-ссылки --- */
+
+  /**
+   * Проверка ссылки входа без авторизации.
+   *
+   * Экран входа показывает «Секунду, Nail 2 Go открывает ваш личный кабинет…»,
+   * пока идёт проверка. Ручка отвечает, чей кабинет откроется, и заранее
+   * отличает «истекла» от «уже вошли» — человек увидит понятную причину, а не
+   * пустую страницу. Токен здесь не гасится: это делает `verify`.
+   */
+  app.get("/auth/magic/preview", async (request, reply) => {
+    const { magic } = z.object({ magic: z.string().trim().min(1).max(300) }).parse(request.query ?? {});
+    const checked = await checkMagicLink(magic);
+    if (!checked.ok) {
+      return reply.code(410).send({ ok: false, code: checked.reason, message: checked.message });
+    }
+
+    const [user] = await db
+      .select({ id: users.id, name: users.name, role: users.role })
+      .from(users)
+      .where(eq(users.id, checked.link.userId))
+      .limit(1);
+    if (!user) {
+      return reply.code(410).send({ ok: false, code: "unknown", message: "Кабинет не найден — попросите мастера прислать новую ссылку" });
+    }
+
+    return {
+      ok: true as const,
+      brand: BRAND,
+      name: firstName(user.name),
+      bookingId: checked.link.bookingId,
+      expiresAt: checked.link.expiresAt.toISOString(),
+    };
+  });
+
+  /**
+   * Вход по «магии»: одноразовая ссылка сразу выдаёт сессию.
+   *
+   * Пароля и кода нет — ссылка пришла в мессенджер от мастера, значит телефон
+   * уже подтверждён разговором. Токен гасим до выдачи сессии, поэтому второе
+   * открытие той же ссылки получит 409 `magic_consumed`.
+   */
+  app.post("/auth/magic/verify", async (request, reply) => {
+    const { magic } = z.object({ magic: z.string().trim().min(1).max(300) }).parse(request.body ?? {});
+    const checked = await consumeMagicLink(magic);
+    if (!checked.ok) {
+      return reply
+        .code(checked.reason === "consumed" ? 409 : 410)
+        .send({ error: `magic_${checked.reason}`, message: checked.message });
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.id, checked.link.userId)).limit(1);
+    if (!user) {
+      return reply.code(410).send({ error: "magic_unknown", message: "Кабинет не найден — попросите мастера прислать новую ссылку" });
+    }
+
+    // Сессия — тем же механизмом, что обычный вход: refresh живёт месяц, чтобы
+    // человек не просил ссылку заново после закрытия браузера.
+    const session = await issueSession(user);
+
+    // Куда идти: клиенту — в кабинет, где открыта карточка именно этой записи.
+    const redirect =
+      checked.link.bookingId && user.role === "client"
+        ? `/cabinet?booking=${encodeURIComponent(checked.link.bookingId)}`
+        : user.role === "admin"
+          ? "/admin/reviews"
+          : user.role === "master"
+            ? "/pro"
+            : "/cabinet";
+
+    return { ok: true as const, bookingId: checked.link.bookingId, redirect, ...session };
   });
 
   /* --------------------------------------------- привязки и телефон --- */

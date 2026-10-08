@@ -8,6 +8,7 @@
 import { useSyncExternalStore } from "react";
 import { api, ApiError } from "../api/client";
 import { safeStorage } from "../utils/storage";
+import type { BookingGreeting } from "../api/greeting";
 
 export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled" | "no_show";
 export type BookingSource = "client" | "master";
@@ -292,9 +293,9 @@ export function getSnapshot(): State {
   return state;
 }
 
-export async function createBooking(input: NewBookingInput): Promise<Booking> {
+export async function createBooking(input: NewBookingInput): Promise<{ booking: Booking; greeting: BookingGreeting | null }> {
   const path = input.source === "master" ? "/cabinet/bookings" : "/bookings";
-  const response = await api.post<{ booking: ApiBooking }>(path, {
+  const response = await api.post<{ booking: ApiBooking; greeting?: BookingGreeting | null }>(path, {
     masterSlug: input.masterSlug,
     serviceId: input.serviceId,
     dateISO: input.dateISO,
@@ -307,7 +308,7 @@ export async function createBooking(input: NewBookingInput): Promise<Booking> {
 
   const booking = mapBooking(response.booking);
   emit({ bookings: [booking, ...state.bookings.filter((item) => item.id !== booking.id)], status: "ready", error: null });
-  return booking;
+  return { booking, greeting: response.greeting ?? null };
 }
 
 export async function cancelBooking(id: string, phone?: string): Promise<void> {

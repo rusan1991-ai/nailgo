@@ -72,7 +72,7 @@ function Logo() {
           <path d="M10.5 14.5h3" strokeLinecap="round" />
         </svg>
       </span>
-      <span className="text-xl font-semibold tracking-tight text-white">NailGo</span>
+      <span className="text-xl font-semibold tracking-tight text-white">Nail 2 Go</span>
     </Link>
   );
 }

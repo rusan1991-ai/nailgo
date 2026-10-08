@@ -32,10 +32,10 @@ import { channelForUser, CHANNEL_LABELS } from "../lib/notifications.js";
 
 /** Текст, который получает человек в мессенджере после подтверждения. */
 const LINK_DONE_TEXT =
-  "Готово! Напоминания о визитах в NailGo будут приходить сюда — бесплатно, без SMS. Вернитесь на сайт, чтобы продолжить.";
+  "Готово! Напоминания о визитах в Nail 2 Go будут приходить сюда — бесплатно, без SMS. Вернитесь на сайт, чтобы продолжить.";
 
 const LINK_HELP_TEXT =
-  "Чтобы получать напоминания NailGo, привяжите Telegram на сайте: личный кабинет → «Уведомления». Ссылка из кабинета открывает бота и связывает аккаунт автоматически.";
+  "Чтобы получать напоминания Nail 2 Go, привяжите Telegram на сайте: личный кабинет → «Уведомления». Ссылка из кабинета открывает бота и связывает аккаунт автоматически.";
 
 /** Ответ бота: подтверждение или подсказку — в тот же чат. */
 async function reply(provider: MessengerProvider, chatId: string, text: string): Promise<void> {
@@ -63,7 +63,7 @@ export async function handleBotStart(input: {
 
   const flow = await findFlow(token);
   if (!flow || flow.kind !== "bot_link" || flow.provider !== provider) {
-    await reply(provider, chatId, "Ссылка устарела. Откройте кабинет NailGo и получите новую.");
+    await reply(provider, chatId, "Ссылка устарела. Откройте кабинет Nail 2 Go и получите новую.");
     return { outcome: "unknown_token" };
   }
 
@@ -72,7 +72,7 @@ export async function handleBotStart(input: {
     const linked = await linkIdentity(flow.userId, { ...profile, provider });
     if (!linked.ok) {
       await db.update(authFlows).set({ status: "failed", error: "messenger_busy" }).where(eq(authFlows.id, flow.id));
-      await reply(provider, chatId, "Этот мессенджер уже привязан к другому аккаунту NailGo.");
+      await reply(provider, chatId, "Этот мессенджер уже привязан к другому аккаунту Nail 2 Go.");
       return { outcome: "messenger_busy" };
     }
 

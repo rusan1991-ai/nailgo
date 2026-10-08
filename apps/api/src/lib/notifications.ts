@@ -17,10 +17,22 @@
  * Тексты считаются в поясе мастера: клиент должен увидеть то же время, что
  * на экране записи, а не время сервера.
  */
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "../db/index.js";
-import { identities, masters, notifications, users } from "../db/schema.js";
-import { momentText, platformTimezone } from "./time.js";
+import { identities, masterClients, masters, notifications, users } from "../db/schema.js";
+import { dateLabel, formatMinutes, minutesOfDay, momentText, platformTimezone, toISODate } from "./time.js";
+import { createMagicLink } from "./magic.js";
+import {
+  BRAND,
+  greetingText,
+  magicLoginUrl,
+  MAGIC_LINK_PLACEHOLDER,
+  isShareMessenger,
+  MESSENGER_LABELS,
+  shareLinks,
+  type ShareLinks,
+  type ShareMessenger,
+} from "./greeting.js";
 import { normalizePhone } from "./phone.js";
 import { cancelScheduled, DELIVERY_KINDS, enqueueDelivery } from "./delivery/outbox.js";
 import type { DeliveryChannel } from "./delivery/transports.js";
@@ -245,13 +257,23 @@ export async function notifyBookingEvent(
     | "completed"
     | "rescheduled_by_client"
     | "rescheduled_by_master",
-): Promise<void> {
+  /**
+   * Как событие подать клиенту:
+   * - `default` — короткое уведомление по событию;
+   * - `manual` — ручная запись мастера: вместо служебной строки человек получает
+   *   приветствие со ссылкой входа, а мастер — окно «отправьте сообщение».
+   */
+  options: { mode?: "default" | "manual" } = {},
+): Promise<BookingGreeting | null> {
+  const mode = options.mode ?? "default";
   const timezone = await masterTimezone(booking.masterId);
   const when = whenLabel(booking.startAt, timezone);
 
   // Внешние сообщения и напоминания — отдельным проходом: событие одно,
   // а каналов у него может быть несколько (приложение, мессенджер, очередь).
-  await deliverBookingMessage(booking, service, event, timezone);
+  // Для ручной записи служебное «Мастер записал вас» не отправляем: его
+  // заменяет приветствие со ссылкой входа (иначе клиент получит два письма).
+  await deliverBookingMessage(booking, service, event, timezone, { skipCreatedExternal: mode === "manual" });
 
   if (event === "created_by_client") {
     await notifyStudio(booking.masterId, {
@@ -268,10 +290,16 @@ export async function notifyBookingEvent(
       bookingId: booking.id,
       external: true,
     });
-    return;
+    return null;
   }
 
   if (event === "created_by_master") {
+    if (mode === "manual") {
+      // Ручная запись: вместо сухого «мастер записал вас» — дружелюбное
+      // сообщение со ссылкой в кабинет. Отдаём его мастеру: если мессенджер
+      // привязан, покажем плашку, если нет — окно с кнопками шаринга.
+      return await deliverBookingGreeting(booking, service);
+    }
     await notifyClient(booking.clientPhone, {
       type: "booking_created",
       title: "Мастер записал вас",
@@ -279,7 +307,7 @@ export async function notifyBookingEvent(
       bookingId: booking.id,
       external: true,
     });
-    return;
+    return null;
   }
 
   if (event === "confirmed") {
@@ -290,7 +318,7 @@ export async function notifyBookingEvent(
       bookingId: booking.id,
       external: true,
     });
-    return;
+    return null;
   }
 
   if (event === "completed") {
@@ -300,7 +328,7 @@ export async function notifyBookingEvent(
       body: `${service.name} · ${when}. Спасибо, что пришли!`,
       bookingId: booking.id,
     });
-    return;
+    return null;
   }
 
   if (event === "rescheduled_by_client") {
@@ -311,7 +339,7 @@ export async function notifyBookingEvent(
       bookingId: booking.id,
       external: true,
     });
-    return;
+    return null;
   }
 
   if (event === "rescheduled_by_master") {
@@ -322,7 +350,7 @@ export async function notifyBookingEvent(
       bookingId: booking.id,
       external: true,
     });
-    return;
+    return null;
   }
 
   if (event === "cancelled_by_system") {
@@ -340,7 +368,7 @@ export async function notifyBookingEvent(
       bookingId: booking.id,
       external: true,
     });
-    return;
+    return null;
   }
 
   if (event === "no_show") {
@@ -351,7 +379,7 @@ export async function notifyBookingEvent(
       bookingId: booking.id,
       external: true,
     });
-    return;
+    return null;
   }
 
   if (event === "cancelled_by_client") {
@@ -362,7 +390,7 @@ export async function notifyBookingEvent(
       bookingId: booking.id,
       external: true,
     });
-    return;
+    return null;
   }
 
   await notifyClient(booking.clientPhone, {
@@ -372,6 +400,7 @@ export async function notifyBookingEvent(
     bookingId: booking.id,
     external: true,
   });
+  return null;
 }
 
 /**
@@ -381,11 +410,143 @@ export async function notifyBookingEvent(
  * снимают старое и ставят новое. Настройки клиента уважаем — выключены
  * «уведомления о записи», значит наружу ничего не уходит.
  */
+/**
+ * Приветствие клиенту после ручной записи мастера — вместе со ссылкой входа.
+ *
+ * Мастер записал человека, которого на площадке ещё не было: мы только что
+ * завели ему аккаунт. Приветствие делает три вещи сразу: объясняет, куда и
+ * когда приходить, даёт ссылку в личный кабинет и служит текстом кнопок
+ * шаринга, если привязанного мессенджера нет.
+ *
+ * Если мессенджер привязан (Telegram или Max) — сообщение уходит ботом в фоне,
+ * и мастеру достаточно плашки «Уведомление отправлено в …». Если привязки
+ * нет — возвращаем текст и ссылки: окно с кнопками покажет интерфейс.
+ */
+export type BookingGreeting = {
+  /** Готовый текст сообщения: он же уходит ботом, он же ложится в буфер Max. */
+  text: string;
+  /** Прямая ссылка входа (она уже внутри текста). */
+  magicUrl: string;
+  /** До какого момента ссылка работает. */
+  expiresAt: string;
+  /** Куда сообщение ушло само: `telegram`, `max` или null. */
+  deliveredTo: "telegram" | "max" | null;
+  /** Человекочитаемое имя канала для плашки мастеру. */
+  deliveredLabel: string | null;
+  /** Имя клиентки: интерфейс пишет «Отправьте Ольге». */
+  clientName: string;
+  /** Номер для wa.me — null у «клиента из мессенджера». */
+  phone: string | null;
+  /** Кнопки шаринга с предзаполненным текстом. */
+  share: ShareLinks;
+  /** Мессенджер, которым мастер пользовался в прошлый раз (звёздочка и первый в ряду). */
+  preferred: ShareMessenger | null;
+  /** Первый в ряду кнопок по памяти профиля или привязанному каналу. */
+  suggested: ShareMessenger;
+};
+
+export async function deliverBookingGreeting(
+  booking: BookingRow,
+  service: { name: string },
+): Promise<BookingGreeting | null> {
+  // Приветствие имеет смысл только для клиента с аккаунтом: у гостевой заявки
+  // кабинета нет и открывать нечего.
+  if (!booking.userId) return null;
+
+  const [master] = await db.select().from(masters).where(eq(masters.id, booking.masterId)).limit(1);
+  const timezone = master?.timezone ?? platformTimezone();
+  const when = {
+    dateLabel: dateLabel(toISODate(booking.startAt, timezone)),
+    timeLabel: formatMinutes(minutesOfDay(booking.startAt, timezone)),
+  };
+
+  // «Умная» память: что человек выбрал в прошлый раз. Сначала смотрим блокнот
+  // мастера, затем профиль клиента — выбор хранится в обоих местах.
+  const [card] = await db
+    .select({ preferredMessenger: masterClients.preferredMessenger })
+    .from(masterClients)
+    .where(and(eq(masterClients.masterId, booking.masterId), eq(masterClients.phone, booking.clientPhone)))
+    .limit(1);
+  const [profile] = await db
+    .select({ preferredMessenger: users.preferredMessenger })
+    .from(users)
+    .where(eq(users.id, booking.userId))
+    .limit(1);
+  const remembered = card?.preferredMessenger ?? profile?.preferredMessenger ?? null;
+  const preferred = isShareMessenger(remembered) ? remembered : null;
+
+  const choice = await channelForUser({ userId: booking.userId, phone: booking.clientPhone });
+  const allowed = await clientNotificationAllowed(booking.clientPhone, "booking_created");
+  const deliveredTo = allowed && (choice.channel === "telegram" || choice.channel === "max") ? choice.channel : null;
+
+  // Не храним даже ciphertext, когда мастер сам будет делиться ссылкой.
+  // Если бот связан, шифротекст нужен outbox только до успешной отправки.
+  const { token, expiresAt } = await createMagicLink({
+    userId: booking.userId,
+    bookingId: booking.id,
+    purpose: "booking_greeting",
+    keepCiphertext: deliveredTo !== null,
+  });
+  const magicUrl = magicLoginUrl(token);
+  const text = greetingText({
+    clientName: booking.clientName,
+    masterName: master?.name ?? "ваш мастер",
+    serviceName: service.name,
+    dateLabel: when.dateLabel,
+    timeLabel: when.timeLabel,
+    address: master?.address ?? master?.metro ?? null,
+    link: magicUrl,
+  });
+
+  if (deliveredTo) {
+    await enqueueDelivery({
+      channel: deliveredTo,
+      kind: DELIVERY_KINDS.bookingGreeting,
+      recipient: choice.recipient,
+      // В постоянной очереди держим только placeholder: исходный magic URL
+      // достаётся из AES-GCM ciphertext непосредственно перед отправкой.
+      body: text.replace(magicUrl, MAGIC_LINK_PLACEHOLDER),
+      bookingId: booking.id,
+    });
+  }
+
+  // Внутри приложения приветствие видно всегда: даже без внешнего канала клиент
+  // откроет кабинет и увидит, что его записали.
+  await db.insert(notifications).values({
+    audience: "client",
+    userId: booking.userId,
+    phone: normalizePhone(booking.clientPhone),
+    type: "booking_created",
+    title: `Личный кабинет ${BRAND} готов`,
+    body: `${service.name} · ${when.dateLabel} ${when.timeLabel}`,
+    bookingId: booking.id,
+  });
+
+  // Подсказка мастеру: если канал есть, кнопки шаринга не нужны — покажем
+  // плашку «Уведомление отправлено в Telegram», а не окно отправки.
+  const suggested: ShareMessenger = preferred ?? (deliveredTo === "telegram" ? "telegram" : deliveredTo === "max" ? "max" : "whatsapp");
+
+  return {
+    text,
+    magicUrl,
+    expiresAt: expiresAt.toISOString(),
+    deliveredTo,
+    deliveredLabel: deliveredTo ? MESSENGER_LABELS[deliveredTo] : null,
+    clientName: booking.clientName,
+    phone: booking.clientPhone || null,
+    share: shareLinks({ phone: booking.clientPhone || null, text }),
+    preferred,
+    suggested,
+  };
+}
+
 async function deliverBookingMessage(
   booking: BookingRow,
   service: { name: string },
   event: Parameters<typeof notifyBookingEvent>[2],
   timezone: string,
+  /** `skipCreatedExternal` — ручная запись: её внешнее сообщение уже собрано в приветствии. */
+  options: { skipCreatedExternal?: boolean } = {},
 ): Promise<void> {
   const [master] = await db.select().from(masters).where(eq(masters.id, booking.masterId)).limit(1);
   const masterName = master?.name ?? "Мастер";
@@ -397,7 +558,7 @@ async function deliverBookingMessage(
     await sendExternal({ userId: booking.userId, phone: booking.clientPhone }, "booking_created", body, booking.id);
   };
 
-  if (event === "created_by_client" || event === "created_by_master") {
+  if (event === "created_by_client" && !options.skipCreatedExternal) {
     await toClient(
       DELIVERY_KINDS.bookingCreated,
       `${masterName}: заявка на ${service.name} ${when} принята. Ждите подтверждения.`,
@@ -413,20 +574,20 @@ async function deliverBookingMessage(
   }
 
   if (event === "cancelled_by_master") {
-    await toClient(DELIVERY_KINDS.bookingCancelled, `${masterName}: визит ${when} отменён. Запишитесь на другое время в NailGo.`);
+    await toClient(DELIVERY_KINDS.bookingCancelled, `${masterName}: визит ${when} отменён. Запишитесь на другое время в Nail 2 Go.`);
   }
 
   if (event === "cancelled_by_system") {
     await toClient(
       DELIVERY_KINDS.bookingCancelled,
-      `${masterName} не подтвердил запись на ${when}, она отменена. Выберите другое время в NailGo.`,
+      `${masterName} не подтвердил запись на ${when}, она отменена. Выберите другое время в Nail 2 Go.`,
     );
   }
 
   if (event === "no_show") {
     await toClient(
       DELIVERY_KINDS.bookingCancelled,
-      `${masterName}: визит ${when} отмечен как неявка. Частые неявки ограничивают запись в NailGo.`,
+      `${masterName}: визит ${when} отмечен как неявка. Частые неявки ограничивают запись в Nail 2 Go.`,
     );
   }
 
@@ -491,7 +652,7 @@ export function reminderText(input: {
   address?: string | null;
 }): string {
   const address = input.address ? `, ${input.address}` : "";
-  return `${input.masterName}: напоминаем о визите ${whenLabel(input.startAt, input.timezone)} — ${input.serviceName}${address}. Отменить или перенести можно в личном кабинете NailGo.`;
+  return `${input.masterName}: напоминаем о визите ${whenLabel(input.startAt, input.timezone)} — ${input.serviceName}${address}. Отменить или перенести можно в личном кабинете Nail 2 Go.`;
 }
 
 /**

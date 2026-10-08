@@ -131,7 +131,7 @@ async function start() {
       `Справочник мест: ${locations.total} (метро ${locations.metro}, область ${locations.district})`,
     );
     await app.listen({ port: env.port, host: env.host });
-    app.log.info(`NailGo API: http://${env.host}:${env.port}/api/health`);
+    app.log.info(`Nail 2 Go API: http://${env.host}:${env.port}/api/health`);
 
     startDeliveryWorker(app);
     startBookingScheduler(app);

@@ -52,6 +52,8 @@ export type CabinetClient = {
   note: string | null;
   telegram: string | null;
   max: string | null;
+  /** Мессенджер, выбранный мастером в прошлый раз. */
+  preferredMessenger: "whatsapp" | "telegram" | "max" | null;
 };
 
 /** Карточка клиента: то, что мастер заполняет вручную. */
@@ -61,6 +63,7 @@ export type MasterClientInput = {
   telegram?: string;
   max?: string;
   note?: string;
+  preferredMessenger?: "whatsapp" | "telegram" | "max" | null;
 };
 
 export type MasterClientCard = {
@@ -70,6 +73,7 @@ export type MasterClientCard = {
   telegram: string | null;
   max: string | null;
   note: string | null;
+  preferredMessenger: "whatsapp" | "telegram" | "max" | null;
 };
 
 /**

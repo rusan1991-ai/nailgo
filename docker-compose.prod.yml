@@ -1,4 +1,4 @@
-# Прод-стек NailGo: сайт (Caddy + статика), API (Fastify) и Postgres.
+# Прод-стек Nail 2 Go: сайт (Caddy + статика), API (Fastify) и Postgres.
 #
 # Запуск:
 #   cp .env.production.example .env   # заполнить секреты
@@ -15,6 +15,7 @@ services:
     restart: unless-stopped
     environment:
       APP_DOMAIN: ${APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN:-api.localhost}
       API_UPSTREAM: ${API_UPSTREAM:-api:4000}
     ports:
       - "80:80"

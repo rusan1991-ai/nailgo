@@ -272,7 +272,7 @@ assert("лимит можно вернуть к значению окружен�
 const dashboard = makeDom("/admin", { session: admin });
 await wait(1500);
 const dashboardText = rootText(dashboard.dom);
-assert("админка открывается на обзоре", dashboardText.includes("Админка NailGo"), dashboardText.slice(0, 120));
+assert("админка открывается на обзоре", dashboardText.includes("Админка Nail 2 Go"), dashboardText.slice(0, 120));
 assert("на обзоре видно статусы мастеров", dashboardText.includes("активных"), dashboardText.slice(0, 200));
 const mastersLink = dashboard.window.document.querySelector("a[href='/admin/masters']");
 assert("с обзора есть переход к мастерам", Boolean(mastersLink));

@@ -164,7 +164,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
       createBooking: async (payload) => {
         setError(null);
         const clientPhone = payload.clientPhone?.trim() || phone;
-        const clientName = payload.clientName?.trim() || user?.name || "Клиент NailGo";
+        const clientName = payload.clientName?.trim() || user?.name || "Клиент Nail 2 Go";
         try {
           const response = await api.post<{ booking: ApiBooking; payment?: StartedPayment }>("/bookings", {
             masterSlug: payload.masterSlug,

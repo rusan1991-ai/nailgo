@@ -1,5 +1,5 @@
 /**
- * Короткая ссылка мастера: `nailgo.ru/any_nails` и `nailgo.ru/masters/any_nails`.
+ * Короткая ссылка мастера: `nail2go.ru/any_nails` и `nail2go.ru/masters/any_nails`.
  *
  * Адрес разрешается на сервере (`GET /masters/<username>` понимает и короткую
  * ссылку, и обычный slug): если мастер найден — показываем его витрину, причём
@@ -24,7 +24,7 @@ export function ShortLinkPage() {
     return (
       <main className="grid min-h-screen place-items-center bg-[#fff7fa] p-6 text-center text-slate-500">
         <div>
-          <p className="text-sm uppercase tracking-[0.2em] text-pink-500">NailGo</p>
+          <p className="text-sm uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
           <h1 className="mt-3 text-2xl font-semibold text-slate-900">Открываем витрину мастера…</h1>
         </div>
       </main>
@@ -37,7 +37,7 @@ export function ShortLinkPage() {
         <div className="mx-auto max-w-[1280px] rounded-[26px] border border-[#ffe6ef] bg-white p-5 shadow-[0_20px_80px_-40px_rgba(236,72,153,0.45)] sm:p-8">
           <AppHeader />
           <div data-block="short-link-missing" className="mt-16 text-center">
-            <p className="text-sm uppercase tracking-[0.2em] text-pink-500">NailGo</p>
+            <p className="text-sm uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
             <h1 className="mt-3 text-3xl font-semibold text-slate-900">
               По ссылке «{username}» мастера нет
             </h1>

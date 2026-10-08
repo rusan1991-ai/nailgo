@@ -1,5 +1,5 @@
 /**
- * Короткая ссылка мастера («как в ВК»): `nailgo.ru/any_nails`.
+ * Короткая ссылка мастера («как в ВК»): `nail2go.ru/any_nails`.
  *
  * Это не slug: slug генерируется из имени и остаётся навсегда, а username
  * мастер выбирает сам — и меняет, когда захочет. Поэтому у поля отдельные
@@ -42,6 +42,7 @@ export const RESERVED_USERNAMES = new Set([
   "masters",
   "messages",
   "nailgo",
+  "nail2go",
   "notifications",
   "pay",
   "pro",
@@ -72,7 +73,7 @@ export function checkUsername(value: string): UsernameCheck {
     return { ok: false, reason: "format", message: `Ссылка не подходит: ${USERNAME_RULES}` };
   }
   if (RESERVED_USERNAMES.has(username)) {
-    return { ok: false, reason: "reserved", message: "Эта ссылка занята разделами NailGo — выберите другую" };
+    return { ok: false, reason: "reserved", message: "Эта ссылка занята разделами Nail 2 Go — выберите другую" };
   }
   return { ok: true, username };
 }

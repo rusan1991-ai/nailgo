@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { and, desc, eq, gt, inArray, lt, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { bookings, masterClients, masters, reviews, services, timeBlocks } from "../db/schema.js";
+import { bookings, masterClients, masters, reviews, services, timeBlocks, users } from "../db/schema.js";
 import { optionalUserId, ownsBooking, requireAuth } from "../lib/auth.js";
 import { applyBookingStatus, bookingHistory, logBookingEvent } from "../lib/booking-status.js";
 import {
@@ -19,6 +19,7 @@ import { env } from "../env.js";
 import { scheduleForDay } from "../lib/schedule.js";
 import { normalizePhone, samePhone } from "../lib/phone.js";
 import { atMinutes, devNow, isValidISODate, minutesOfDay, toISODate } from "../lib/time.js";
+import { linkIdentity } from "../lib/identities.js";
 import { serializeBooking } from "../lib/serialize.js";
 
 export const createBookingSchema = z.object({
@@ -203,6 +204,25 @@ export async function createBooking(
     throw new DomainError(400, "bad_phone", "Укажите телефон клиента полностью");
   }
 
+  clientPhone = normalizePhone(clientPhone);
+
+  /**
+   * Авторегистрация. Мастер записал человека по телефону, которого нет в базе, —
+   * аккаунт заводим сами: клиенту не нужно регистрироваться, он получит
+   * «магию»-ссылку входа и попадёт сразу в свой кабинет. Роль всегда `client`:
+   * мастер этой ручкой создаёт клиентов, а не коллег.
+   */
+  // Сопоставляем с аккаунтом только ручную запись мастера. Публичная форма
+  // не должна привязывать запись к чужой учётке только потому, что посетитель
+  // ввёл её телефон: там владельцем становится только вошедший userId.
+  let clientUser =
+    options.source === "master"
+      ? (await db.select().from(users).where(eq(users.phone, clientPhone)).limit(1))[0] ?? null
+      : null;
+  if (clientUser && clientUser.role !== "client") {
+    throw new DomainError(409, "client_account_role", "Этот номер уже привязан к аккаунту мастера или администратора");
+  }
+
   // Дисциплина клиента: чёрный список — отказ, накопленные поздние отмены —
   // полная предоплата. Мастер, вносящий запись вручную, ничего не проверяет:
   // он уже поговорил с человеком и решает сам.
@@ -231,12 +251,43 @@ export async function createBooking(
     ? service.price
     : prepaymentFor(service.price, service.prepaymentPercent);
 
+  /**
+   * Новый клиент получает полноценный аккаунт прямо перед сохранением записи.
+   * Все пользовательские ошибки уже проверены (услуга/окно/телефон), поэтому
+   * мы не создаём «пустые» аккаунты для отклонённых слотов.
+   */
+  let justRegistered = false;
+  if (options.source === "master" && !clientUser) {
+    // На гонке двух мастеров/запросов unique(phone) выигрывает один; второй
+    // перечитает уже созданный аккаунт и продолжит без дубля.
+    const [created] = await db
+      .insert(users)
+      .values({ phone: clientPhone, name: clientName.trim(), role: "client" })
+      .onConflictDoNothing({ target: users.phone })
+      .returning();
+    clientUser = created ?? (await db.select().from(users).where(eq(users.phone, clientPhone)).limit(1))[0] ?? null;
+    if (!clientUser || clientUser.role !== "client") {
+      throw new DomainError(409, "client_account_role", "Этот номер уже привязан к аккаунту мастера или администратора");
+    }
+    justRegistered = Boolean(created);
+    if (justRegistered) {
+      // Телефон становится способом входа — как и при обычной регистрации.
+      await linkIdentity(clientUser.id, {
+        provider: "phone",
+        providerUserId: clientPhone,
+        displayName: clientUser.name,
+      });
+    }
+  }
+
   const [booking] = await db
     .insert(bookings)
     .values({
       masterId: master.id,
       serviceId: service.id,
-      userId: options.userId ?? null,
+      // Вошедший клиент или аккаунт, который мы только что завели по номеру:
+      // запись сразу привязана к кабинету, и «магия»-ссылка откроет её карточку.
+      userId: options.userId ?? (options.source === "master" ? clientUser?.id : null) ?? null,
       clientName,
       clientPhone,
       comment: input.comment,

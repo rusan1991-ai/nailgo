@@ -25,7 +25,7 @@ export function AdminLayout() {
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-3">
           <div className="flex items-center gap-6">
             <Link to="/admin" className="text-sm font-semibold uppercase tracking-[0.2em] text-pink-500">
-              NailGo · админка
+              Nail 2 Go · админка
             </Link>
             <nav className="flex items-center gap-1">
               {navItems.map((item) => (

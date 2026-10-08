@@ -23,6 +23,7 @@ import { db } from "../db/index.js";
 import { bookings, services } from "../db/schema.js";
 import { env } from "../env.js";
 import { applyBookingStatus } from "./booking-status.js";
+import { purgeExpiredMagicLinks } from "./magic.js";
 import { notifyBookingEvent } from "./notifications.js";
 import { refundBookingPayment } from "./payments.js";
 
@@ -109,6 +110,10 @@ export async function runSchedulerTick(options: { now?: Date; dryRun?: boolean }
       result.failed += 1;
     }
   }
+
+  // Заодно убираем просроченные «магия»-ссылки: они одноразовые, но мусор
+  // в базе копить незачем.
+  if (!options.dryRun) await purgeExpiredMagicLinks(now);
 
   return result;
 }

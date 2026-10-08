@@ -75,7 +75,7 @@ export function AdminDashboardPage() {
 
   return (
     <div className="space-y-5" data-block="admin-dashboard">
-      <PageHeader title="Админка NailGo" subtitle="Модерация витрины, отзывов и доступа — по данным, а не по памяти" />
+      <PageHeader title="Админка Nail 2 Go" subtitle="Модерация витрины, отзывов и доступа — по данным, а не по памяти" />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {cards.map((card) => (

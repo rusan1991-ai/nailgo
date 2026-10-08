@@ -24,7 +24,7 @@ export function AppHeader() {
     <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#f9e7ef] pb-6">
       <Link to="/" className="flex items-center gap-2 text-3xl font-semibold">
         <span className="text-pink-500">Nail</span>
-        <span>Go</span>
+        <span>2 Go</span>
       </Link>
 
       <nav className="hidden items-center gap-8 text-sm text-slate-600 lg:flex">

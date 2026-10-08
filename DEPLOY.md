@@ -1,4 +1,4 @@
-# Прод-деплой NailGo
+# Прод-деплой Nail 2 Go (NailToGo)
 
 Стек на VPS: **Caddy со статикой сайта**, **API (Fastify + Drizzle)** и **Postgres 17**.
 Всё поднимается одним `docker compose -f docker-compose.prod.yml`.
@@ -43,7 +43,8 @@ openssl rand -hex 32   # для JWT_ACCESS_SECRET и JWT_REFRESH_SECRET
   `log` пишет код в лог API, `response` отдаёт его в ответе (только локальная разработка).
   В проде `/api/auth/request-otp` отвечает `503 phone_login_disabled` и отправляет человека
   к бесплатным способам входа.
-- `PUBLIC_WEB_URL` и `OAUTH_REDIRECT_BASE` — адрес сайта и публичный адрес API.
+- `APP_DOMAIN` / `API_DOMAIN` — домены Caddy для сайта и API (в примере `nail2go.ru` и
+  `api.nail2go.ru`); `PUBLIC_WEB_URL` и `OAUTH_REDIRECT_BASE` — публичные адреса сайта и API.
   Второй должен совпадать с редиректом, зарегистрированным у провайдера:
   `<OAUTH_REDIRECT_BASE>/api/auth/oauth/<провайдер>/callback` (`yandex`, `vk`).
 - `YANDEX_CLIENT_ID`/`SECRET`, `VK_CLIENT_ID`/`SECRET` — OAuth-приложения. Пустой ключ

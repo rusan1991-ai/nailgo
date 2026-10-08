@@ -52,7 +52,7 @@ export function AuthCallbackPage() {
   return (
     <main className="grid min-h-screen place-items-center bg-[#fff7fa] px-6 text-center">
       <div className="max-w-md">
-        <p className="text-sm uppercase tracking-[0.2em] text-pink-500">NailGo</p>
+        <p className="text-sm uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
         {error ? (
           <>
             <h1 className="mt-3 text-2xl font-semibold text-slate-900">Войти не получилось</h1>

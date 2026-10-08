@@ -4,11 +4,19 @@
  * это разные действия, и путать их нельзя (вход по новому номеру больше
  * не создаёт аккаунт молча).
  */
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+import { MagicLoginPage } from "./MagicLoginPage";
 import { AuthCard, CodeStep, RoleChoice, useAuthScreen } from "./auth-shared";
 import { QuickLogin } from "../components/QuickLogin";
 
 export function LoginPage() {
+  const [params] = useSearchParams();
+  const magic = params.get("magic");
+  if (magic) return <MagicLoginPage key={magic} magic={magic} />;
+  return <LoginForm />;
+}
+
+function LoginForm() {
   const screen = useAuthScreen("login");
 
   return (

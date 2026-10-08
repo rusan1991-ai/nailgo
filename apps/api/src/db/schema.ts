@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { boolean, doublePrecision, index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 /**
- * Схема NailGo (Postgres).
+ * Схема Nail 2 Go (Postgres).
  *
  * Локально используется PGlite — это настоящий Postgres, скомпилированный в WASM,
  * поэтому локальная и серверная схемы совпадают полностью: миграции одни и те же.
@@ -33,6 +33,20 @@ export const users = pgTable("users", {
    */
   notifyBookings: boolean("notify_bookings").notNull().default(true),
   notifyNews: boolean("notify_news").notNull().default(true),
+  /**
+   * Каким мессенджером человеку удобнее получать сообщения (`whatsapp`,
+   * `telegram`, `max`). Поле заполняется само: мастер нажал кнопку отправки
+   * в кабинете — выбор запомнился. В следующий раз эта кнопка идёт первой и
+   * помечена звёздочкой, чтобы мастер не искал её заново.
+   */
+  preferredMessenger: text("preferred_messenger"),
+  /**
+   * Хеш последней активной magic-ссылки для быстрого отзыва/аудита аккаунта.
+   * Здесь хранится только `sha256(token + OTP_PEPPER)`; ссылка для фоновой
+   * доставки зашифрована в `magic_links.token_ciphertext` до успешной отправки или погашения.
+   */
+  magicAuthToken: text("magic_auth_token").unique(),
+  magicAuthExpiresAt: timestamp("magic_auth_expires_at", { withTimezone: true }),
   /**
    * Дисциплина клиента. Площадка не списывает деньги (мы агрегатор), поэтому
    * «штраф» — это учёт: поздние отмены и неявки. После `lateCancelLimit`
@@ -125,7 +139,7 @@ export const masters = pgTable("masters", {
   statusReason: text("status_reason"),
   statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
   /**
-   * Короткая ссылка мастера — «как в ВК»: `nailgo.ru/any_nails`.
+   * Короткая ссылка мастера — «как в ВК»: `nail2go.ru/any_nails`.
    *
    * Отличается от `slug`: slug генерируется из имени и живёт вечно, а username
    * мастер выбирает сам (латиница, цифры, дефис и подчёркивание, от 3 символов)
@@ -650,6 +664,11 @@ export const masterClients = pgTable(
      * владельцу кабинета — это рабочий блокнот, а не карточка клиента на витрине.
      */
     note: text("note"),
+    /**
+     * Тот же выбор мессенджера, что и в профиле клиента, но для блокнота
+     * мастера: если у человека ещё нет аккаунта, выбор всё равно не потеряется.
+     */
+    preferredMessenger: text("preferred_messenger"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -685,7 +704,47 @@ export const timeBlocks = pgTable(
   (table) => [index("time_blocks_master_start").on(table.masterId, table.startAt)],
 );
 
+/**
+ * Magic-ссылки входа: «личный кабинет в один клик без пароля».
+ *
+ * Мастер записал клиента вручную — клиент ещё не регистрировался на площадке.
+ * Мы заводим ему аккаунт сами и присылаем ссылку `nail2go.ru/login?magic=…`:
+ * по ней человек попадает сразу в свой кабинет, где открыта карточка этой
+ * записи, и ничего не вводит.
+ *
+ * Хранится только хеш токена (`sha256(token + OTP_PEPPER)`): утечка базы не
+ * даёт войти по чужой ссылке. Токен одноразовый (`consumed_at`) и живёт
+ * ограниченное время (`expires_at`, по умолчанию неделя) — если письмо
+ * переслали не тому, ссылка уже не откроет чужой кабинет вечно.
+ */
+export const magicLinks = pgTable(
+  "magic_links",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Запись, ради которой выдан вход: кабинет откроет именно её карточку. */
+    bookingId: text("booking_id").references(() => bookings.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    /**
+     * Токен в зашифрованном виде для фоновой доставки приветствия.
+     * Расшифровывается только при отправке; в deliveries.body лежит плейсхолдер,
+     * не magic-ссылка. После отправки или погашения значение стирается.
+     */
+    tokenCiphertext: text("token_ciphertext"),
+    /** Кто выдал ссылку и зачем — для истории («booking_greeting»). */
+    purpose: text("purpose").notNull().default("booking"),
+    /** Открыли по ссылке: второй раз токен не сработает. */
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("magic_links_user").on(table.userId, table.createdAt)],
+);
+
 export type MasterClient = typeof masterClients.$inferSelect;
+export type MagicLink = typeof magicLinks.$inferSelect;
 export type TimeBlock = typeof timeBlocks.$inferSelect;
 export type BookingEvent = typeof bookingEvents.$inferSelect;
 export type RateLimitHit = typeof rateLimitHits.$inferSelect;

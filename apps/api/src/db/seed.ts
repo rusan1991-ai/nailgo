@@ -319,7 +319,7 @@ export async function seed() {
   if (ownerRow) {
     await db
       .update(masters)
-      .set({ email: "studio@nailgo.ru", site: "nailgo.ru/anna-smirnova" })
+      .set({ email: "studio@nail2go.ru", site: "nail2go.ru/anna-smirnova" })
       .where(eq(masters.id, ownerRow.id));
   }
 
@@ -338,8 +338,8 @@ export async function seed() {
   // Аккаунт модератора: отзывы публикует администратор, не мастер.
   await db
     .insert(users)
-    .values({ phone: DEMO_ADMIN_PHONE, name: "Администратор NailGo", role: "admin" })
-    .onConflictDoUpdate({ target: users.phone, set: { role: "admin", name: "Администратор NailGo" } });
+    .values({ phone: DEMO_ADMIN_PHONE, name: "Администратор Nail 2 Go", role: "admin" })
+    .onConflictDoUpdate({ target: users.phone, set: { role: "admin", name: "Администратор Nail 2 Go" } });
   const masterBySlug = new Map(masterRows.map((row) => [row.slug, row.id]));
 
   // Услуги копируются каждому мастеру; id читаемые — «anna-smirnova-s2»,

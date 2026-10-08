@@ -45,7 +45,7 @@ function NotFoundPage() {
   return (
     <main className="grid min-h-screen place-items-center bg-[#fff7fa] px-6 text-center">
       <div>
-        <p className="text-sm uppercase tracking-[0.2em] text-pink-500">NailGo</p>
+        <p className="text-sm uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
         <h1 className="mt-3 text-4xl font-semibold text-slate-900">Страница не найдена</h1>
         <p className="mt-2 text-slate-500">Проверьте адрес или вернитесь на главную.</p>
         <a
@@ -82,7 +82,7 @@ function RequireAuth({
     return (
       <main className="grid min-h-screen place-items-center bg-[#fff7fa] px-6 text-center text-slate-600">
         <div className="max-w-md">
-          <p className="text-sm uppercase tracking-[0.2em] text-pink-500">NailGo</p>
+          <p className="text-sm uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
           <h1 className="mt-3 text-3xl font-semibold text-slate-900">Раздел доступен администратору</h1>
           <p className="mt-2 text-sm">
             Вы вошли как {user.role === "master" ? "мастер" : "клиент"} ({user.phone ?? "без телефона"}). Модерация отзывов — на
@@ -108,7 +108,7 @@ function RequireAuth({
     return (
       <main className="grid min-h-screen place-items-center bg-[#fff7fa] px-6 text-center text-slate-600">
         <div className="max-w-md">
-          <p className="text-sm uppercase tracking-[0.2em] text-pink-500">NailGo</p>
+          <p className="text-sm uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
           <h1 className="mt-3 text-3xl font-semibold text-slate-900">Кабинет доступен мастерам</h1>
           <p className="mt-2 text-sm">
             Вы вошли как клиент ({user.phone ?? "без телефона"}). Чтобы открыть кабинет, войдите как мастер.

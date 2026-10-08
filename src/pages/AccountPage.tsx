@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { useBookings } from "../bookings/BookingContext";
 import { BookingReviewPanel } from "../components/BookingReviewPanel";
@@ -11,8 +11,27 @@ import { formatRub } from "../data/mock";
 export function AccountPage() {
   const { bookings, cancelBooking, error, reload } = useBookings();
   const { user } = useAuth();
+  const [params] = useSearchParams();
+  const magicBookingId = params.get("booking");
   const [tab, setTab] = useState<"upcoming" | "completed" | "cancelled">("upcoming");
   const [movingId, setMovingId] = useState<string | null>(null);
+
+  // Magic-link приводит клиента не просто в кабинет, а к карточке именно той
+  // записи, ради которой мастер прислал ссылку. Автоматически открываем нужную
+  // вкладку и мягко прокручиваем карточку в центр экрана.
+  useEffect(() => {
+    if (!magicBookingId) return;
+    const booking = bookings.find((item) => item.id === magicBookingId);
+    if (!booking) return;
+    setTab(booking.status === "completed" ? "completed" : booking.status === "cancelled" || booking.status === "no_show" ? "cancelled" : "upcoming");
+    window.requestAnimationFrame(() => {
+      const card = [...document.querySelectorAll<HTMLElement>("[data-booking-id]")]
+        .find((element) => element.dataset.bookingId === magicBookingId);
+      if (card && typeof card.scrollIntoView === "function") {
+        card.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    });
+  }, [bookings, magicBookingId]);
 
   // Неявка — тот же раздел, что и отмены: визит не состоялся.
   const filtered = useMemo(
@@ -52,7 +71,21 @@ export function AccountPage() {
             )}
 
             {filtered.map((booking) => (
-              <article key={booking.id} className="rounded-2xl border border-[#f1dde6] p-4">
+              <article
+                key={booking.id}
+                data-booking-id={booking.id}
+                data-magic-booking={magicBookingId === booking.id ? "1" : undefined}
+                className={`rounded-2xl border p-4 transition-shadow ${
+                  magicBookingId === booking.id
+                    ? "border-[#d285a3] bg-[#fff8fb] shadow-[0_0_0_4px_rgba(210,133,163,0.12)]"
+                    : "border-[#f1dde6]"
+                }`}
+              >
+                {magicBookingId === booking.id && (
+                  <div data-block="magic-booking" className="mb-3 rounded-xl bg-[#fff0f5] px-3 py-2 text-xs font-medium text-[#a34f70]">
+                    Ваша запись — детали из сообщения мастера 💕
+                  </div>
+                )}
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-xs uppercase tracking-[0.12em] text-pink-500">

@@ -16,7 +16,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("NailGo: ошибка рендера", error, info.componentStack);
+    console.error("Nail 2 Go: ошибка рендера", error, info.componentStack);
   }
 
   render() {
@@ -26,7 +26,7 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <main className="min-h-screen bg-[#fff7fa] p-6 text-slate-800">
         <div className="mx-auto max-w-2xl rounded-3xl border border-[#f1dde6] bg-white p-6 shadow-sm">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-pink-500">NailGo</p>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
           <h1 className="mt-3 text-2xl font-semibold">Что-то сломалось на этой странице</h1>
           <p className="mt-2 text-sm text-slate-500">
             Ошибка перехвачена, чтобы вы видели причину, а не пустой экран. Попробуйте вернуться на главную

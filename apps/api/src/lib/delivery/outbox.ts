@@ -12,6 +12,8 @@ import { db } from "../../db/index.js";
 import { deliveries, type Delivery } from "../../db/schema.js";
 import { env } from "../../env.js";
 import { normalizePhone } from "../phone.js";
+import { clearMagicDeliveryCiphertext, magicTokenForDelivery } from "../magic.js";
+import { magicLoginUrl, MAGIC_LINK_PLACEHOLDER } from "../greeting.js";
 import { deliver, type DeliveryChannel } from "./transports.js";
 
 export type EnqueueInput = {
@@ -34,6 +36,8 @@ export const DELIVERY_KINDS = {
   bookingCancelled: "booking_cancelled",
   bookingRescheduled: "booking_rescheduled",
   reviewReplied: "review_replied",
+  /** Приветствие клиенту после ручной записи мастера (со ссылкой входа). */
+  bookingGreeting: "booking_greeting",
 } as const;
 
 /** Номер приводим к канону, почту — к нижнему регистру: иначе адресат «разный». */
@@ -98,11 +102,34 @@ export async function sendDelivery(id: string): Promise<Delivery | null> {
   if (row.status === "sent" || row.status === "cancelled") return row;
 
   const attempts = row.attempts + 1;
+  let body = row.body;
+
+  // Magic-ссылка не хранится в очереди открытым текстом. Только в момент
+  // доставки достаём её из AES-GCM ciphertext; после входа/истечения ссылка
+  // стирается, и устаревшее приветствие не отправляется.
+  if (row.kind === DELIVERY_KINDS.bookingGreeting && body.includes(MAGIC_LINK_PLACEHOLDER)) {
+    const token = row.bookingId ? await magicTokenForDelivery(row.bookingId) : null;
+    if (!token) {
+      const [updated] = await db
+        .update(deliveries)
+        .set({
+          status: "failed",
+          attempts,
+          provider: "magic-link",
+          error: "Ссылка входа уже использована или истекла — приветствие не отправлено",
+        })
+        .where(eq(deliveries.id, id))
+        .returning();
+      return updated ?? null;
+    }
+    body = body.replace(MAGIC_LINK_PLACEHOLDER, magicLoginUrl(token));
+  }
+
   const result = await deliver({
     channel: row.channel as DeliveryChannel,
     recipient: row.recipient,
     subject: row.subject,
-    body: row.body,
+    body,
     kind: row.kind,
   });
 
@@ -119,6 +146,11 @@ export async function sendDelivery(id: string): Promise<Delivery | null> {
       })
       .where(eq(deliveries.id, id))
       .returning();
+    if (updated && row.kind === DELIVERY_KINDS.bookingGreeting && row.bookingId) {
+      // После подтверждения транспорта открытый magic token уже не нужен:
+      // ссылка остаётся валидной по token_hash, ciphertext стираем.
+      await clearMagicDeliveryCiphertext(row.bookingId).catch(() => undefined);
+    }
     return updated ?? null;
   }
 

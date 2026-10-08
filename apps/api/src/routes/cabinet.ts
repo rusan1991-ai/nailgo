@@ -377,7 +377,14 @@ export async function cabinetRoutes(app: FastifyInstance) {
     return { items, total: items.length };
   });
 
-  /** Мастер создаёт запись вручную. */
+  /**
+   * Мастер создаёт запись вручную.
+   *
+   * Если телефона нет в базе, `createBooking` сам заводит аккаунт клиента, а мы
+   * выдаём «магию»-ссылку и приветствие: человек попадёт в кабинет без пароля,
+   * мастер — отправит сообщение кнопкой мессенджера (или увидит плашку, что бот
+   * уже отправил его сам).
+   */
   app.post("/cabinet/bookings", masterOnly, async (request, reply) => {
     const input = createBookingSchema.parse(request.body ?? {});
     // `now` — дев-параметр (см. `devNow`): в проверках он позволяет поставить
@@ -387,8 +394,8 @@ export async function cabinetRoutes(app: FastifyInstance) {
       status: "confirmed",
       now: devNow(input.now),
     });
-    await notifyBookingEvent(row, service, "created_by_master");
-    return reply.code(201).send({ booking: payload });
+    const greeting = await notifyBookingEvent(row, service, "created_by_master", { mode: "manual" });
+    return reply.code(201).send({ booking: payload, greeting });
   });
 
   /** Мастер отменяет запись. */
@@ -719,6 +726,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
         note: null as string | null,
         telegram: null as string | null,
         max: null as string | null,
+        preferredMessenger: null as "whatsapp" | "telegram" | "max" | null,
         source: sources.filter((item) => item === "master").length > sources.length / 2 ? "master" : "client",
       }));
 
@@ -744,6 +752,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
           note: card.note,
           telegram: card.telegram,
           max: card.max,
+          preferredMessenger: card.preferredMessenger as "whatsapp" | "telegram" | "max" | null,
           name: card.name || client.name,
         };
       }),
@@ -766,6 +775,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
           note: card.note,
           telegram: card.telegram,
           max: card.max,
+          preferredMessenger: card.preferredMessenger as "whatsapp" | "telegram" | "max" | null,
         })),
     ]
       .filter((client) => (needle ? `${client.name} ${client.phone ?? ""}`.toLowerCase().includes(needle) : true))
@@ -798,6 +808,8 @@ export async function cabinetRoutes(app: FastifyInstance) {
     telegram: z.string().trim().max(80).optional(),
     max: z.string().trim().max(80).optional(),
     note: z.string().trim().max(1000).optional(),
+    /** Каким мессенджером мастер обычно пишет этому клиенту. */
+    preferredMessenger: z.enum(["whatsapp", "telegram", "max"]).nullish(),
   });
 
   type ClientCardResult =
@@ -835,6 +847,9 @@ export async function cabinetRoutes(app: FastifyInstance) {
             telegram: input.telegram || null,
             max: input.max || null,
             note: input.note || null,
+            ...(input.preferredMessenger !== undefined
+              ? { preferredMessenger: input.preferredMessenger ?? null }
+              : {}),
             updatedAt: new Date(),
           })
           .where(eq(masterClients.id, existing.id))
@@ -852,6 +867,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
         telegram: input.telegram || null,
         max: input.max || null,
         note: input.note || null,
+        preferredMessenger: input.preferredMessenger ?? null,
       })
       .returning();
 
@@ -890,6 +906,9 @@ export async function cabinetRoutes(app: FastifyInstance) {
         ...(input.telegram !== undefined ? { telegram: input.telegram || null } : {}),
         ...(input.max !== undefined ? { max: input.max || null } : {}),
         ...(input.note !== undefined ? { note: input.note || null } : {}),
+        ...(input.preferredMessenger !== undefined
+          ? { preferredMessenger: input.preferredMessenger ?? null }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(masterClients.id, id))
@@ -909,6 +928,70 @@ export async function cabinetRoutes(app: FastifyInstance) {
     // Удаляем только карточку-блокнот: записи клиента остаются в истории.
     await db.delete(masterClients).where(eq(masterClients.id, id));
     return { ok: true };
+  });
+
+  /**
+   * «Умная» память мессенджера.
+   *
+   * Окно приветственного сообщения вызывает эту ручку, когда мастер нажал
+   * кнопку мессенджера: выбор запоминается и в карточке клиента у мастера, и в
+   * профиле самого клиента. В следующий раз эта кнопка стоит первой и помечена
+   * звёздочкой — мастеру не нужно искать её заново.
+   */
+  app.post("/cabinet/messenger-preference", masterOnly, async (request, reply) => {
+    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const input = z
+      .object({
+        messenger: z.enum(["whatsapp", "telegram", "max"]),
+        clientId: z.string().trim().optional(),
+        phone: z
+          .string()
+          .trim()
+          .max(25)
+          .transform((value) => (value ? normalizePhone(value) : ""))
+          .optional(),
+      })
+      .parse(request.body ?? {});
+
+    const phone = input.phone || null;
+
+    // Карточка мастера: ищем по id, если он есть, иначе по телефону.
+    let card: typeof masterClients.$inferSelect | null = null;
+    if (input.clientId) {
+      const found = await clientCardById(input.clientId, master.id);
+      if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
+      card = found.card;
+    } else if (phone) {
+      const [byPhone] = await db
+        .select()
+        .from(masterClients)
+        .where(and(eq(masterClients.masterId, master.id), eq(masterClients.phone, phone)))
+        .limit(1);
+      card = byPhone ?? null;
+    }
+
+    if (card) {
+      const [updated] = await db
+        .update(masterClients)
+        .set({ preferredMessenger: input.messenger, updatedAt: new Date() })
+        .where(eq(masterClients.id, card.id))
+        .returning();
+      card = updated ?? card;
+    }
+
+    // Профиль клиента: аккаунт ищем по номеру — он мог быть заведён при записи.
+    let userId: string | null = null;
+    if (phone) {
+      const [user] = await db.select({ id: users.id }).from(users).where(eq(users.phone, phone)).limit(1);
+      if (user) {
+        userId = user.id;
+        await db.update(users).set({ preferredMessenger: input.messenger }).where(eq(users.id, user.id));
+      }
+    }
+
+    return { preferred: input.messenger, clientId: card?.id ?? null, userId };
   });
 
   /**

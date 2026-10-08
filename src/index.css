@@ -1,1 +1,49 @@
 @import "tailwindcss";
+
+@keyframes n2g-soft-pulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 5px 14px rgba(191, 93, 132, 0.12)); }
+  50% { transform: scale(1.07); filter: drop-shadow(0 10px 24px rgba(191, 93, 132, 0.28)); }
+}
+
+@keyframes n2g-text-breathe {
+  0%, 100% { opacity: 0.76; }
+  50% { opacity: 1; }
+}
+
+@keyframes n2g-progress {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(220%); }
+}
+
+.n2g-loader-icon {
+  animation: n2g-soft-pulse 2.2s ease-in-out infinite;
+}
+
+.n2g-loader-text {
+  animation: n2g-text-breathe 2.4s ease-in-out infinite;
+}
+
+.n2g-loader-progress {
+  animation: n2g-progress 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .n2g-loader-icon,
+  .n2g-loader-text,
+  .n2g-loader-progress {
+    animation: none;
+  }
+}
+
+.n2g-magic-root {
+  opacity: 1;
+  transition: opacity 280ms ease;
+}
+
+.n2g-magic-root[data-state="redirecting"] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .n2g-magic-root { transition: none; }
+}

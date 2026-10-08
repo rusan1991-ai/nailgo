@@ -1,5 +1,5 @@
 /**
- * Короткие ссылки мастера: `nailgo.ru/any_nails` и `/masters/any_nails`.
+ * Короткие ссылки мастера: `nail2go.ru/any_nails` и `/masters/any_nails`.
  *
  * Проверяем и правила, и смысл: ссылку выбирает сам мастер в настройках,
  * сервер следит за форматом, занятостью и служебными словами; старая ссылка
@@ -141,7 +141,7 @@ assert(
 const rootPage = makeDom(`/${SHORT}`);
 await wait(1900);
 assert(
-  "адрес вида nailgo.ru/any_nails открывает ту же витрину",
+  "адрес вида nail2go.ru/any_nails открывает ту же витрину",
   rootText(rootPage.dom).includes("Анна Смирнова"),
   rootText(rootPage.dom).slice(0, 90),
 );

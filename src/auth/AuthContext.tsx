@@ -79,6 +79,8 @@ type AuthContextValue = {
   }) => Promise<AuthUser>;
   /** Обновить данные пользователя в сессии (например, после правки имени). */
   updateUser: (patch: Partial<AuthUser>) => void;
+  /** Принять пару токенов, выданную magic-link или OAuth callback. */
+  acceptSession: (response: AuthResponse) => void;
   signOut: () => void;
 };
 
@@ -151,6 +153,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (next) safeStorage.set(AUTH_STORAGE_KEY, JSON.stringify(next));
     else safeStorage.remove(AUTH_STORAGE_KEY);
   }, []);
+
+  const acceptSession = useCallback((response: AuthResponse) => {
+    persist({
+      user: response.user,
+      accessToken: response.accessToken,
+      refreshToken: response.refreshToken,
+    });
+  }, [persist]);
 
   /**
    * Продление сессии по refresh-токену.
@@ -251,6 +261,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!current) return;
         persist({ ...current, user: { ...current.user, ...patch } });
       },
+      acceptSession,
       signOut: () => {
         // Просим сервер забыть refresh-токен: после выхода продлить сессию
         // по сохранённой копии уже нельзя. Ответ не ждём — выходим сразу.
@@ -259,7 +270,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setError(null);
       },
     }),
-    [session, ready, pending, error, persist],
+    [session, ready, pending, error, persist, acceptSession],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -73,7 +73,7 @@ export function AuthCard({
   return (
     <main className="grid min-h-screen place-items-center bg-[#fff7fa] p-4">
       <section className="w-full max-w-[520px] rounded-3xl border border-[#f6dce7] bg-white p-7 shadow-[0_26px_70px_-45px_rgba(236,72,153,0.65)]">
-        <p className="text-sm uppercase tracking-[0.22em] text-pink-500">NailGo</p>
+        <p className="text-sm uppercase tracking-[0.22em] text-pink-500">Nail 2 Go</p>
         <h1 className="mt-3 text-3xl font-semibold text-slate-900">{title}</h1>
         <p className="mt-2 text-slate-500">{subtitle}</p>
         {children}

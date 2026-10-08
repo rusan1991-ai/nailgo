@@ -1,5 +1,5 @@
 /**
- * Identities: связь аккаунта NailGo с внешними учётками.
+ * Identities: связь аккаунта Nail 2 Go с внешними учётками.
  *
  * Раньше аккаунт был равен телефону, а телефон — подтверждался платной SMS.
  * Теперь площадка SMS не покупает: человек входит через Яндекс ID, VK ID или
@@ -182,7 +182,7 @@ export async function signInWithIdentity(
   }
 
   const role = options.role === "master" ? "master" : "client";
-  const fallbackName = role === "master" ? "Мастер NailGo" : "Клиент NailGo";
+  const fallbackName = role === "master" ? "Мастер Nail 2 Go" : "Клиент Nail 2 Go";
   const name = (options.name ?? profile.displayName ?? "").trim() || fallbackName;
 
   const [created] = await db.insert(users).values({ name, role }).returning();

@@ -14,6 +14,8 @@ export type AuthUser = {
   /** Телефон — контакт, а не логин: при входе через мессенджер его может не быть. */
   phone: string | null;
   role?: "client" | "master" | "admin";
+  /** ID профиля мастера из авторизованной сессии. */
+  masterId?: string | null;
   /** slug мастера: заполнен, если пользователь владеет кабинетом. */
   masterSlug?: string | null;
 };

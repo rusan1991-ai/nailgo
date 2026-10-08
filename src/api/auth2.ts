@@ -31,6 +31,7 @@ export type SessionUser = {
   phone: string | null;
   name: string;
   role: "client" | "master" | "admin";
+  masterId: string | null;
   masterSlug: string | null;
   identities?: Identity[];
 };

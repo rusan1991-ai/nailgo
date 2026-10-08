@@ -60,6 +60,8 @@ export type CurrentUser = {
   phone: string | null;
   role: string;
   name: string;
+  /** ID профиля мастера из БД: авторитетный scope для кабинетных запросов. */
+  masterId: string | null;
   /** slug мастера, если пользователь — мастер (кабинет показывает его данные). */
   masterSlug: string | null;
 };
@@ -108,6 +110,7 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
     phone: user.phone,
     role: user.role,
     name: user.name,
+    masterId: master?.id ?? null,
     masterSlug: master?.slug ?? null,
   };
 }

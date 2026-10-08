@@ -41,6 +41,11 @@ const listQuery = z.object({
   to: z.string().optional(),
 });
 
+/** Ручная запись не принимает masterSlug: профиль берётся из авторизованной сессии. */
+const manualBookingSchema = createBookingSchema
+  .omit({ masterSlug: true })
+  .extend({ masterId: z.string().trim().min(1).optional() });
+
 /** Услуга записи — нужна для текста уведомления. */
 async function serviceOf(serviceId: string) {
   const [service] = await db.select().from(services).where(eq(services.id, serviceId)).limit(1);
@@ -131,6 +136,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
     return {
       profile: {
+        id: master.id,
         slug: master.slug,
         name: master.name,
         phone: account?.phone ?? request.currentUser?.phone ?? "",
@@ -386,7 +392,20 @@ export async function cabinetRoutes(app: FastifyInstance) {
    * уже отправил его сам).
    */
   app.post("/cabinet/bookings", masterOnly, async (request, reply) => {
-    const input = createBookingSchema.parse(request.body ?? {});
+    // Идентификатор мастера берём только из авторизованной сессии. Любой
+    // masterSlug из тела запроса игнорируется, чтобы форму нельзя было
+    // переключить на чужой кабинет подменой payload.
+    const masterId = request.currentUser?.masterId ?? null;
+    if (!masterId) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+    const [master] = await db.select().from(masters).where(eq(masters.id, masterId)).limit(1);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const { masterId: requestedMasterId, ...bookingFields } = manualBookingSchema.parse(request.body ?? {});
+    if (requestedMasterId && requestedMasterId !== master.id) {
+      return reply.code(403).send({ error: "forbidden", message: "Нельзя создать запись в кабинете другого мастера" });
+    }
+    // В доменную функцию передаём только профиль, найденный по session master_id.
+    const input = createBookingSchema.parse({ ...bookingFields, masterSlug: master.slug });
     // `now` — дев-параметр (см. `devNow`): в проверках он позволяет поставить
     // запись «как будто сейчас утро», не дожидаясь нужного часа.
     const { row, service, payload } = await createBooking(input, {

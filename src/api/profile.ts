@@ -4,6 +4,7 @@ import { api } from "./client";
 import { useApiResource, type Resource } from "./resource";
 
 export type CabinetProfile = {
+  id: string;
   slug: string;
   name: string;
   phone: string;

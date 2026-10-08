@@ -51,8 +51,7 @@ export type Booking = {
   review?: BookingReview | null;
 };
 
-export type NewBookingInput = {
-  masterSlug: string;
+type NewBookingFields = {
   serviceId: string;
   dateISO: string;
   startMinutes: number;
@@ -62,8 +61,12 @@ export type NewBookingInput = {
   /** Карточка из базы мастера: имя и телефон возьмутся из неё. */
   clientId?: string;
   comment?: string;
-  source?: BookingSource;
 };
+
+/** В ручной записи мастер задаётся только авторизованной сессией. */
+export type NewBookingInput =
+  | (NewBookingFields & { source: "master"; masterId?: string })
+  | (NewBookingFields & { source?: "client"; masterSlug: string });
 
 const CACHE_KEY = "nailgo_bookings_cache_v3";
 
@@ -294,9 +297,14 @@ export function getSnapshot(): State {
 }
 
 export async function createBooking(input: NewBookingInput): Promise<{ booking: Booking; greeting: BookingGreeting | null }> {
-  const path = input.source === "master" ? "/cabinet/bookings" : "/bookings";
+  const isMasterBooking = input.source === "master";
+  const path = isMasterBooking ? "/cabinet/bookings" : "/bookings";
   const response = await api.post<{ booking: ApiBooking; greeting?: BookingGreeting | null }>(path, {
-    masterSlug: input.masterSlug,
+    ...(isMasterBooking
+      ? input.masterId
+        ? { masterId: input.masterId }
+        : {}
+      : { masterSlug: input.masterSlug }),
     serviceId: input.serviceId,
     dateISO: input.dateISO,
     startMinutes: input.startMinutes,

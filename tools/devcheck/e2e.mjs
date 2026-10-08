@@ -18,10 +18,10 @@ const assert = (label, ok, extra = "") => {
   if (!check(label, ok, extra)) failures += 1;
 };
 
-/** Ставим значение нативного select так, как это делает React. */
-function setSelect(dom, index, value) {
-  const select = dom.window.document.querySelectorAll("select")[index];
-  if (!select) throw new Error(`нет select #${index}`);
+/** Ставим значение нативного select по стабильному полю формы. */
+function setSelect(dom, selector, value) {
+  const select = dom.window.document.querySelector(selector);
+  if (!select) throw new Error(`нет select ${selector}`);
   Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, "value").set.call(select, value);
   select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   return select;
@@ -65,6 +65,14 @@ console.log(`Свободное окно для проверки: ${DATE} ${slot
 
 /* 1. Мастер создаёт запись в своём кабинете */
 const master = makeDom("/pro/schedule", { session: masterSession });
+const manualBookingRequests = [];
+const originalFetch = master.window.fetch.bind(master.window);
+master.window.fetch = (input, init) => {
+  if (String(input).includes("/cabinet/bookings") && init?.method === "POST" && typeof init.body === "string") {
+    manualBookingRequests.push(JSON.parse(init.body));
+  }
+  return originalFetch(input, init);
+};
 await wait(1600);
 click(master.dom, "Записать клиента вручную");
 await wait(300);
@@ -72,14 +80,22 @@ assert("модалка ручной записи открылась", rootText(m
 
 setField(master.dom, "Анна Смирнова", "Тест Клиент");
 setField(master.dom, "+7 (999) 123-45-67", PHONE);
-// Первые четыре select — фильтры страницы расписания, дальше идут поля модалки.
-setSelect(master.dom, 4, service.id); // услуга
-setSelect(master.dom, 6, DATE); // дата
-setSelect(master.dom, 7, slot); // время
+const currentMasterId = master.dom.window.document
+  .querySelector("[data-field='manual-booking-master']")
+  ?.getAttribute("data-master-id");
+setSelect(master.dom, "[data-field='manual-booking-service'] select", service.id);
+setSelect(master.dom, "[data-field='manual-booking-date'] select", DATE);
+setSelect(master.dom, "[data-field='manual-booking-time'] select", slot);
 await wait(200);
 click(master.dom, "Создать запись");
 await wait(1200);
 assert("мастер увидел подтверждение создания", rootText(master.dom).includes("Запись создана"));
+const manualPayload = manualBookingRequests[0];
+assert(
+  "POST /cabinet/bookings отправил masterId из сессии без masterSlug",
+  manualBookingRequests.length === 1 && Boolean(currentMasterId) && manualPayload?.masterId === currentMasterId && !("masterSlug" in manualPayload),
+  `${manualPayload?.masterId ?? "нет masterId"} / ${manualPayload?.masterSlug ?? "без masterSlug"}`,
+);
 master.dom.window.close();
 
 /* 2. Запись есть в API у клиента и в кабинете */

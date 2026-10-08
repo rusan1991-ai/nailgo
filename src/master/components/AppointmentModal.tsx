@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, Loader2, MessageCircle, Send, Star, UserPlus, Users } from "lucide-react";
 import { GhostButton, Modal, PersonAvatar, PrimaryButton, Select, TextArea, TextField } from "./ui";
 import { formatMinutes, formatRub } from "../data";
-import { useCatalog, durationLabel } from "../../catalog/store";
-import { cabinetOwnerSlug, createBooking, upcomingDays, parseTimeLabel } from "../../store/bookings";
+import { durationLabel, useCabinetServices } from "../../api/services";
+import { createBooking, upcomingDays, parseTimeLabel } from "../../store/bookings";
 import { createMasterClient, useCabinetClients } from "../../api/cabinet";
+import { useCabinetProfile } from "../../api/profile";
+import { useAuth } from "../../auth/AuthContext";
 import { rememberMessengerPreference, type ShareMessenger } from "../../api/greeting";
 
 /**
@@ -37,8 +39,18 @@ export function AppointmentModal({
   /** Карточка из своей базы: запись пойдёт с `clientId`, имя и телефон — из неё. */
   presetClientId?: string;
 }) {
-  const { masters, services } = useCatalog();
+  const { user } = useAuth();
+  const profileResource = useCabinetProfile();
+  const serviceResource = useCabinetServices();
   const clients = useCabinetClients();
+  const services = useMemo(
+    () => serviceResource.data?.items.filter((item) => item.active) ?? [],
+    [serviceResource.data?.items],
+  );
+  const profile = profileResource.data?.profile;
+  const masterId = profile?.id ?? user?.masterId ?? undefined;
+  const masterName = profile?.name ?? user?.name ?? "Загрузка профиля…";
+  const masterSlug = profile?.slug ?? user?.masterSlug ?? "";
   /**
    * Откуда берём клиента: из своей базы (мастер выбрал карточку) или заводим
    * нового прямо здесь — тогда после записи он сам появится в базе клиентов.
@@ -50,7 +62,6 @@ export function AppointmentModal({
   /** Заметка про ногти и аллергии: сохраняется в карточку вместе с клиентом. */
   const [clientNote, setClientNote] = useState("");
   const [serviceId, setServiceId] = useState("");
-  const [masterSlug, setMasterSlug] = useState(cabinetOwnerSlug);
   const [dateISO, setDateISO] = useState(dates[0]!.iso);
   const [time, setTime] = useState("19:00");
   const [comment, setComment] = useState("");
@@ -60,9 +71,16 @@ export function AppointmentModal({
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  /** Услуги подгружаются из API — выбираем первую, когда каталог приехал. */
+  /**
+   * Прайс приходит из /cabinet/services: сервер уже отфильтровал его по
+   * master_id сессии. Выбираем только активную услугу своего профиля.
+   */
   useEffect(() => {
-    if (!serviceId && services.length > 0) setServiceId(services[1]?.id ?? services[0]!.id);
+    if (services.length === 0) {
+      if (serviceId) setServiceId("");
+      return;
+    }
+    if (!services.some((item) => item.id === serviceId)) setServiceId(services[0]!.id);
   }, [serviceId, services]);
 
   useEffect(() => {
@@ -128,7 +146,13 @@ export function AppointmentModal({
 
   const submit = async () => {
     if (!service) {
-      setError("Каталог услуг ещё не загрузился");
+      setError(
+        serviceResource.error
+          ? `Не удалось загрузить ваш прайс: ${serviceResource.error}`
+          : serviceResource.loading
+            ? "Загружаем ваши услуги…"
+            : "В вашем прайсе нет активных услуг — добавьте услугу перед записью",
+      );
       return;
     }
     // Из базы: имя и телефон сервер возьмёт из карточки, а если телефона в ней
@@ -143,8 +167,8 @@ export function AppointmentModal({
     setError(null);
     try {
       const result = await createBooking({
-        masterSlug,
-        serviceId,
+        masterId,
+        serviceId: service.id,
         dateISO,
         startMinutes: parseTimeLabel(time),
         ...(clientId ? { clientId } : { clientName: clientName.trim(), clientPhone: phone }),
@@ -388,29 +412,57 @@ export function AppointmentModal({
           </>
         )}
 
-        <div className="sm:col-span-2">
+        <div className="sm:col-span-2" data-field="manual-booking-service">
           <p className="mb-1.5 text-xs font-medium text-slate-500">Услуга</p>
           <Select
-            value={serviceId}
+            value={service?.id ?? ""}
             onChange={setServiceId}
-            options={services.map((item) => ({
-              value: item.id,
-              label: `${item.name} · ${durationLabel(item.durationMinutes)} · ${formatRub(item.price)}`,
-            }))}
+            options={
+              services.length > 0
+                ? services.map((item) => ({
+                    value: item.id,
+                    label: `${item.name} · ${durationLabel(item.durationMinutes)} · ${formatRub(item.price)}`,
+                  }))
+                : [{
+                    value: "",
+                    label: serviceResource.loading ? "Загружаем ваши услуги…" : "Нет активных услуг",
+                  }]
+            }
           />
+          {serviceResource.error && (
+            <p className="mt-1.5 text-xs text-rose-600" role="alert">
+              Ваш прайс не загрузился: {serviceResource.error}
+            </p>
+          )}
+          {!serviceResource.loading && serviceResource.data && services.length === 0 && (
+            <p className="mt-1.5 text-xs text-slate-400">Добавьте и включите услугу в разделе «Услуги и цены».</p>
+          )}
         </div>
 
-        <div className="sm:col-span-2">
-          <p className="mb-1.5 text-xs font-medium text-slate-500">Мастер</p>
-          <Select
-            avatarName={masters.find((item) => item.slug === masterSlug)?.name}
-            value={masterSlug}
-            onChange={setMasterSlug}
-            options={masters.map((item) => ({ value: item.slug, label: item.name }))}
-          />
+        <div
+          className="sm:col-span-2"
+          data-field="manual-booking-master"
+          data-master-id={masterId ?? ""}
+          data-master-slug={masterSlug}
+        >
+          <label htmlFor="manual-booking-master-name" className="mb-1.5 block text-xs font-medium text-slate-500">
+            Мастер
+          </label>
+          <div className="flex items-center gap-3">
+            <PersonAvatar name={masterName} size={32} />
+            <input
+              id="manual-booking-master-name"
+              type="text"
+              aria-label="Мастер записи"
+              value={masterName}
+              disabled
+              title="Запись создаётся от имени текущего профиля"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600 disabled:cursor-not-allowed disabled:opacity-100"
+            />
+          </div>
         </div>
 
-        <div>
+        <div data-field="manual-booking-date">
           <p className="mb-1.5 text-xs font-medium text-slate-500">Дата</p>
           <Select
             value={dateISO}
@@ -418,7 +470,7 @@ export function AppointmentModal({
             options={dates.map((day) => ({ value: day.iso, label: `${day.label}, ${day.weekday}` }))}
           />
         </div>
-        <div>
+        <div data-field="manual-booking-time">
           <p className="mb-1.5 text-xs font-medium text-slate-500">Время</p>
           <Select
             value={time}

@@ -40,7 +40,19 @@ console.log(`Демо-данные сброшены: ${JSON.stringify(reset.coun
 
 const profile = await apiAs(master, "/cabinet/profile");
 const masterSlug = profile.data.profile.slug;
+const currentSession = await apiAs(master, "/auth/me");
+const masterId = currentSession.data.user.masterId;
+assert("ID мастера пришёл в авторизованную сессию", Boolean(masterId), masterId);
 const services = await apiAs(master, "/cabinet/services");
+const activeServiceIds = new Set(services.data.items.filter((item) => item.active).map((item) => item.id));
+const publicCatalog = await api("/services");
+const foreignService = publicCatalog.data.items.find((item) => item.masterSlug !== masterSlug);
+assert(
+  "прайс кабинета возвращает только услуги текущего master_id",
+  services.status === 200 && services.data.items.every((item) => item.id.startsWith(`${masterSlug}-`)),
+  `услуг=${services.data.items.length}`,
+);
+assert("в общем каталоге есть услуга для проверки изоляции", Boolean(foreignService), foreignService?.id);
 /** Первое свободное окно дня: слоты витрины уже учитывают длительность услуги. */
 async function firstFreeSlot(dateISO, serviceId, atLeast = 0) {
   const response = await api(`/masters/${masterSlug}/slots?date=${dateISO}&serviceId=${serviceId}`);
@@ -105,9 +117,15 @@ assert("для ручной записи есть свободное окно", 
 
 const manual = await apiAs(master, "/cabinet/bookings", {
   method: "POST",
-  body: { masterSlug, serviceId: service.id, dateISO: fromBaseDay, startMinutes: fromBaseStart, clientId: cardId },
+  // Подменённый slug не должен менять владельца записи: API использует master_id сессии.
+  body: { masterId, masterSlug: "maria-ivanova", serviceId: service.id, dateISO: fromBaseDay, startMinutes: fromBaseStart, clientId: cardId },
 });
 assert("запись клиенту из базы создана", manual.status === 201, `status=${manual.status} ${manual.data?.error ?? ""}`);
+assert(
+  "подменённый masterSlug игнорируется — запись остаётся у текущего мастера",
+  manual.data.booking?.masterSlug === masterSlug && manual.data.booking?.serviceId === service.id,
+  `${manual.data.booking?.masterSlug} / ${manual.data.booking?.serviceId}`,
+);
 assert(
   "имя и телефон взялись из карточки",
   manual.data.booking?.clientName === cardInput.name && manual.data.booking?.clientPhone === "+79995554433",
@@ -115,12 +133,29 @@ assert(
 );
 assert("запись подписана источником «мастер»", manual.data.booking?.source === "master", manual.data.booking?.source);
 
+const wrongMasterId = await apiAs(master, "/cabinet/bookings", {
+  method: "POST",
+  body: {
+    masterId: "not-the-session-master",
+    serviceId: service.id,
+    dateISO: nextWorkingISO(2),
+    startMinutes: (await firstFreeSlot(nextWorkingISO(2), service.id)) ?? 600,
+    clientName: "Чужой Мастер",
+    clientPhone: "+79990007712",
+  },
+});
+assert(
+  "чужой masterId отклоняется до создания записи",
+  wrongMasterId.status === 403 && wrongMasterId.data?.error === "forbidden",
+  `status=${wrongMasterId.status} ${wrongMasterId.data?.error ?? ""}`,
+);
+
 /* --- Ручная запись: новый клиент «на лету» --- */
 
 const onTheFly = await apiAs(master, "/cabinet/bookings", {
   method: "POST",
+  // ID и профиль мастера сервер берёт из сессии, даже если клиент их не прислал.
   body: {
-    masterSlug,
     serviceId: service.id,
     dateISO: nextWorkingISO(1),
     startMinutes: (await firstFreeSlot(nextWorkingISO(1), service.id)) ?? 600,
@@ -274,6 +309,30 @@ assert(
   "в модалке можно выбрать клиента из своей базы",
   (modal?.textContent ?? "").includes("Из моей базы"),
   "переключатель источника клиента",
+);
+const serviceField = schedulePage.dom.window.document.querySelector("[data-field='manual-booking-service']");
+const serviceOptions = [...(serviceField?.querySelectorAll("select option") ?? [])].map((option) => option.value);
+assert(
+  "форма показывает только активные услуги текущего master_id",
+  serviceOptions.length === activeServiceIds.size && serviceOptions.every((id) => activeServiceIds.has(id)),
+  `вариантов=${serviceOptions.length}, своих активных=${activeServiceIds.size}`,
+);
+assert(
+  "чужая услуга отсутствует в форме ручной записи",
+  !serviceOptions.includes(foreignService?.id ?? "__no_foreign_service__"),
+  foreignService?.id,
+);
+const masterField = schedulePage.dom.window.document.querySelector("[data-field='manual-booking-master']");
+const masterInput = masterField?.querySelector("input");
+assert(
+  "в форме указан мастер из текущей сессии",
+  masterField?.getAttribute("data-master-id") === masterId && masterInput?.value === profile.data.profile.name,
+  `${masterField?.getAttribute("data-master-id")} / ${masterInput?.value}`,
+);
+assert(
+  "выбор мастера заблокирован и выпадающего списка нет",
+  masterInput?.disabled === true && !masterField?.querySelector("select"),
+  masterInput?.disabled ? "disabled" : "не заблокировано",
 );
 click(schedulePage.dom, "Из моей базы");
 await wait(400);

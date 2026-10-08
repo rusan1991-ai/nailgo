@@ -59,6 +59,7 @@ async function currentUserView(user: typeof users.$inferSelect) {
     phone: user.phone,
     name: user.name,
     role: user.role,
+    masterId: master?.id ?? null,
     masterSlug: master?.slug ?? null,
     identities: await listIdentities(user.id),
   };

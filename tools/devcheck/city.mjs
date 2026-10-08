@@ -1,0 +1,130 @@
+/**
+ * Город и карта: выбор города при входе и мастера выбранного региона на карте.
+ *
+ * Локальный охват — Санкт-Петербург и Ленинградская область. Карта работает
+ * виджетом Яндекса, пока не задан ключ JavaScript API (VITE_YANDEX_MAPS_KEY):
+ * тогда те же данные показываются списком мастеров рядом с картой.
+ *
+ * Запуск (при живых Vite и API):
+ *   cd tools/devcheck && npm run city
+ */
+import { api, check, click, loginMaster, makeDom, resetDemo, rootText, wait } from "./harness.mjs";
+
+let failures = 0;
+const assert = (label, ok, extra = "") => {
+  if (!check(label, ok, extra)) failures += 1;
+};
+
+const SPB = "Санкт-Петербург";
+const LO = "Ленинградская область";
+
+const master = await loginMaster();
+await resetDemo(master);
+
+/* --- API: регионы и фильтр каталога --- */
+const cities = await api("/cities");
+assert("API отдаёт города для выбора", cities.status === 200 && cities.data.items.length >= 2, `регионов=${cities.data?.items?.length}`);
+
+const spb = cities.data.items.find((item) => item.region === SPB);
+const lo = cities.data.items.find((item) => item.region === LO);
+assert("Санкт-Петербург есть в списке городов", Boolean(spb) && spb.count >= 3, spb ? `мастеров=${spb.count}` : "нет");
+assert("Ленинградская область есть в списке", Boolean(lo) && lo.cities.includes("Всеволожск"), lo ? lo.cities.join(", ") : "нет");
+assert(
+  "у регионов есть центр карты",
+  Boolean(spb?.center) && Math.abs(spb.center.lat - 59.9) < 0.3 && Math.abs(lo.center.lng - 30.6) < 0.3,
+  `СПб=${JSON.stringify(spb?.center)}, ЛО=${JSON.stringify(lo?.center)}`,
+);
+
+const loMasters = await api(`/masters?region=${encodeURIComponent(LO)}`);
+assert(
+  "каталог фильтруется по региону",
+  loMasters.status === 200 &&
+    loMasters.data.items.length > 0 &&
+    loMasters.data.items.every((item) => item.region === LO),
+  `мастеров в ЛО=${loMasters.data?.items?.length}`,
+);
+assert(
+  "у мастеров есть координаты для карты",
+  loMasters.data.items.every((item) => typeof item.lat === "number" && typeof item.lng === "number"),
+  "без координат: " + loMasters.data.items.filter((item) => !item.lat).length,
+);
+
+const spbMasters = await api(`/masters?region=${encodeURIComponent(SPB)}`);
+assert(
+  "в Санкт-Петербурге мастера с координатами",
+  spbMasters.data.items.length >= 3 && spbMasters.data.items.every((item) => item.lat !== null),
+  `мастеров=${spbMasters.data.items.length}`,
+);
+
+/* --- Интерфейс: карта на главной --- */
+const home = makeDom("/", { session: null, storage: {} });
+await wait(1100);
+
+const cityBlock = home.dom.window.document.querySelector("[data-city-block]");
+assert("на главной есть блок выбора города", Boolean(cityBlock));
+const mapBlock = home.dom.window.document.querySelector("[data-city-map]");
+assert("на главной есть карта города", Boolean(mapBlock), mapBlock?.getAttribute("data-city-map") ?? "нет");
+
+const homeText = rootText(home.dom);
+assert("карта открыта на Санкт-Петербурге по умолчанию", homeText.includes(`Мастера: ${SPB}`), homeText.slice(0, 80));
+assert("в списке карты есть мастер из СПб", homeText.includes("Анна Смирнова"));
+
+const iframe = home.dom.window.document.querySelector("iframe[title^='Карта']");
+assert(
+  "карта Яндекса подключена виджетом",
+  Boolean(iframe) && String(iframe.getAttribute("src")).includes("yandex.ru/map-widget"),
+  iframe ? String(iframe.getAttribute("src")).slice(0, 60) : "нет iframe",
+);
+
+const regionButton = home.dom.window.document.querySelector(`[data-region="${LO}"]`);
+assert("в списке городов есть Ленинградская область", Boolean(regionButton));
+regionButton?.dispatchEvent(new home.dom.window.MouseEvent("click", { bubbles: true }));
+await wait(700);
+
+const afterSwitch = rootText(home.dom);
+assert("после выбора Ленобласти карта показывает её мастеров", afterSwitch.includes(`Мастера: ${LO}`), afterSwitch.slice(0, 80));
+
+// Смотрим именно блок карты: каталог на главной тоже фильтруется по региону.
+const mapAfter = home.dom.window.document.querySelector("[data-city-map]");
+const mapSlugs = [...(mapAfter?.querySelectorAll("[data-map-master]") ?? [])].map((node) =>
+  node.getAttribute("data-map-master"),
+);
+assert(
+  "на карте Ленобласти только её мастера",
+  mapSlugs.length === 1 && mapSlugs[0] === "olga-kravtsova",
+  mapSlugs.join(", ") || "пусто",
+);
+assert(
+  "каталог на главной тоже показывает мастеров региона",
+  afterSwitch.includes("Всеволожск") && !afterSwitch.includes("Невский проспект"),
+  afterSwitch.slice(80, 200),
+);
+assert(
+  "выбор города сохранился",
+  home.dom.window.localStorage.getItem("nailgo_region") === LO,
+  String(home.dom.window.localStorage.getItem("nailgo_region")),
+);
+
+/* --- Интерфейс: карта мастеров и переключатель в шапке --- */
+const search = makeDom("/search", { session: null, storage: { nailgo_region: SPB } });
+await wait(1000);
+const searchMap = search.dom.window.document.querySelector("[data-city-map]");
+assert("на странице карты мастеров карта та же", Boolean(searchMap));
+assert("карта на странице поиска открыта на выбранном городе", rootText(search.dom).includes(`Мастера: ${SPB}`));
+
+const headerPick = search.dom.window.document.querySelector("[data-action='city-open']");
+assert("в шапке есть переключатель города", Boolean(headerPick));
+click(search.dom, SPB);
+await wait(200);
+const headerOption = search.dom.window.document.querySelector(`[data-region="${LO}"]`);
+assert("из шапки можно выбрать другой регион", Boolean(headerOption));
+headerOption?.dispatchEvent(new search.dom.window.MouseEvent("click", { bubbles: true }));
+await wait(600);
+assert(
+  "город из шапки применился",
+  search.dom.window.localStorage.getItem("nailgo_region") === LO,
+  String(search.dom.window.localStorage.getItem("nailgo_region")),
+);
+
+console.log(failures === 0 ? "\nГород и карта работают." : `\nПровалено проверок: ${failures}`);
+process.exit(failures === 0 ? 0 : 1);

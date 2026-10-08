@@ -22,6 +22,19 @@ export function isMaster(user: AuthUser | null): boolean {
   return user?.role === "master" || user?.role === "admin";
 }
 
+/** Кем человек вошёл: выбор на экране входа, нужен для регистрации. */
+export type LoginRole = "client" | "master";
+
+/**
+ * Куда ведём после входа: у каждой роли свой кабинет.
+ * Админ попадает в модерацию, мастер — в кабинет, клиент — в «Мой профиль».
+ */
+export function homePath(user: AuthUser | null): string {
+  if (user?.role === "admin") return "/admin/reviews";
+  if (user?.role === "master") return "/pro";
+  return "/account";
+}
+
 type Session = {
   user: AuthUser;
   accessToken?: string;
@@ -49,7 +62,7 @@ type AuthContextValue = {
   pending: boolean;
   error: string | null;
   requestCode: (phone: string) => Promise<RequestCodeResult>;
-  verifyCode: (input: { phone: string; code: string; name?: string }) => Promise<AuthUser>;
+  verifyCode: (input: { phone: string; code: string; name?: string; role?: LoginRole }) => Promise<AuthUser>;
   signOut: () => void;
 };
 
@@ -167,7 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setPending(false);
         }
       },
-      verifyCode: async ({ phone, code, name }) => {
+      verifyCode: async ({ phone, code, name, role }) => {
         setPending(true);
         setError(null);
         try {
@@ -175,6 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             phone: normalizePhone(phone),
             code,
             name,
+            role,
           });
           // Храним оба токена: access — для запросов, refresh — чтобы продлить сессию.
           persist({

@@ -94,6 +94,16 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
   };
 }
 
+/** Админка: только пользователь с ролью admin. */
+export async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
+  if (!request.currentUser) {
+    return reply.code(401).send({ error: "unauthorized", message: "Требуется вход" });
+  }
+  if (request.currentUser.role !== "admin") {
+    return reply.code(403).send({ error: "forbidden", message: "Раздел доступен администратору" });
+  }
+}
+
 /** Кабинет мастера: только пользователь с ролью master (или admin). */
 export async function requireMaster(request: FastifyRequest, reply: FastifyReply) {
   if (!request.currentUser) {

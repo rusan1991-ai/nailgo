@@ -2,6 +2,9 @@ import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AppHeader } from "../components/AppHeader";
+import { CityMap } from "../components/CityMap";
+import { CityPicker } from "../components/CityPicker";
+import { DEFAULT_REGIONS, useCity } from "../city/CityContext";
 import { Avatar, NailStrip } from "../components/NailUi";
 import { formatRub, slots } from "../data/mock";
 import { useCatalog, durationLabel } from "../catalog/store";
@@ -19,6 +22,10 @@ const filters = [
 export function HomePage() {
   const { user } = useAuth();
   const { masters, services } = useCatalog();
+  const { region, chosen } = useCity();
+  const regionInfo = DEFAULT_REGIONS.find((item) => item.region === region) ?? DEFAULT_REGIONS[0];
+  /** Мастера выбранного города: карта показывает именно их. */
+  const regionalMasters = masters.filter((master) => !master.region || master.region === region);
   const defaultServiceId = services[1]?.id ?? services[0]?.id ?? "s1";
   const bookingTarget = `/booking?master=anna-smirnova&service=${defaultServiceId}&date=${demoWeek[0].iso}&slot=19:00`;
   const bookingLink = user ? bookingTarget : `/login?returnTo=${encodeURIComponent(bookingTarget)}`;
@@ -49,7 +56,7 @@ export function HomePage() {
             </div>
             <div className="rounded-2xl border border-[#f3dfe8] p-2 shadow-sm">
               <div className="flex flex-wrap gap-2 sm:flex-nowrap">
-                <button className="rounded-xl border border-[#f3dfe8] px-4 py-3 text-sm font-medium">Москва</button>
+                <CityPicker />
                 <input className="w-full rounded-xl px-4 py-3 text-sm outline-none" placeholder="Услуга, мастер, метро" />
                 <button className="rounded-xl bg-pink-500 px-8 py-3 text-sm font-semibold text-white transition hover:bg-pink-600">
                   Найти
@@ -75,11 +82,15 @@ export function HomePage() {
           <div>
             <div className="mb-3">
               <h2 className="text-3xl font-semibold">Мастера рядом</h2>
-              <p className="text-slate-500">1234 мастера</p>
+              <p className="text-slate-500">
+                {regionalMasters.length > 0
+                  ? `${regionalMasters.length} ${regionalMasters.length === 1 ? "мастер" : "мастера"} в регионе: ${region}`
+                  : `в регионе «${region}» мастеров пока нет`}
+              </p>
             </div>
 
             <div className="space-y-3">
-              {masters.map((master, idx) => (
+              {regionalMasters.map((master, idx) => (
                 <motion.article
                   key={master.slug}
                   initial={{ opacity: 0, x: -14 }}
@@ -103,28 +114,29 @@ export function HomePage() {
                   </div>
                   <div className="mt-3 flex items-center justify-between">
                     <NailStrip />
-                    <p className="text-lg font-semibold">от {formatRub(master.priceFrom)}</p>
+                    <p className="text-lg font-semibold">
+                      {master.priceFrom > 0 ? `от ${formatRub(master.priceFrom)}` : "цена по запросу"}
+                    </p>
                   </div>
                 </motion.article>
               ))}
             </div>
           </div>
 
-          <div className="relative min-h-[620px] overflow-hidden rounded-3xl border border-[#f1dbe4] bg-[linear-gradient(0deg,#eff6ff,#fef3f8)]">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,rgba(236,72,153,0.15),transparent_38%),radial-gradient(circle_at_30%_70%,rgba(59,130,246,0.12),transparent_35%)]" />
-            {["top-[15%] left-[25%]", "top-[24%] right-[30%]", "top-[40%] left-[55%]", "top-[60%] left-[30%]", "top-[75%] right-[20%]"].map(
-              (cls, idx) => (
-                <motion.div
-                  key={cls}
-                  initial={{ scale: 0.9, opacity: 0.7 }}
-                  animate={{ scale: 1, opacity: 1, y: [0, -4, 0] }}
-                  transition={{ duration: 1.8, repeat: Infinity, delay: idx * 0.2 }}
-                  className={`absolute ${cls} grid h-11 w-11 place-items-center rounded-full bg-pink-500 text-sm font-semibold text-white shadow-lg shadow-pink-300`}
-                >
-                  {idx + 6}
-                </motion.div>
-              ),
+          <div className="space-y-3" data-city-block>
+            {!chosen && (
+              <p className="rounded-2xl bg-[#fff4f8] px-4 py-3 text-sm text-slate-600">
+                Выбрали {region} — мастера этого региона на карте и в выдаче. Город можно переключить здесь.
+              </p>
             )}
+            <CityPicker variant="wide" />
+            <CityMap
+              masters={regionalMasters}
+              center={regionInfo.center}
+              zoom={regionInfo.cities.length > 1 ? 9 : 11}
+              height={430}
+              title={`Мастера: ${region}`}
+            />
           </div>
 
           <motion.aside

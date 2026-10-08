@@ -20,7 +20,8 @@ export type NotificationType =
   | "message"
   | "review_created"
   | "review_replied"
-  | "review_published";
+  | "review_published"
+  | "review_hidden";
 
 type BookingRow = typeof schema.bookings.$inferSelect;
 

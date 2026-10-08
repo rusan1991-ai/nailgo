@@ -9,6 +9,8 @@ export const ORIGIN = process.env.NAILGO_ORIGIN ?? "http://127.0.0.1:5173";
 
 /** Демо-мастер из сидов API: его номер открывает кабинет /pro. */
 export const MASTER_PHONE = "+79990000001";
+/** Демо-администратор: только он публикует и скрывает отзывы. */
+export const ADMIN_PHONE = "+79990000009";
 export const BUNDLE = fs.readFileSync(new URL("./bundle.js", import.meta.url), "utf8");
 
 export const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -167,6 +169,11 @@ export async function apiAs(session, path, init) {
 /** Сессия мастера — для страниц кабинета, закрытых ролевым гейтом. */
 export async function loginMaster() {
   return login(MASTER_PHONE, "Анна Смирнова");
+}
+
+/** Сессия администратора — для модерации отзывов и админских ручек. */
+export async function loginAdmin() {
+  return login(ADMIN_PHONE, "Администратор NailGo");
 }
 
 /** Вход по коду: возвращает сессию для localStorage. */

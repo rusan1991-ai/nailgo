@@ -18,9 +18,13 @@ const mastersSeed = [
     tags: "Маникюр, Наращивание, Дизайн",
     about:
       "Мастер маникюра и педикюра с опытом более 5 лет. Качественный уход, стерильные инструменты и индивидуальный подход к каждому клиенту.",
-    metro: "м. Тверская",
+    metro: "м. Маяковская",
     distance: "300 м",
-    address: "ул. Тверская, 30",
+    address: "Невский проспект, 112",
+    city: "Санкт-Петербург",
+    region: "Санкт-Петербург",
+    lat: 59.9311,
+    lng: 30.3609,
     priceFrom: 1500,
     experience: "6 лет",
     rating: 4.9,
@@ -31,9 +35,13 @@ const mastersSeed = [
     name: "Екатерина Власова",
     tags: "Маникюр, Педикюр",
     about: "Спокойный темп, аккуратная работа и покрытие, которое держится долго.",
-    metro: "м. Пушкинская",
+    metro: "м. Петроградская",
     distance: "450 м",
-    address: "ул. Пушкинская, 45",
+    address: "Большой проспект П.С., 34",
+    city: "Санкт-Петербург",
+    region: "Санкт-Петербург",
+    lat: 59.9606,
+    lng: 30.3090,
     priceFrom: 1800,
     experience: "4 года",
     rating: 5,
@@ -44,9 +52,13 @@ const mastersSeed = [
     name: "Мария Иванова",
     tags: "Маникюр, Педикюр",
     about: "Люблю сложные формы и чистые блики. Работаю с укреплением и ремонтом.",
-    metro: "м. Чеховская",
+    metro: "м. Московская",
     distance: "600 м",
-    address: "ул. Малая Дмитровка, 12",
+    address: "Московский проспект, 205",
+    city: "Санкт-Петербург",
+    region: "Санкт-Петербург",
+    lat: 59.856,
+    lng: 30.32,
     priceFrom: 1400,
     experience: "5 лет",
     rating: 4.8,
@@ -57,9 +69,13 @@ const mastersSeed = [
     name: "Ольга Кравцова",
     tags: "Наращивание, Дизайн",
     about: "Наращивание гелем, коррекции и авторский дизайн.",
-    metro: "м. Цветной бульвар",
+    metro: "г. Всеволожск",
     distance: "700 м",
-    address: "Цветной бульвар, 8",
+    address: "Всеволожский проспект, 72",
+    city: "Всеволожск",
+    region: "Ленинградская область",
+    lat: 60.0205,
+    lng: 30.636,
     priceFrom: 2000,
     experience: "3 года",
     rating: 4.9,
@@ -83,7 +99,8 @@ const servicesSeed = [
 /** Демо-неделя: 20 мая 2024 — понедельник. */
 const weekStart = new Date(2024, 4, 20);
 /** Телефон владелицы кабинета: вход по нему открывает /pro. */
-export const DEMO_MASTER_PHONE = "+79990000001";
+export const DEMO_ADMIN_PHONE = "+79990000009";
+const DEMO_MASTER_PHONE = "+79990000001";
 
 const at = (dayOffset: number, minutes: number) => {
   const date = new Date(weekStart);
@@ -225,6 +242,12 @@ export async function seed() {
   if (owner && masterUser) {
     await db.update(masters).set({ userId: masterUser.id }).where(eq(masters.id, owner.id));
   }
+
+  // Аккаунт модератора: отзывы публикует администратор, не мастер.
+  await db
+    .insert(users)
+    .values({ phone: DEMO_ADMIN_PHONE, name: "Администратор NailGo", role: "admin" })
+    .onConflictDoUpdate({ target: users.phone, set: { role: "admin", name: "Администратор NailGo" } });
   const masterBySlug = new Map(masterRows.map((row) => [row.slug, row.id]));
 
   await db.insert(services).values(servicesSeed);

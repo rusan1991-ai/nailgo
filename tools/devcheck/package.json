@@ -12,7 +12,9 @@
     "stats": "node stats-settings.mjs",
     "session": "node session.mjs",
     "reviews": "node reviews.mjs",
-    "reschedule": "node reschedule.mjs"
+    "reschedule": "node reschedule.mjs",
+    "roles": "node roles.mjs",
+    "city": "node city.mjs"
   },
   "dependencies": {
     "jsdom": "^30.1.2"

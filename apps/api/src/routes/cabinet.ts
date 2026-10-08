@@ -9,7 +9,6 @@ import { serializeBooking } from "../lib/serialize.js";
 import { requireAuth, requireMaster } from "../lib/auth.js";
 import { createBooking, createBookingSchema, rescheduleSchema, rescheduleBooking, withRelations } from "./bookings.js";
 import { notifyBookingEvent, notifyClient } from "../lib/notify.js";
-import { recalcMasterRating } from "../lib/reviews.js";
 
 const listQuery = z.object({
   status: z.enum(["all", "pending", "confirmed", "completed", "cancelled"]).optional(),
@@ -462,42 +461,6 @@ export async function cabinetRoutes(app: FastifyInstance) {
         hidden: rows.filter((review) => review.status === "hidden").length,
       },
     };
-  });
-
-  /** Модерация отзыва: опубликовать, скрыть или вернуть на модерацию. */
-  app.post("/cabinet/reviews/:id/moderate", masterOnly, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const { status } = z.object({ status: z.enum(["published", "moderation", "hidden"]) }).parse(request.body ?? {});
-
-    const masterSlug = request.currentUser!.masterSlug;
-    const [master] = masterSlug
-      ? await db.select().from(masters).where(eq(masters.slug, masterSlug)).limit(1)
-      : [];
-
-    const [review] = await db.select().from(reviews).where(eq(reviews.id, id)).limit(1);
-    if (!review) return reply.code(404).send({ error: "not_found", message: "Отзыв не найден" });
-    if (!master || review.masterId !== master.id) {
-      return reply.code(403).send({ error: "forbidden", message: "Это отзыв другого мастера" });
-    }
-
-    await db.update(reviews).set({ status }).where(eq(reviews.id, id));
-
-    // Рейтинг мастера живёт по опубликованным отзывам — пересчитываем сразу.
-    const rating = await recalcMasterRating(review.masterId);
-
-    // Клиент узнаёт о решении: опубликован отзыв или снят с публикации.
-    if (review.clientPhone && review.status !== status) {
-      await notifyClient(review.clientPhone, {
-        type: "review_published",
-        title: status === "published" ? "Ваш отзыв опубликован" : "Отзыв снят с публикации",
-        body:
-          status === "published"
-            ? `${review.service} · оценка ${review.score}/5. Спасибо за отзыв!`
-            : `${review.service} · мастер скрыл отзыв из витрины`,
-      });
-    }
-
-    return { ok: true, id, status, rating };
   });
 
   /** Пересоздать демо-данные (только вне прода). */

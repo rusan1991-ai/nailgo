@@ -5,12 +5,26 @@ import { ClientShell } from "../components/ClientShell";
 import { Avatar } from "../components/NailUi";
 import { formatRub } from "../data/mock";
 import { useCatalog } from "../catalog/store";
+import { CityMap } from "../components/CityMap";
+import { CityPicker } from "../components/CityPicker";
+import { DEFAULT_REGIONS, useCity } from "../city/CityContext";
 
 export function SearchMapPage() {
   const [mode, setMode] = useState<"list" | "map">("list");
 
   const { masters } = useCatalog();
-  const cards = useMemo(() => masters.slice(0, 4), [masters]);
+  const { region } = useCity();
+  const regionInfo = DEFAULT_REGIONS.find((item) => item.region === region) ?? DEFAULT_REGIONS[0];
+  /** Сначала мастера выбранного города, потом остальные — карта показывает первых. */
+  const sorted = useMemo(() => {
+    const regional = masters.filter((master) => !master.region || master.region === region);
+    return [...regional, ...masters.filter((master) => !regional.includes(master))];
+  }, [masters, region]);
+  const cards = useMemo(() => sorted.slice(0, 4), [sorted]);
+  const regionalMasters = useMemo(
+    () => masters.filter((master) => !master.region || master.region === region),
+    [masters, region],
+  );
 
   return (
     <ClientShell title="Карта мастеров">
@@ -67,7 +81,9 @@ export function SearchMapPage() {
                       {master.metro}, {master.distance}
                     </p>
                   </div>
-                  <p className="text-sm font-semibold">от {formatRub(master.priceFrom)}</p>
+                  <p className="text-sm font-semibold">
+                    {master.priceFrom > 0 ? `от ${formatRub(master.priceFrom)}` : "цена по запросу"}
+                  </p>
                 </div>
                 <div className="mt-2 flex gap-1 text-xs">
                   {["17:00", "18:30", "20:00"].map((time) => (
@@ -84,20 +100,15 @@ export function SearchMapPage() {
             ))}
           </div>
 
-          <div className={`relative min-h-[620px] overflow-hidden rounded-3xl border border-[#f1dbe4] bg-[linear-gradient(0deg,#eff6ff,#fef3f8)] ${mode === "map" ? "xl:order-1" : ""}`}>
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,rgba(236,72,153,0.15),transparent_38%),radial-gradient(circle_at_30%_70%,rgba(59,130,246,0.12),transparent_35%)]" />
-            {["top-[16%] left-[24%]", "top-[27%] right-[31%]", "top-[40%] left-[58%]", "top-[63%] left-[36%]", "top-[74%] right-[19%]"].map(
-              (cls, idx) => (
-                <motion.div
-                  key={cls}
-                  animate={{ y: [0, -4, 0], scale: [1, 1.04, 1] }}
-                  transition={{ duration: 2, repeat: Infinity, delay: idx * 0.15 }}
-                  className={`absolute ${cls} grid h-11 w-11 place-items-center rounded-full bg-pink-500 text-sm font-semibold text-white shadow-lg shadow-pink-300`}
-                >
-                  {idx + 7}
-                </motion.div>
-              ),
-            )}
+          <div className={`space-y-3 ${mode === "map" ? "xl:order-1" : ""}`}>
+            <CityPicker variant="wide" />
+            <CityMap
+              masters={regionalMasters}
+              center={regionInfo.center}
+              zoom={regionInfo.cities.length > 1 ? 9 : 11}
+              height={520}
+              title={`Мастера: ${region}`}
+            />
           </div>
         </div>
       </div>

@@ -6,6 +6,7 @@ import { db } from "../db/index.js";
 import { masters, otpCodes, sessions, users } from "../db/schema.js";
 import { env, isDev } from "../env.js";
 import { requireAuth, signAccessToken, signRefreshToken, verifyRefreshToken } from "../lib/auth.js";
+import { slugify } from "../lib/slug.js";
 
 const phoneSchema = z
   .string()
@@ -18,6 +19,35 @@ const phoneSchema = z
 async function currentUserView(id: string, phone: string, name: string, role: string) {
   const [master] = await db.select().from(masters).where(eq(masters.userId, id)).limit(1);
   return { id, phone, name, role, masterSlug: master?.slug ?? null };
+}
+
+/**
+ * Профиль мастера для нового кабинета: без него кабинету не с чем работать.
+ * Slug делаем из имени, а если такой уже занят — добавляем номер.
+ */
+async function ensureMasterProfile(userId: string, name: string): Promise<void> {
+  const [existing] = await db.select().from(masters).where(eq(masters.userId, userId)).limit(1);
+  if (existing) return;
+
+  const base = slugify(name);
+  let slug = base;
+  for (let attempt = 2; attempt < 50; attempt += 1) {
+    const [taken] = await db.select({ id: masters.id }).from(masters).where(eq(masters.slug, slug)).limit(1);
+    if (!taken) break;
+    slug = `${base}-${attempt}`;
+  }
+
+  await db.insert(masters).values({
+    slug,
+    userId,
+    name,
+    tags: "Маникюр",
+    metro: "Не указано",
+    distance: "—",
+    // Цену и услуги мастер укажет сам: в каталоге такие карточки подписаны «цена по запросу».
+    priceFrom: 0,
+    experience: "Не указано",
+  });
 }
 
 function generateCode(): string {
@@ -102,11 +132,14 @@ export async function authRoutes(app: FastifyInstance) {
 
   /** Проверка кода: при первом входе создаём пользователя, выдаём токены. */
   app.post("/auth/verify-otp", async (request, reply) => {
-    const { phone, code, name } = z
+    const { phone, code, name, role: requestedRole } = z
       .object({
         phone: phoneSchema,
         code: z.string().trim().regex(/^\d{4}$/, "Код из 4 цифр"),
         name: z.string().trim().min(2).max(80).optional(),
+        // Кем человек входит: выбор на экране входа. Для нового номера это роль
+        // регистрации, для существующего — только пожелание (свою роль не теряет).
+        role: z.enum(["client", "master"]).optional(),
       })
       .parse(request.body ?? {});
 
@@ -126,9 +159,28 @@ export async function authRoutes(app: FastifyInstance) {
     await db.update(otpCodes).set({ consumed: true }).where(eq(otpCodes.id, otp.id));
 
     const [existing] = await db.select().from(users).where(eq(users.phone, phone)).limit(1);
-    const user = existing
+    let user = existing
       ? (await db.update(users).set({ name: name ?? existing.name }).where(eq(users.id, existing.id)).returning())[0]!
-      : (await db.insert(users).values({ phone, name: name ?? "Клиент NailGo", role: "client" }).returning())[0]!;
+      : (
+          await db
+            .insert(users)
+            .values({
+              phone,
+              name: name ?? (requestedRole === "master" ? "Мастер NailGo" : "Клиент NailGo"),
+              role: requestedRole ?? "client",
+            })
+            .returning()
+        )[0]!;
+
+    // Клиент, который выбрал «я мастер», получает кабинет: роль поднимаем,
+    // профиль мастера создаём. Понижать роль мастера клиентским входом нельзя —
+    // иначе кабинет с записями и услугами остался бы без владельца.
+    if (requestedRole === "master" && user.role === "client") {
+      user = (await db.update(users).set({ role: "master" }).where(eq(users.id, user.id)).returning())[0]!;
+    }
+    if (user.role === "master") {
+      await ensureMasterProfile(user.id, user.name);
+    }
 
     const payload = { sub: user.id, phone: user.phone, role: user.role };
     const refreshToken = await openSession(user);

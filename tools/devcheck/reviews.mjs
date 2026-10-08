@@ -15,6 +15,7 @@ import {
   click,
   clickActionIn,
   login,
+  loginAdmin,
   loginMaster,
   makeDom,
   resetDemo,
@@ -34,6 +35,7 @@ const CLIENT_NAME = "Мария Петрова";
 const MASTER_SLUG = "anna-smirnova";
 
 const master = await loginMaster();
+const admin = await loginAdmin();
 await resetDemo(master);
 
 /* --- Витрина: наружу только опубликованные отзывы, с ответом мастера --- */
@@ -112,18 +114,46 @@ const bookingsAfter = await apiAs(client, "/bookings");
 const withReview = bookingsAfter.data.items.find((item) => item.id === completed[0].id);
 assert("запись показывает статус оставленного отзыва", withReview?.review?.status === "moderation", withReview?.review?.status);
 
-/* --- API: модерация и пересчёт рейтинга --- */
+/* --- API: модерация на стороне администратора --- */
 const cabinet = await apiAs(master, "/cabinet/reviews?status=all");
 const moderated = cabinet.data.items.find((item) => item.id === reviewId);
 assert("отзыв дошёл до кабинета мастера", Boolean(moderated), `отзывов в кабинете=${cabinet.data?.total}`);
 
-const published = await apiAs(master, `/cabinet/reviews/${reviewId}/moderate`, {
+// Мастер не решает судьбу отзыва: ручки модерации у него нет вовсе.
+const masterModerate = await apiAs(master, `/cabinet/reviews/${reviewId}/moderate`, {
   method: "POST",
   body: { status: "published" },
 });
-assert("мастер публикует отзыв", published.status === 200, `status=${published.status}`);
+assert(
+  "мастер не может публиковать отзывы",
+  masterModerate.status === 404 || masterModerate.status === 403,
+  `status=${masterModerate.status}`,
+);
 
-const cardAfter = await api(masterCard && `/masters/${MASTER_SLUG}`);
+const clientModerate = await apiAs(client, `/admin/reviews/${reviewId}/moderate`, {
+  method: "POST",
+  body: { status: "published" },
+});
+assert("клиенту админка недоступна", clientModerate.status === 403, `status=${clientModerate.status}`);
+
+const queue = await apiAs(admin, "/admin/reviews?status=moderation");
+assert(
+  "отзыв ждёт решения администратора",
+  queue.status === 200 && queue.data.items.some((item) => item.id === reviewId),
+  `в очереди=${queue.data?.items?.length}`,
+);
+
+const published = await apiAs(admin, `/admin/reviews/${reviewId}/moderate`, {
+  method: "POST",
+  body: { status: "published" },
+});
+assert(
+  "администратор публикует отзыв",
+  published.status === 200 && published.data.status === "published",
+  `status=${published.status}, решение=${published.data?.status}`,
+);
+
+const cardAfter = await api(`/masters/${MASTER_SLUG}`);
 const expectedAverage = Number(
   (cardAfter.data.reviews.reduce((sum, item) => sum + item.score, 0) / cardAfter.data.reviews.length).toFixed(1),
 );
@@ -136,6 +166,33 @@ assert(
   "опубликованный отзыв появился в карточке мастера",
   cardAfter.data.reviews.some((item) => item.id === reviewId),
   `отзывов=${cardAfter.data.reviewsCount}`,
+);
+
+// Скрытие тоже пересчитывает рейтинг: негатив уходит из витрины только решением модератора.
+const hidden = await apiAs(admin, `/admin/reviews/${reviewId}/moderate`, {
+  method: "POST",
+  body: { status: "hidden" },
+});
+const cardHidden = await api(`/masters/${MASTER_SLUG}`);
+assert(
+  "скрытый отзыв уходит из витрины и меняет рейтинг",
+  hidden.status === 200 &&
+    !cardHidden.data.reviews.some((item) => item.id === reviewId) &&
+    cardHidden.data.rating === hidden.data.rating.rating,
+  `рейтинг=${cardHidden.data.rating}, отзывов=${cardHidden.data.reviewsCount}`,
+);
+
+const publishedAgain = await apiAs(admin, `/admin/reviews/${reviewId}/moderate`, {
+  method: "POST",
+  body: { status: "published" },
+});
+assert("администратор возвращает отзыв в витрину", publishedAgain.status === 200, `status=${publishedAgain.status}`);
+
+const summary = await apiAs(admin, "/admin/summary");
+assert(
+  "сводка админки считает очередь модерации",
+  summary.status === 200 && typeof summary.data.byStatus?.moderation === "number",
+  JSON.stringify(summary.data?.byStatus),
 );
 
 /* --- API: ответ мастера --- */

@@ -81,14 +81,6 @@ export function useCabinetReviews(status?: string): Resource<CabinetReviews> {
   return useApiResource<CabinetReviews>(`/cabinet/reviews${query}`);
 }
 
-/** Модерация отзыва: опубликовать, скрыть или отправить на модерацию. */
-export async function moderateReview(
-  id: string,
-  status: CabinetReview["status"],
-): Promise<void> {
-  await api.post(`/cabinet/reviews/${id}/moderate`, { status });
-}
-
 /** Ответ мастера на отзыв. Пустая строка — снять ранее оставленный ответ. */
 export async function replyToReview(id: string, text: string): Promise<{ replyText: string | null }> {
   return api.post<{ replyText: string | null }>(`/cabinet/reviews/${id}/reply`, { text });

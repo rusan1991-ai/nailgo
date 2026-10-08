@@ -18,6 +18,11 @@ export type Master = {
   priceFrom: number;
   experience: string;
   address?: string;
+  /** Город и регион — по ним работает выбор города и карта. */
+  city?: string;
+  region?: string;
+  lat?: number | null;
+  lng?: number | null;
 };
 
 export type Service = {
@@ -64,6 +69,10 @@ const fallback: Pick<State, "masters" | "services"> = {
     priceFrom: master.priceFrom,
     experience: master.experience,
     address: undefined,
+    city: "city" in master ? (master.city as string) : undefined,
+    region: "region" in master ? (master.region as string) : undefined,
+    lat: "lat" in master ? (master.lat as number) : null,
+    lng: "lng" in master ? (master.lng as number) : null,
   })),
   services: mockServices.map((service) => ({
     id: service.id,

@@ -5,7 +5,7 @@
  * Запуск (из корня репозитория, при живых Vite и API):
  *   node tools/devcheck/cabinet-data.mjs
  */
-import { api, apiAs, check, clickActionIn, login, loginMaster, makeDom, resetDemo, rootText, wait } from "./harness.mjs";
+import { api, apiAs, check, clickActionIn, login, loginAdmin, loginMaster, makeDom, resetDemo, rootText, wait } from "./harness.mjs";
 
 const MONTH = "2024-05";
 
@@ -103,27 +103,45 @@ assert(
 assert("на странице нет ошибок", reviewsPage.errors.length === 0 && reviewsPage.consoleErrors.length === 0, reviewsPage.errors[0] ?? "");
 reviewsPage.dom.window.close();
 
-// Модерация проверяется на любом отзыве: сначала возвращаем его на модерацию
-// через API, затем публикуем из интерфейса — проверка не зависит от прошлых прогонов.
+// Модерация — на администраторе: мастер отзывы публиковать не может.
+// Возвращаем отзыв на проверку и публикуем его уже из админки.
+const admin = await loginAdmin();
 const toModerate = reviews.data.items[0];
-await apiAs(master, `/cabinet/reviews/${toModerate.id}/moderate`, {
+await apiAs(admin, `/admin/reviews/${toModerate.id}/moderate`, {
   method: "POST",
   body: { status: "moderation" },
 });
-const moderated = { ...toModerate, status: "moderation" };
-if (moderated) {
-  const page = makeDom("/pro/reviews", { session: master });
-  await wait(1800);
-  const clicked = clickActionIn(page.dom, moderated.text, "Опубликовать");
-  assert("кнопка «Опубликовать» найдена в карточке отзыва", clicked, moderated.clientName);
-  await wait(1500);
-  const after = await apiAs(master, "/cabinet/reviews");
-  const updated = after.data.items.find((review) => review.id === moderated.id);
-  assert("публикация отзыва дошла до базы", updated?.status === "published", updated?.status);
-  page.dom.window.close();
-} else {
-  assert("есть отзыв на модерации для проверки", false, "в сидах нет отзыва со статусом moderation");
-}
+
+const masterPage = makeDom("/pro/reviews", { session: master });
+await wait(1600);
+const masterButtons = [...masterPage.dom.window.document.querySelectorAll("button")].map((button) =>
+  (button.textContent ?? "").trim(),
+);
+assert(
+  "в кабинете мастера нет кнопок публикации",
+  !masterButtons.includes("Опубликовать") && !masterButtons.includes("Скрыть"),
+  masterButtons.filter((label) => label === "Опубликовать" || label === "Скрыть").join(", ") || "нет",
+);
+assert(
+  "мастер видит пояснение про модератора",
+  rootText(masterPage.dom).includes("Публикует отзывы администратор"),
+);
+masterPage.dom.window.close();
+
+const adminPage = makeDom("/admin/reviews", { session: admin });
+await wait(1800);
+const clicked = clickActionIn(adminPage.dom, toModerate.text, "Опубликовать");
+assert("кнопка «Опубликовать» найдена в админке", clicked, toModerate.clientName);
+await wait(1500);
+const after = await apiAs(admin, "/admin/reviews");
+const updated = after.data.items.find((review) => review.id === toModerate.id);
+assert("публикация отзыва дошла до базы", updated?.status === "published", updated?.status);
+assert(
+  "решение модератора видно в кабинете мастера",
+  updated?.status === "published" && after.data.byStatus.moderation >= 0,
+  `ждёт модерации: ${after.data.byStatus.moderation}`,
+);
+adminPage.dom.window.close();
 
 /* --- Клиентская витрина отзывов: только опубликованные --- */
 const publicReviews = await api("/reviews?limit=20");

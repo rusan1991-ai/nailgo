@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { Avatar } from "./NailUi";
+import { CityPicker } from "./CityPicker";
 
 const links = [
   { to: "/", label: "Главная" },
@@ -59,7 +60,7 @@ export function ClientShell({ title, children }: { title: string; children: Reac
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#f6e7ed] pb-4">
             <h1 className="text-3xl font-semibold">{title}</h1>
             <div className="flex items-center gap-2">
-              <button className="rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600">Москва</button>
+              <CityPicker />
               <input
                 className="w-52 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm outline-none transition focus:border-pink-300"
                 placeholder="Поиск"

@@ -4,6 +4,7 @@ import { ZodError } from "zod";
 import { env, isDev } from "./env.js";
 import { closeDb, db, pingDb, runMigrations } from "./db/index.js";
 import { masters, bookings } from "./db/schema.js";
+import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { BookingError, bookingRoutes } from "./routes/bookings.js";
 import { cabinetRoutes } from "./routes/cabinet.js";
@@ -63,6 +64,7 @@ export async function buildServer() {
       await instance.register(catalogRoutes);
       await instance.register(bookingRoutes);
       await instance.register(cabinetRoutes);
+      await instance.register(adminRoutes);
       await instance.register(authRoutes);
       await instance.register(notificationRoutes);
       await instance.register(messageRoutes);

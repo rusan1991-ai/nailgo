@@ -10,6 +10,8 @@ import { atMinutes, freeSlots, minutesOfDay, parseISODate, toISODate, weekdayInd
 const listQuery = z.object({
   query: z.string().trim().optional(),
   service: z.string().trim().optional(),
+  /** Регион выбора на входе: «Санкт-Петербург» или «Ленинградская область». */
+  region: z.string().trim().optional(),
 });
 
 const slotsQuery = z.object({
@@ -20,7 +22,7 @@ const slotsQuery = z.object({
 export async function catalogRoutes(app: FastifyInstance) {
   /** Каталог мастеров с поиском по имени, тегам и метро. */
   app.get("/masters", async (request) => {
-    const { query, service } = listQuery.parse(request.query ?? {});
+    const { query, service, region } = listQuery.parse(request.query ?? {});
     const needle = query?.toLowerCase();
     const serviceNeedle = service?.toLowerCase();
 
@@ -34,6 +36,7 @@ export async function catalogRoutes(app: FastifyInstance) {
             if (!haystack.includes(needle)) return false;
           }
           if (serviceNeedle && !master.tags.toLowerCase().includes(serviceNeedle)) return false;
+          if (region && region !== "all" && master.region !== region) return false;
           return true;
         })
         .map((master) => ({
@@ -44,11 +47,55 @@ export async function catalogRoutes(app: FastifyInstance) {
           metro: master.metro,
           distance: master.distance,
           address: master.address,
+          city: master.city,
+          region: master.region,
+          lat: master.lat,
+          lng: master.lng,
           priceFrom: master.priceFrom,
           experience: master.experience,
           rating: master.rating,
           reviewsCount: master.reviewsCount,
         })),
+    };
+  });
+
+  /**
+   * Города для выбора на входе: регионы с числом мастеров и центром карты.
+   * Центр — средняя точка мастеров региона, чтобы карта открывалась на них,
+   * а не на случайных координатах.
+   */
+  app.get("/cities", async () => {
+    const rows = await db
+      .select({ region: masters.region, city: masters.city, lat: masters.lat, lng: masters.lng })
+      .from(masters);
+
+    const regions = new Map<string, { region: string; count: number; cities: Set<string>; points: { lat: number; lng: number }[] }>();
+    for (const row of rows) {
+      const entry = regions.get(row.region) ?? {
+        region: row.region,
+        count: 0,
+        cities: new Set<string>(),
+        points: [],
+      };
+      entry.count += 1;
+      entry.cities.add(row.city);
+      if (row.lat !== null && row.lng !== null) entry.points.push({ lat: row.lat, lng: row.lng });
+      regions.set(row.region, entry);
+    }
+
+    return {
+      items: [...regions.values()].map((entry) => ({
+        region: entry.region,
+        count: entry.count,
+        cities: [...entry.cities].sort(),
+        center:
+          entry.points.length > 0
+            ? {
+                lat: Number((entry.points.reduce((sum, point) => sum + point.lat, 0) / entry.points.length).toFixed(4)),
+                lng: Number((entry.points.reduce((sum, point) => sum + point.lng, 0) / entry.points.length).toFixed(4)),
+              }
+            : null,
+      })),
     };
   });
 
@@ -79,6 +126,10 @@ export async function catalogRoutes(app: FastifyInstance) {
       metro: master.metro,
       distance: master.distance,
       address: master.address,
+      city: master.city,
+      region: master.region,
+      lat: master.lat,
+      lng: master.lng,
       priceFrom: master.priceFrom,
       experience: master.experience,
       rating: master.rating,

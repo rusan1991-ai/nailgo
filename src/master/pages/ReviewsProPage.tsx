@@ -14,37 +14,22 @@ import {
   type ChipTone,
 } from "../components/ui";
 import { reviewRows } from "../data";
-import { moderateReview, replyToReview, useCabinetReviews, type CabinetReview } from "../../api/cabinet";
+import { replyToReview, useCabinetReviews, type CabinetReview } from "../../api/cabinet";
 import { formatDateLabel } from "../../store/bookings";
-import { cn } from "../../utils/cn";
 
 type ReviewStatus = CabinetReview["status"];
 
 const reviewStatus: Record<ReviewStatus, { label: string; tone: ChipTone }> = {
   published: { label: "Опубликован", tone: "green" },
-  moderation: { label: "На модерации", tone: "amber" },
-  hidden: { label: "Скрыт", tone: "red" },
+  moderation: { label: "На модерации у администратора", tone: "amber" },
+  hidden: { label: "Скрыт модератором", tone: "red" },
 };
 
-/** Кнопки зависят от статуса: то, что уже сделано, повторять не предлагаем. */
-function actionsFor(status: ReviewStatus): { status: ReviewStatus; label: string; tone: "primary" | "ghost" | "danger" }[] {
-  if (status === "moderation") {
-    return [
-      { status: "published", label: "Опубликовать", tone: "primary" },
-      { status: "hidden", label: "Скрыть", tone: "danger" },
-    ];
-  }
-  if (status === "published") {
-    return [
-      { status: "hidden", label: "Скрыть", tone: "danger" },
-      { status: "moderation", label: "На модерацию", tone: "ghost" },
-    ];
-  }
-  return [
-    { status: "published", label: "Опубликовать", tone: "primary" },
-    { status: "moderation", label: "На модерацию", tone: "ghost" },
-  ];
-}
+/**
+ * Мастер не управляет публикацией: отзывы модерирует администратор. Иначе
+ * негатив можно было бы просто не публиковать, и рейтинг перестал бы быть честным.
+ */
+const MODERATION_NOTE = "Публикует отзывы администратор: мастер может ответить клиенту, но не скрыть отзыв.";
 
 export function ReviewsProPage() {
   const [query, setQuery] = useState("");
@@ -53,7 +38,6 @@ export function ReviewsProPage() {
   const [service, setService] = useState("all");
   const [page, setPage] = useState(1);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [details, setDetails] = useState<CabinetReview | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [replyBusy, setReplyBusy] = useState(false);
@@ -115,31 +99,10 @@ export function ReviewsProPage() {
     }
   };
 
-  const runModeration = async (review: CabinetReview, next: ReviewStatus) => {
-    const labels: Record<ReviewStatus, string> = {
-      published: "Опубликовать",
-      moderation: "Вернуть на модерацию",
-      hidden: "Скрыть",
-    };
-    setActionError(null);
-    setBusyId(review.id);
-    try {
-      await moderateReview(review.id, next);
-      reload();
-    } catch (caught) {
-      setActionError(
-        `${labels[next]} не получилось: ${caught instanceof Error ? caught.message : "ошибка сервера"}`,
-      );
-    } finally {
-      setBusyId(null);
-      setDetails(null);
-    }
-  };
-
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-baseline gap-3">
+        <div className="flex flex-wrap items-baseline gap-3">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Отзывы</h1>
           <span className="text-sm text-slate-500">
             Средняя оценка <span className="font-medium text-slate-700">{average}</span> · {allReviews.length} отзывов
@@ -150,6 +113,8 @@ export function ReviewsProPage() {
           Добавить отзыв
         </PrimaryButton>
       </div>
+
+      <p className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">{MODERATION_NOTE}</p>
 
       {(actionError || error) && (
         <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600">
@@ -232,22 +197,6 @@ export function ReviewsProPage() {
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <Chip tone={reviewStatus[row.status].tone}>{reviewStatus[row.status].label}</Chip>
-                {actionsFor(row.status).map((action) => (
-                  <button
-                    key={action.status}
-                    type="button"
-                    disabled={!live || busyId === row.id}
-                    onClick={() => void runModeration(row, action.status)}
-                    className={cn(
-                      "rounded-lg border px-3 py-1.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-50",
-                      action.tone === "primary" && "border-emerald-200 text-emerald-600 hover:bg-emerald-50",
-                      action.tone === "ghost" && "border-slate-200 text-slate-500 hover:bg-slate-50",
-                      action.tone === "danger" && "border-rose-200 text-rose-500 hover:bg-rose-50",
-                    )}
-                  >
-                    {action.label}
-                  </button>
-                ))}
                 <button
                   type="button"
                   onClick={() => {
@@ -281,7 +230,7 @@ export function ReviewsProPage() {
 
       <p className="mt-2 text-xs text-slate-400">
         {live
-          ? "Отзывы из базы: публикация и скрытие сразу сохраняются на сервере."
+          ? "Отзывы из базы: решения о публикации принимает администратор, ответ мастера сохраняется сразу."
           : loading
             ? "Загружаем отзывы из базы…"
             : "API недоступен — показаны строки макета"}
@@ -292,28 +241,7 @@ export function ReviewsProPage() {
         onClose={() => setDetails(null)}
         title="Отзыв"
         subtitle={details ? `${details.clientName} · ${details.service}` : undefined}
-        footer={
-          details ? (
-            <>
-              {actionsFor(details.status).map((action) => (
-                <button
-                  key={action.status}
-                  type="button"
-                  disabled={!live || busyId === details.id}
-                  onClick={() => void runModeration(details, action.status)}
-                  className={cn(
-                    "rounded-xl px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
-                    action.tone === "primary" && "bg-emerald-500 text-white hover:bg-emerald-600",
-                    action.tone === "ghost" && "border border-slate-200 text-slate-600 hover:bg-slate-50",
-                    action.tone === "danger" && "border border-rose-200 text-rose-500 hover:bg-rose-50",
-                  )}
-                >
-                  {action.label}
-                </button>
-              ))}
-            </>
-          ) : undefined
-        }
+        footer={undefined}
       >
         {details && (
           <div className="space-y-4">

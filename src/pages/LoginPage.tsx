@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { isMaster, useAuth } from "../auth/AuthContext";
+import { homePath, useAuth, type LoginRole } from "../auth/AuthContext";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -11,6 +11,8 @@ export function LoginPage() {
   const returnTo = params.get("returnTo") || null;
 
   const [step, setStep] = useState<"phone" | "code">("phone");
+  /** Кем входим: у клиента и мастера разные кабинеты, для нового номера это ещё и регистрация. */
+  const [role, setRole] = useState<LoginRole>("client");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -18,8 +20,8 @@ export function LoginPage() {
   const [hint, setHint] = useState("");
   const [error, setError] = useState("");
 
-  /** Куда вернуть после входа: явный returnTo либо кабинет для мастера. */
-  const destination = returnTo ?? (isMaster(user) ? "/pro" : "/");
+  /** Куда вернуть после входа: явный returnTo либо свой кабинет по роли. */
+  const destination = returnTo ?? homePath(user);
 
   useEffect(() => {
     if (user) {
@@ -56,8 +58,8 @@ export function LoginPage() {
       return;
     }
     try {
-      const loggedIn = await verifyCode({ phone, code: code.trim(), name: name.trim() || undefined });
-      navigate(returnTo ?? (isMaster(loggedIn) ? "/pro" : "/"), { replace: true });
+      const loggedIn = await verifyCode({ phone, code: code.trim(), name: name.trim() || undefined, role });
+      navigate(returnTo ?? homePath(loggedIn), { replace: true });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Не удалось войти");
     }
@@ -70,12 +72,50 @@ export function LoginPage() {
         <h1 className="mt-3 text-3xl font-semibold text-slate-900">Вход и регистрация</h1>
         <p className="mt-2 text-slate-500">
           {step === "phone"
-            ? "Введите телефон — отправим код подтверждения."
-            : `Код отправлен на ${phone}. Он действует 5 минут.`}
+            ? "Выберите, кто вы, и введите телефон — отправим код подтверждения."
+            : `Код отправлен на ${phone}. Он действует 5 минут. Входите как ${role === "master" ? "мастер" : "клиент"}.`}
         </p>
 
         {step === "phone" ? (
           <form onSubmit={askCode} className="mt-6 space-y-3">
+            <fieldset>
+              <legend className="text-sm font-medium text-slate-700">Кто вы?</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {([
+                  {
+                    value: "client",
+                    title: "Я клиент",
+                    hint: "Запись к мастерам, история визитов, отзывы",
+                  },
+                  {
+                    value: "master",
+                    title: "Я мастер",
+                    hint: "Кабинет: записи, расписание, услуги, отзывы",
+                  },
+                ] as const).map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setRole(option.value)}
+                    data-role={option.value}
+                    aria-pressed={role === option.value}
+                    className={`rounded-2xl border px-4 py-3 text-left transition ${
+                      role === option.value
+                        ? "border-pink-400 bg-[#fff4f8]"
+                        : "border-[#f1dde6] hover:border-pink-200"
+                    }`}
+                  >
+                    <span className="block text-sm font-semibold text-slate-800">{option.title}</span>
+                    <span className="mt-1 block text-xs text-slate-500">{option.hint}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-slate-400">
+                {role === "master"
+                  ? "Новый номер получит кабинет мастера. Если номер уже зарегистрирован, откроем кабинет по его роли."
+                  : "Новый номер зарегистрируется как клиент. Если номер уже зарегистрирован, откроем ваш кабинет."}
+              </p>
+            </fieldset>
             <input
               value={phone}
               onChange={(event) => setPhone(event.target.value)}
@@ -136,8 +176,9 @@ export function LoginPage() {
         <div className="mt-5 border-t border-[#f3e4ea] pt-4 text-sm text-slate-500">
           <p>После входа вы сможете записываться, отменять и смотреть историю своих записей.</p>
           <p className="mt-2 rounded-xl bg-[#fff4f8] px-3 py-2 text-xs text-slate-500">
-            Демо-мастер: <span className="font-medium text-slate-700">+7 999 000-00-01</span> — вход по нему открывает
-            кабинет мастера. Код подставляется автоматически в dev-режиме.
+            Демо-доступы: мастер — <span className="font-medium text-slate-700">+7 999 000-00-01</span>,
+            администратор (модерация отзывов) — <span className="font-medium text-slate-700">+7 999 000-00-09</span>,
+            клиент — любой новый номер. Код подставляется автоматически в dev-режиме.
           </p>
           <Link to="/" className="mt-2 inline-block text-pink-600 hover:text-pink-700">
             Вернуться на главную

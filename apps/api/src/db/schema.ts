@@ -53,6 +53,12 @@ export const masters = pgTable("masters", {
   metro: text("metro").notNull(),
   distance: text("distance").notNull(),
   address: text("address"),
+  /** Город и регион: по ним выбирается город на входе и фильтруется каталог. */
+  city: text("city").notNull().default("Санкт-Петербург"),
+  region: text("region").notNull().default("Санкт-Петербург"),
+  /** Координаты для карты: у мастеров без адреса остаются null. */
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
   email: text("email"),
   site: text("site"),
   priceFrom: integer("price_from").notNull(),

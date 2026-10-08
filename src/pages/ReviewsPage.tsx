@@ -57,6 +57,12 @@ export function ReviewsPage() {
               </div>
               <p className="mt-1 text-sm text-yellow-500">{"★".repeat(review.score)}</p>
               <p className="mt-2 text-sm text-slate-600">{review.text}</p>
+              {"replyText" in review && review.replyText && (
+                <div className="mt-2 rounded-xl bg-[#fdf2f7] px-3 py-2">
+                  <p className="text-xs font-medium text-pink-500">Ответ мастера</p>
+                  <p className="mt-1 text-sm text-slate-700">{review.replyText}</p>
+                </div>
+              )}
               <p className="mt-2 text-xs text-slate-400">{review.masterName}</p>
             </article>
           ))}

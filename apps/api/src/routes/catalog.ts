@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import { masters, reviews, services, workingHours, bookings } from "../db/schema.js";
@@ -59,8 +59,15 @@ export async function catalogRoutes(app: FastifyInstance) {
     const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Мастер не найден" });
 
+    // Наружу отдаём только опубликованные отзывы: скрытые и ждущие модерации
+    // клиент видеть не должен.
     const [masterReviews, hours] = await Promise.all([
-      db.select().from(reviews).where(eq(reviews.masterId, master.id)).orderBy(desc(reviews.createdAt)).limit(10),
+      db
+        .select()
+        .from(reviews)
+        .where(and(eq(reviews.masterId, master.id), eq(reviews.status, "published")))
+        .orderBy(desc(reviews.createdAt))
+        .limit(10),
       db.select().from(workingHours).where(eq(workingHours.masterId, master.id)).orderBy(asc(workingHours.weekday)),
     ]);
 
@@ -88,6 +95,8 @@ export async function catalogRoutes(app: FastifyInstance) {
         text: review.text,
         service: review.service,
         status: review.status,
+        replyText: review.replyText,
+        repliedAt: review.repliedAt,
         createdAt: review.createdAt,
       })),
     };
@@ -122,6 +131,8 @@ export async function catalogRoutes(app: FastifyInstance) {
         text: review.text,
         service: review.service,
         dateISO: toISODate(review.createdAt),
+        replyText: review.replyText,
+        repliedAt: review.repliedAt?.toISOString() ?? null,
         masterName: master.name,
         masterSlug: master.slug,
       })),

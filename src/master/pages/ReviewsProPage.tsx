@@ -14,7 +14,7 @@ import {
   type ChipTone,
 } from "../components/ui";
 import { reviewRows } from "../data";
-import { moderateReview, useCabinetReviews, type CabinetReview } from "../../api/cabinet";
+import { moderateReview, replyToReview, useCabinetReviews, type CabinetReview } from "../../api/cabinet";
 import { formatDateLabel } from "../../store/bookings";
 import { cn } from "../../utils/cn";
 
@@ -55,6 +55,8 @@ export function ReviewsProPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [details, setDetails] = useState<CabinetReview | null>(null);
+  const [replyDraft, setReplyDraft] = useState("");
+  const [replyBusy, setReplyBusy] = useState(false);
 
   const { data, loading, error, reload } = useCabinetReviews();
   const live = Boolean(data && data.items.length > 0);
@@ -69,6 +71,8 @@ export function ReviewsProPage() {
       text: row.text,
       service: row.service,
       status: row.status as ReviewStatus,
+      replyText: null,
+      repliedAt: null,
       createdAt: "2024-05-22T12:00:00.000Z",
       dateISO: "2024-05-22",
     }));
@@ -92,6 +96,23 @@ export function ReviewsProPage() {
     published: allReviews.filter((row) => row.status === "published").length,
     moderation: allReviews.filter((row) => row.status === "moderation").length,
     hidden: allReviews.filter((row) => row.status === "hidden").length,
+  };
+
+  /** Сохранить ответ мастера на отзыв; пустая строка снимает ответ. */
+  const saveReply = async (review: CabinetReview, text: string) => {
+    setReplyBusy(true);
+    setActionError(null);
+    try {
+      const result = await replyToReview(review.id, text.trim());
+      setDetails((current) => (current ? { ...current, replyText: result.replyText } : current));
+      await reload();
+    } catch (caught) {
+      setActionError(
+        `Ответ не сохранился: ${caught instanceof Error ? caught.message : "ошибка сервера"}`,
+      );
+    } finally {
+      setReplyBusy(false);
+    }
   };
 
   const runModeration = async (review: CabinetReview, next: ReviewStatus) => {
@@ -202,6 +223,12 @@ export function ReviewsProPage() {
                   {row.service} · Мастер: {data?.masterName ?? "Анна Смирнова"}
                 </p>
                 <p className="mt-2 text-sm text-slate-600">{row.text}</p>
+                {row.replyText && (
+                  <div className="mt-2 rounded-xl bg-[#fdf2f7] px-3 py-2" data-master-reply>
+                    <p className="text-xs font-medium text-pink-500">Ваш ответ</p>
+                    <p className="mt-1 text-sm text-slate-700">{row.replyText}</p>
+                  </div>
+                )}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <Chip tone={reviewStatus[row.status].tone}>{reviewStatus[row.status].label}</Chip>
@@ -223,7 +250,10 @@ export function ReviewsProPage() {
                 ))}
                 <button
                   type="button"
-                  onClick={() => setDetails(row)}
+                  onClick={() => {
+                    setDetails(row);
+                    setReplyDraft(row.replyText ?? "");
+                  }}
                   className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-slate-50"
                 >
                   <Eye className="h-4 w-4" />
@@ -293,9 +323,47 @@ export function ReviewsProPage() {
               <span className="text-xs text-slate-400">{formatDateLabel(details.dateISO)}</span>
             </div>
             <p className="text-sm text-slate-700">{details.text}</p>
-            <div className="flex items-center gap-3 text-xs text-slate-400">
-              <MessageSquare className="h-4 w-4" />
-              Ответ клиенту появится, когда подключим переписку в разделе «Сообщения».
+            <div className="rounded-2xl border border-slate-200 p-3">
+              <p className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                <MessageSquare className="h-4 w-4 text-pink-500" />
+                Ответ мастера
+              </p>
+              <textarea
+                value={replyDraft}
+                onChange={(event) => setReplyDraft(event.target.value)}
+                rows={3}
+                maxLength={1000}
+                placeholder="Спасибо за отзыв! Будем рады видеть вас снова"
+                data-field="reply-text"
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-pink-400"
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                Ответ появится под отзывом в карточке мастера. Пустое поле убирает ответ.
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!live || replyBusy || replyDraft.trim() === (details.replyText ?? "")}
+                  onClick={() => void saveReply(details, replyDraft)}
+                  data-action="reply-save"
+                  className="rounded-xl bg-pink-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-pink-600 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {replyBusy ? "Сохраняем…" : details.replyText ? "Обновить ответ" : "Сохранить ответ"}
+                </button>
+                {details.replyText && (
+                  <button
+                    type="button"
+                    disabled={!live || replyBusy}
+                    onClick={() => {
+                      setReplyDraft("");
+                      void saveReply(details, "");
+                    }}
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Снять ответ
+                  </button>
+                )}
+              </div>
             </div>
             <button
               type="button"

@@ -7,6 +7,7 @@
  */
 import { eq } from "drizzle-orm";
 import { normalizePhone } from "../lib/phone.js";
+import { recalcMasterRating } from "../lib/reviews.js";
 import { db } from "./index.js";
 import { bookings, conversations, masters, messages, otpCodes, reviews, services, sessions, users, workingHours } from "./schema.js";
 
@@ -94,13 +95,13 @@ const at = (dayOffset: number, minutes: number) => {
 
 type SeedBooking = [number, number, number, string, string, string, string, string, number?];
 const bookingsSeed: SeedBooking[] = [
-  [0, 600, 90, "Анна С.", "+7 (999) 111-11-01", "s2", "anna-smirnova", "pending"],
-  [0, 810, 90, "Елена М.", "+7 (999) 111-11-02", "s5", "anna-smirnova", "confirmed"],
+  [0, 600, 90, "Анна С.", "+7 (999) 111-11-01", "s2", "anna-smirnova", "completed"],
+  [0, 810, 90, "Елена М.", "+7 (999) 111-11-02", "s5", "anna-smirnova", "completed"],
   [0, 960, 90, "Ольга П.", "+7 (999) 111-11-03", "s2", "anna-smirnova", "cancelled"],
-  [0, 1140, 60, "Ирина К.", "+7 (999) 111-11-04", "s1", "anna-smirnova", "confirmed"],
-  [1, 600, 90, "Татьяна Л.", "+7 (999) 111-11-05", "s2", "ekaterina-vlasova", "confirmed"],
-  [1, 900, 60, "Наталья Б.", "+7 (999) 111-11-06", "s7", "anna-smirnova", "confirmed"],
-  [1, 1080, 90, "Марина Д.", "+7 (999) 111-11-07", "s5", "anna-smirnova", "confirmed"],
+  [0, 1140, 60, "Ирина К.", "+7 (999) 111-11-04", "s1", "anna-smirnova", "completed"],
+  [1, 600, 90, "Татьяна Л.", "+7 (999) 111-11-05", "s2", "ekaterina-vlasova", "completed"],
+  [1, 900, 60, "Наталья Б.", "+7 (999) 111-11-06", "s7", "anna-smirnova", "completed"],
+  [1, 1080, 90, "Марина Д.", "+7 (999) 111-11-07", "s5", "anna-smirnova", "completed"],
   [2, 600, 90, "Ксения Р.", "+7 (999) 111-11-08", "s2", "maria-ivanova", "confirmed"],
   [2, 720, 60, "Екатерина В.", "+7 (999) 111-11-09", "s4", "anna-smirnova", "pending"],
   [2, 840, 90, "Анастасия Т.", "+7 (999) 111-11-10", "s2", "anna-smirnova", "confirmed"],
@@ -114,18 +115,48 @@ const bookingsSeed: SeedBooking[] = [
   [5, 840, 90, "Полина Л.", "+7 (999) 111-11-18", "s2", "anna-smirnova", "confirmed"],
   [5, 1080, 90, "Вероника М.", "+7 (999) 111-11-19", "s5", "anna-smirnova", "confirmed"],
   // Записи клиента из клиентского приложения
-  [2, 1140, 90, "Мария Петрова", "+7 (999) 111-22-33", "s3", "anna-smirnova", "confirmed", 2200],
+  [2, 1140, 90, "Мария Петрова", "+7 (999) 111-22-33", "s3", "anna-smirnova", "completed", 2200],
   [5, 1080, 120, "Мария Петрова", "+7 (999) 111-22-33", "s5", "ekaterina-vlasova", "confirmed", 2500],
 ];
 
+/**
+ * Отзывы витрины.
+ *
+ * `phone` заполнен там, где отзыв оставлен по реальной записи из демо-набора:
+ * тогда у отзыва есть bookingId и его видно клиенту. Остальные — исторические
+ * отзывы витрины, без привязки к записи (так бывает и в жизни: мастер переносит
+ * старые отзывы с других площадок).
+ */
 const reviewsSeed = [
-  ["anna-smirnova", "Ксения Л.", 5, "Отличный мастер. Покрытие держится долго.", "Маникюр с покрытием", "published"],
-  ["anna-smirnova", "Анастасия П.", 5, "Очень аккуратная работа, уютная студия.", "Наращивание ногтей", "published"],
-  ["anna-smirnova", "Ирина Н.", 3, "В целом хорошо, но покрытие начало скалываться на 3-й день.", "Маникюр аппаратный", "moderation"],
-  ["ekaterina-vlasova", "Татьяна Л.", 5, "Спокойно, внимательно, без спешки.", "Маникюр классический", "published"],
-  ["ekaterina-vlasova", "Юлия М.", 4, "Всё понравилось, чуть задержались по времени.", "Педикюр", "published"],
-  ["maria-ivanova", "Дарья С.", 5, "Идеальная форма, буду ходить постоянно.", "Наращивание ногтей", "published"],
-  ["olga-kravtsova", "Светлана К.", 5, "Авторский дизайн — просто восторг!", "Дизайн ногтей", "published"],
+  ["anna-smirnova", "Ксения Л.", 5, "Отличный мастер. Покрытие держится долго.", "Маникюр с покрытием", "published", null, null],
+  ["anna-smirnova", "Анастасия П.", 5, "Очень аккуратная работа, уютная студия.", "Наращивание ногтей", "published", null, null],
+  ["anna-smirnova", "Ирина Н.", 3, "В целом хорошо, но покрытие начало скалываться на 3-й день.", "Маникюр аппаратный", "moderation", null, null],
+  ["ekaterina-vlasova", "Татьяна Л.", 5, "Спокойно, внимательно, без спешки.", "Маникюр классический", "published", null, null],
+  ["ekaterina-vlasova", "Юлия М.", 4, "Всё понравилось, чуть задержались по времени.", "Педикюр", "published", null, null],
+  ["maria-ivanova", "Дарья С.", 5, "Идеальная форма, буду ходить постоянно.", "Наращивание ногтей", "published", null, null],
+  ["olga-kravtsova", "Светлана К.", 5, "Авторский дизайн — просто восторг!", "Дизайн ногтей", "published", null, null],
+  // Отзыв по завершённому визиту в понедельник: с ответом мастера.
+  [
+    "anna-smirnova",
+    "Елена М.",
+    5,
+    "Спасибо! Покрытие идеальное, приду ещё.",
+    "Педикюр с покрытием",
+    "published",
+    "+7 (999) 111-11-02",
+    "Елена, спасибо за отзыв! Ждём вас снова.",
+  ],
+  // Отзыв по визиту во вторник, ждёт модерации — мастер увидит его в кабинете.
+  [
+    "anna-smirnova",
+    "Наталья Б.",
+    4,
+    "Всё понравилось, только ждала пять минут.",
+    "Маникюр аппаратный",
+    "moderation",
+    "+7 (999) 111-11-06",
+    null,
+  ],
 ] as const;
 
 /**
@@ -225,17 +256,35 @@ export async function seed() {
       };
     },
   );
-  await db.insert(bookings).values(bookingRows);
+  const insertedBookings = await db.insert(bookings).values(bookingRows).returning();
+  // Запись ищем по телефону и мастеру: по ней отзыв привязывается к визиту.
+  const bookingByPhone = new Map(
+    insertedBookings.map((booking) => [`${booking.clientPhone}|${booking.masterId}`, booking]),
+  );
 
-  const reviewRows = reviewsSeed.map(([slug, clientName, score, text, service, status]) => ({
-    masterId: masterBySlug.get(slug)!,
-    clientName,
-    score,
-    text,
-    service,
-    status,
-  }));
+  const reviewRows = reviewsSeed.map(([slug, clientName, score, text, service, status, phone, reply]) => {
+    const masterId = masterBySlug.get(slug)!;
+    const booking = phone ? bookingByPhone.get(`${normalizePhone(phone)}|${masterId}`) : undefined;
+    return {
+      masterId,
+      bookingId: booking?.id ?? null,
+      clientPhone: booking?.clientPhone ?? null,
+      clientName,
+      score,
+      text,
+      service,
+      status,
+      replyText: reply,
+      repliedAt: reply ? at(5, 1080) : null,
+    };
+  });
   await db.insert(reviews).values(reviewRows);
+
+  // Рейтинг в карточках мастеров считаем по опубликованным отзывам — так же,
+  // как это делает API после модерации.
+  for (const master of masterRows) {
+    await recalcMasterRating(master.id);
+  }
 
   // Переписка: время сообщений отсчитываем от конца демо-недели.
   let messageCount = 0;

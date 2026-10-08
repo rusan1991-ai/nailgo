@@ -111,18 +111,33 @@ export const bookings = pgTable(
   ],
 );
 
-export const reviews = pgTable("reviews", {
-  id: id(),
-  masterId: text("master_id")
-    .notNull()
-    .references(() => masters.id, { onDelete: "cascade" }),
-  clientName: text("client_name").notNull(),
-  score: integer("score").notNull(),
-  text: text("text").notNull(),
-  service: text("service").notNull(),
-  status: text("status").notNull().default("published"), // published | moderation | hidden
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const reviews = pgTable(
+  "reviews",
+  {
+    id: id(),
+    masterId: text("master_id")
+      .notNull()
+      .references(() => masters.id, { onDelete: "cascade" }),
+    /**
+     * Запись, по которой оставлен отзыв. Пусто у отзывов, загруженных сидами
+     * «из ниоткуда»: клиент оставляет отзыв только по своему завершённому визиту,
+     * и одна запись — один отзыв (уникальный индекс ниже).
+     */
+    bookingId: text("booking_id").references(() => bookings.id, { onDelete: "set null" }),
+    /** Телефон автора: по нему клиент видит свои отзывы, а мастер — к кому обращаться. */
+    clientPhone: text("client_phone"),
+    clientName: text("client_name").notNull(),
+    score: integer("score").notNull(),
+    text: text("text").notNull(),
+    service: text("service").notNull(),
+    status: text("status").notNull().default("published"), // published | moderation | hidden
+    /** Ответ мастера: одна реплика на отзыв. */
+    replyText: text("reply_text"),
+    repliedAt: timestamp("replied_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("reviews_booking").on(table.bookingId)],
+);
 
 /**
  * Уведомления в приложении. Клиенту адресуем по телефону (вход по номеру,

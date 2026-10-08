@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import { and, desc, eq, gt, lt, ne } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { bookings, masters, services } from "../db/schema.js";
+import { bookings, masters, reviews, services } from "../db/schema.js";
 import { requireAuth } from "../lib/auth.js";
 import { notifyBookingEvent } from "../lib/notify.js";
 import { env } from "../env.js";
@@ -154,7 +154,34 @@ export async function bookingRoutes(app: FastifyInstance) {
       .where(eq(bookings.clientPhone, normalizePhone(phone)))
       .orderBy(desc(bookings.startAt));
 
-    return { items: rows.map((row) => serializeBooking(row.booking, row.master, row.service)) };
+    // К каждой записи прикладываем её отзыв: интерфейс по этому полю решает,
+    // показывать «Оставить отзыв» или уже оставленный отзыв и его статус.
+    const ids = rows.map((row) => row.booking.id);
+    const reviewRows = ids.length
+      ? await db
+          .select()
+          .from(reviews)
+          .where(inArray(reviews.bookingId, ids))
+      : [];
+    const reviewByBooking = new Map(reviewRows.map((review) => [review.bookingId!, review]));
+
+    return {
+      items: rows.map((row) => {
+        const review = reviewByBooking.get(row.booking.id);
+        return {
+          ...serializeBooking(row.booking, row.master, row.service),
+          review: review
+            ? {
+                id: review.id,
+                score: review.score,
+                text: review.text,
+                status: review.status,
+                replyText: review.replyText,
+              }
+            : null,
+        };
+      }),
+    };
   });
 
   /** Отмена клиентом: отменять можно только свои записи (проверка по токену). */

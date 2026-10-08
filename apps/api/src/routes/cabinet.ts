@@ -8,7 +8,8 @@ import { atMinutes, parseISODate, toISODate } from "../lib/time.js";
 import { serializeBooking } from "../lib/serialize.js";
 import { requireAuth, requireMaster } from "../lib/auth.js";
 import { createBooking, createBookingSchema } from "./bookings.js";
-import { notifyBookingEvent } from "../lib/notify.js";
+import { notifyBookingEvent, notifyClient } from "../lib/notify.js";
+import { recalcMasterRating } from "../lib/reviews.js";
 
 const listQuery = z.object({
   status: z.enum(["all", "pending", "confirmed", "completed", "cancelled"]).optional(),
@@ -392,17 +393,25 @@ export async function cabinetRoutes(app: FastifyInstance) {
       .filter((review) => (status && status !== "all" ? review.status === status : true))
       .map((review) => ({
         id: review.id,
+        bookingId: review.bookingId,
         clientName: review.clientName,
+        clientPhone: review.clientPhone,
         score: review.score,
         text: review.text,
         service: review.service,
         status: review.status,
+        replyText: review.replyText,
+        repliedAt: review.repliedAt?.toISOString() ?? null,
         createdAt: review.createdAt.toISOString(),
         dateISO: toISODate(review.createdAt),
       }));
 
+    // Средний балл — только по опубликованным: он же показывается клиентам.
+    const published = rows.filter((review) => review.status === "published");
     const average =
-      rows.length > 0 ? Number((rows.reduce((sum, review) => sum + review.score, 0) / rows.length).toFixed(1)) : 0;
+      published.length > 0
+        ? Number((published.reduce((sum, review) => sum + review.score, 0) / published.length).toFixed(1))
+        : 0;
 
     return {
       items,
@@ -434,7 +443,23 @@ export async function cabinetRoutes(app: FastifyInstance) {
     }
 
     await db.update(reviews).set({ status }).where(eq(reviews.id, id));
-    return { ok: true, id, status };
+
+    // Рейтинг мастера живёт по опубликованным отзывам — пересчитываем сразу.
+    const rating = await recalcMasterRating(review.masterId);
+
+    // Клиент узнаёт о решении: опубликован отзыв или снят с публикации.
+    if (review.clientPhone && review.status !== status) {
+      await notifyClient(review.clientPhone, {
+        type: "review_published",
+        title: status === "published" ? "Ваш отзыв опубликован" : "Отзыв снят с публикации",
+        body:
+          status === "published"
+            ? `${review.service} · оценка ${review.score}/5. Спасибо за отзыв!`
+            : `${review.service} · мастер скрыл отзыв из витрины`,
+      });
+    }
+
+    return { ok: true, id, status, rating };
   });
 
   /** Пересоздать демо-данные (только вне прода). */
@@ -443,6 +468,43 @@ export async function cabinetRoutes(app: FastifyInstance) {
     const { seed } = await import("../db/seed.js");
     const counts = await seed();
     return { ok: true, counts };
+  });
+
+  /**
+   * Ответ мастера на отзыв: одна реплика на отзыв, её видно в витрине и в
+   * карточке мастера. Пустой текст убирает ответ.
+   */
+  app.post("/cabinet/reviews/:id/reply", masterOnly, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { text } = z.object({ text: z.string().trim().max(1000) }).parse(request.body ?? {});
+
+    const masterSlug = request.currentUser!.masterSlug;
+    const [master] = masterSlug
+      ? await db.select().from(masters).where(eq(masters.slug, masterSlug)).limit(1)
+      : [];
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const [review] = await db.select().from(reviews).where(eq(reviews.id, id)).limit(1);
+    if (!review) return reply.code(404).send({ error: "not_found", message: "Отзыв не найден" });
+    if (review.masterId !== master.id) {
+      return reply.code(403).send({ error: "forbidden", message: "Это отзыв другого мастера" });
+    }
+
+    const replyText = text.trim() || null;
+    await db
+      .update(reviews)
+      .set({ replyText, repliedAt: replyText ? new Date() : null })
+      .where(eq(reviews.id, id));
+
+    if (replyText && review.clientPhone) {
+      await notifyClient(review.clientPhone, {
+        type: "review_replied",
+        title: `${master.name} ответил на ваш отзыв`,
+        body: replyText.length > 80 ? `${replyText.slice(0, 79)}…` : replyText,
+      });
+    }
+
+    return { ok: true, id, replyText };
   });
 
   /**

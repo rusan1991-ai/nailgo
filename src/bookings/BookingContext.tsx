@@ -17,6 +17,14 @@ export type BookingItem = {
   address: string;
   price: number;
   status: "upcoming" | "completed" | "cancelled";
+  /** Отзыв по визиту: null, если его ещё нет — тогда интерфейс предлагает оставить. */
+  review: {
+    id: string;
+    score: number;
+    text: string;
+    status: "published" | "moderation" | "hidden";
+    replyText: string | null;
+  } | null;
 };
 
 type ApiBooking = {
@@ -29,6 +37,14 @@ type ApiBooking = {
   price: number;
   status: "pending" | "confirmed" | "completed" | "cancelled";
   address: string;
+  /** Отзыв по визиту: null, если отзыва ещё нет. */
+  review: {
+    id: string;
+    score: number;
+    text: string;
+    status: "published" | "moderation" | "hidden";
+    replyText: string | null;
+  } | null;
 };
 
 type CreateBookingPayload = {
@@ -64,6 +80,7 @@ function toItem(booking: ApiBooking): BookingItem {
     address: booking.address ?? "",
     price: booking.price,
     status: booking.status === "cancelled" ? "cancelled" : booking.status === "completed" ? "completed" : "upcoming",
+    review: booking.review ?? null,
   };
 }
 

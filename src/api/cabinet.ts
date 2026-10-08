@@ -51,6 +51,9 @@ export type CabinetReview = {
   text: string;
   service: string;
   status: "published" | "moderation" | "hidden";
+  /** Ответ мастера: клиент видит его под отзывом. */
+  replyText: string | null;
+  repliedAt: string | null;
   createdAt: string;
   dateISO: string;
 };
@@ -84,4 +87,9 @@ export async function moderateReview(
   status: CabinetReview["status"],
 ): Promise<void> {
   await api.post(`/cabinet/reviews/${id}/moderate`, { status });
+}
+
+/** Ответ мастера на отзыв. Пустая строка — снять ранее оставленный ответ. */
+export async function replyToReview(id: string, text: string): Promise<{ replyText: string | null }> {
+  return api.post<{ replyText: string | null }>(`/cabinet/reviews/${id}/reply`, { text });
 }

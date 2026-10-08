@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { useBookings } from "../bookings/BookingContext";
+import { BookingReviewPanel } from "../components/BookingReviewPanel";
 import { ClientShell } from "../components/ClientShell";
 import { Avatar } from "../components/NailUi";
 import { formatRub } from "../data/mock";
 
 export function AccountPage() {
-  const { bookings, cancelBooking, error } = useBookings();
+  const { bookings, cancelBooking, error, reload } = useBookings();
   const [tab, setTab] = useState<"upcoming" | "completed" | "cancelled">("upcoming");
 
   const filtered = useMemo(() => bookings.filter((item) => item.status === tab), [bookings, tab]);
@@ -70,6 +71,7 @@ export function AccountPage() {
                     )}
                   </div>
                 </div>
+                <BookingReviewPanel booking={booking} onSubmitted={reload} />
               </article>
             ))}
           </div>
@@ -85,8 +87,8 @@ export function AccountPage() {
           </div>
           <div className="mt-4 space-y-2 text-sm text-slate-600">
             <p>Записей: {bookings.length}</p>
-            <p>Избранных мастеров: 8</p>
-            <p>Оставлено отзывов: 5</p>
+            <p>Завершённых визитов: {bookings.filter((item) => item.status === "completed").length}</p>
+            <p>Оставлено отзывов: {bookings.filter((item) => item.review).length}</p>
           </div>
         </aside>
       </div>

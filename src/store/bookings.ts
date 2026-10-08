@@ -12,6 +12,15 @@ import { safeStorage } from "../utils/storage";
 export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled";
 export type BookingSource = "client" | "master";
 
+/** Отзыв, оставленный по записи: нужен, чтобы клиент видел свой отзыв и его статус. */
+export type BookingReview = {
+  id: string;
+  score: number;
+  text: string;
+  status: "published" | "moderation" | "hidden";
+  replyText: string | null;
+};
+
 export type Booking = {
   id: string;
   source: BookingSource;
@@ -34,6 +43,8 @@ export type Booking = {
   status: BookingStatus;
   createdAt?: string;
   address?: string;
+  /** Отзыв по этой записи или null, если его ещё нет. */
+  review?: BookingReview | null;
 };
 
 export type NewBookingInput = {
@@ -122,6 +133,7 @@ type ApiBooking = {
   source: BookingSource;
   createdAt: string;
   address: string;
+  review: BookingReview | null;
 };
 
 function mapBooking(item: ApiBooking): Booking {
@@ -144,6 +156,7 @@ function mapBooking(item: ApiBooking): Booking {
     status: item.status,
     createdAt: item.createdAt,
     address: item.address,
+    review: item.review,
   };
 }
 

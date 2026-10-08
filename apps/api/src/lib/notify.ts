@@ -16,7 +16,10 @@ export type NotificationType =
   | "booking_confirmed"
   | "booking_cancelled"
   | "booking_completed"
-  | "message";
+  | "message"
+  | "review_created"
+  | "review_replied"
+  | "review_published";
 
 type BookingRow = typeof schema.bookings.$inferSelect;
 

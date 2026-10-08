@@ -197,6 +197,10 @@ npm run payments                  # предоплата: процент в пр
 - API: см. `apps/api/.env.example` (порт, секреты JWT, TTL кода, шаг слотов, рабочие часы,
   приём кода `OTP_DELIVERY`, доставка сообщений `DELIVERY_*`, предоплата `PAYMENT_*`).
 
+Документы проекта: [docs/STATUS.md](./docs/STATUS.md) — что сделано и карта работ,
+[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — разбор архитектурных вопросов (БД, время,
+статусы, доступы, деньги) и план доработок, [DEPLOY.md](./DEPLOY.md) — развёртывание.
+
 Прод собирается как три контейнера — сайт (`Dockerfile.web`: сборка Vite + Caddy),
 API (`apps/api/Dockerfile`) и Postgres; серверный образ работает на драйвере `pg`,
 локальный WASM-драйвер PGlite в него не попадает. Миграции API накатывает при старте,

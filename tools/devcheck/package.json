@@ -28,7 +28,8 @@
     "locations": "node locations.mjs",
     "oauth": "node oauth.mjs",
     "messengers": "node messengers.mjs",
-    "media": "node media.mjs"
+    "media": "node media.mjs",
+    "admin": "node admin.mjs"
   },
   "dependencies": {
     "jsdom": "^30.1.2"

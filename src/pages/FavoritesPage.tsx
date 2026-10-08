@@ -34,7 +34,7 @@ export function FavoritesPage() {
             className="rounded-2xl border border-[#f1dde6] p-4"
           >
             <div className="flex items-start gap-3">
-              <Avatar className="h-12 w-12" />
+              <Avatar className="h-12 w-12" src={master.avatarUrl} name={master.name} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <Link to={`/master/${master.slug}`} className="truncate font-semibold hover:text-pink-600">

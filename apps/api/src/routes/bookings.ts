@@ -132,6 +132,11 @@ export async function createBooking(
 ) {
   const [master] = await db.select().from(masters).where(eq(masters.slug, input.masterSlug)).limit(1);
   if (!master) throw new DomainError(404, "master_not_found", "Мастер не найден");
+  // Мастер на паузе или заблокирован записи не принимает: иначе витрина его
+  // прячет, а прямые ссылки продолжали бы приносить ему клиентов.
+  if (master.status !== "active") {
+    throw new DomainError(409, "master_inactive", "Мастер снят с публикации и не принимает записи");
+  }
 
   // Дисциплина клиента: чёрный список — отказ, накопленные поздние отмены —
   // полная предоплата. Мастер, вносящий запись вручную, ничего не проверяет:

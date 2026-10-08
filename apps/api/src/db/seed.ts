@@ -16,7 +16,7 @@ import { normalizePhone } from "../lib/phone.js";
 import { recalcMasterRating } from "../lib/reviews.js";
 import { prepaymentFor } from "../lib/payments.js";
 import { db } from "./index.js";
-import { LOCATIONS_SEED } from "./locations-data.js";
+import { syncLocations } from "./locations-sync.js";
 import {
   bookings,
   conversations,
@@ -306,7 +306,7 @@ export async function seed() {
    * город области по slug. Повторный прогон не должен плодить дубли,
    * поэтому вставка идемпотентная — по уникальному slug.
    */
-  await db.insert(locations).values(LOCATIONS_SEED).onConflictDoNothing();
+  await syncLocations();
 
   const masterRows = await db.insert(masters).values(mastersSeed).returning();
 

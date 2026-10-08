@@ -10,6 +10,7 @@ import { CityMap } from "../components/CityMap";
 import { CityPicker } from "../components/CityPicker";
 import { DEFAULT_REGIONS, useCity } from "../city/CityContext";
 import { locationsApi, type PopularItem } from "../api/locations";
+import { LocationPicker } from "../components/LocationPicker";
 
 export function SearchMapPage() {
   const [mode, setMode] = useState<"list" | "map">("list");
@@ -172,12 +173,10 @@ export function SearchMapPage() {
           </div>
 
           <div className={`space-y-3 ${mode === "map" ? "xl:order-1" : ""}`}>
-            <PlacePicker
-              metro={popular?.metro ?? []}
-              cities={popular?.cities ?? []}
-              place={place}
-              onPick={setPlace}
-            />
+            {/* Тот же фильтр, что на главной: метро сгруппировано по линиям. */}
+            <div data-block="place-filter">
+              <LocationPicker place={place} onPick={setPlace} variant="compact" />
+            </div>
             <CityPicker variant="wide" />
             <CityMap
               masters={regionalMasters}
@@ -190,85 +189,5 @@ export function SearchMapPage() {
         </div>
       </div>
     </ClientShell>
-  );
-}
-
-/**
- * Выбор места: метро Санкт-Петербурга и города области.
- * Показываем только те, где есть мастера, — список приходит с сервера.
- */
-function PlacePicker({
-  metro,
-  cities,
-  place,
-  onPick,
-}: {
-  metro: PopularItem[];
-  cities: PopularItem[];
-  place: { kind: "metro" | "district"; slug: string; name: string } | null;
-  onPick: (place: { kind: "metro" | "district"; slug: string; name: string } | null) => void;
-}) {
-  return (
-    <div className="rounded-2xl border border-[#f1dde6] p-4" data-block="place-filter">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-slate-800">Где вам удобно</p>
-        {place && (
-          <button type="button" onClick={() => onPick(null)} className="text-xs text-pink-600 hover:text-pink-700">
-            сбросить
-          </button>
-        )}
-      </div>
-
-      {metro.length > 0 && (
-        <>
-          <p className="mt-3 text-xs uppercase tracking-wide text-slate-400">Метро</p>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {metro.map((item) => (
-              <button
-                key={item.slug}
-                type="button"
-                onClick={() => onPick({ kind: "metro", slug: item.slug, name: item.name })}
-                data-place={`list-metro:${item.slug}`}
-                className={`rounded-lg border px-2 py-1 text-xs transition ${
-                  place?.kind === "metro" && place.slug === item.slug
-                    ? "border-pink-400 bg-pink-50 text-pink-600"
-                    : "border-[#f1dde6] text-slate-600 hover:border-pink-300"
-                }`}
-              >
-                <span
-                  className="mr-1 inline-block h-2 w-2 rounded-full"
-                  style={{ backgroundColor: item.color ?? "#cbd5e1" }}
-                  aria-hidden
-                />
-                {item.name}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-
-      {cities.length > 0 && (
-        <>
-          <p className="mt-3 text-xs uppercase tracking-wide text-slate-400">Ленинградская область</p>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {cities.map((item) => (
-              <button
-                key={item.slug}
-                type="button"
-                onClick={() => onPick({ kind: "district", slug: item.slug, name: item.name })}
-                data-place={`list-district:${item.slug}`}
-                className={`rounded-lg border px-2 py-1 text-xs transition ${
-                  place?.kind === "district" && place.slug === item.slug
-                    ? "border-pink-400 bg-pink-50 text-pink-600"
-                    : "border-[#f1dde6] text-slate-600 hover:border-pink-300"
-                }`}
-              >
-                {item.name}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
   );
 }

@@ -50,7 +50,9 @@ export async function locationRoutes(app: FastifyInstance) {
    * не выбирал станцию, к которой никто не привязан.
    */
   app.get("/locations/popular", async () => {
-    const rows = await db.select().from(masters);
+    // Мастера на паузе и заблокированные витрину не формируют: станция без
+    // активных мастеров в фильтре не показывается.
+    const rows = (await db.select().from(masters)).filter((master) => master.status === "active");
     const metroCounts = new Map<string, number>();
     const districtCounts = new Map<string, number>();
 
@@ -71,5 +73,67 @@ export async function locationRoutes(app: FastifyInstance) {
         .sort((a, b) => b.masters - a.masters);
 
     return { metro: pick(metroCounts), cities: pick(districtCounts) };
+  });
+
+  /**
+   * Справочник, сгруппированный по линиям метро — для фильтра витрины.
+   *
+   * На главной и в поиске клиент выбирает место глазами: линии метро разного
+   * цвета, поэтому фильтр рисуется блоками «красная линия», «синяя линия» и
+   * т.д. В каждом блоке — станции с числом мастеров (`masters`), города
+   * области идут отдельным списком. Нулевые станции не прячем: пустой список
+   * мастеров — тоже ответ («здесь пока никто не работает»), а вот порядок
+   * задаём так, чтобы места с мастерами были первыми.
+   */
+  app.get("/locations/tree", async () => {
+    const [locationRows, masterRows] = await Promise.all([
+      db.select().from(locations).orderBy(asc(locations.sort), asc(locations.name)),
+      db.select({ metroSlug: masters.metroSlug, districtSlug: masters.districtSlug, status: masters.status }).from(masters),
+    ]);
+
+    const active = masterRows.filter((row) => row.status === "active");
+    const metroCounts = new Map<string, number>();
+    const districtCounts = new Map<string, number>();
+    for (const row of active) {
+      if (row.metroSlug) metroCounts.set(row.metroSlug, (metroCounts.get(row.metroSlug) ?? 0) + 1);
+      if (row.districtSlug) districtCounts.set(row.districtSlug, (districtCounts.get(row.districtSlug) ?? 0) + 1);
+    }
+
+    /** Линии в порядке справочника: цвет линии — ключ группировки. */
+    const lines: { title: string; color: string; items: { slug: string; name: string; masters: number }[] }[] = [];
+    for (const row of locationRows.filter((item) => item.kind === "metro")) {
+      const title = row.line ?? "Метро";
+      const color = row.color ?? "#cbd5e1";
+      let line = lines.find((item) => item.title === title);
+      if (!line) {
+        line = { title, color, items: [] };
+        lines.push(line);
+      }
+      line.items.push({ slug: row.slug, name: row.name, masters: metroCounts.get(row.slug) ?? 0 });
+    }
+    for (const line of lines) {
+      line.items.sort((a, b) => b.masters - a.masters || a.name.localeCompare(b.name, "ru"));
+    }
+
+    const districts = locationRows
+      .filter((row) => row.kind === "district")
+      .map((row) => ({
+        slug: row.slug,
+        name: row.name,
+        region: row.region,
+        masters: districtCounts.get(row.slug) ?? 0,
+      }))
+      .sort((a, b) => b.masters - a.masters || a.name.localeCompare(b.name, "ru"));
+
+    return {
+      lines,
+      districts,
+      totals: {
+        metro: lines.reduce((sum, line) => sum + line.items.length, 0),
+        districts: districts.length,
+        /** Сколько мест реально занято мастерами — для подписи фильтра. */
+        occupied: active.filter((row) => row.metroSlug || row.districtSlug).length,
+      },
+    };
   });
 }

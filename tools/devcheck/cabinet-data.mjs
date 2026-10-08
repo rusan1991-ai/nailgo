@@ -5,7 +5,7 @@
  * Запуск (из корня репозитория, при живых Vite и API):
  *   node tools/devcheck/cabinet-data.mjs
  */
-import { api, apiAs, check, clickActionIn, login, loginAdmin, loginMaster, makeDom, resetDemo, rootText, wait, demoMonthISO, demoWeekStartISO, demoWeekDay } from "./harness.mjs";
+import { api, apiAs, check, clickActionIn, clickIn, login, loginAdmin, loginMaster, makeDom, resetDemo, rootText, setField, wait, demoMonthISO, demoWeekStartISO, demoWeekDay } from "./harness.mjs";
 
 const MONTH = demoMonthISO;
 
@@ -164,12 +164,19 @@ assert(
   adminButtons.filter((label) => label.includes("публик")).join(", ") || "нет",
 );
 
-// Причину скрытия админка спрашивает у модератора — в проверке отвечаем за него.
+// Причину скрытия админка спрашивает формой (этап 3): открываем её кнопкой
+// «Снять с публикации» и заполняем поле причины.
 const HIDDEN_REASON = "жалоба мастера: отзыв не про услугу";
-adminPage.dom.window.prompt = () => HIDDEN_REASON;
 const clicked = clickActionIn(adminPage.dom, toModerate.text, "Снять с публикации");
 assert("кнопка скрытия найдена в админке", clicked, toModerate.clientName);
-await wait(1500);
+await wait(900);
+const hideForm = adminPage.dom.window.document.querySelector("[data-block='hide-form']");
+assert("форма причины скрытия открылась", Boolean(hideForm), "");
+if (hideForm) {
+  setField(adminPage.dom, "Например: отзыв не относится к визиту — жалоба мастера подтверждена", HIDDEN_REASON);
+  clickIn(hideForm, "Скрыть отзыв");
+  await wait(1500);
+}
 const after = await apiAs(admin, "/admin/reviews?status=hidden");
 const updated = after.data.items.find((review) => review.id === toModerate.id);
 assert(

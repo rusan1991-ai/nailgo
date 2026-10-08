@@ -12,6 +12,7 @@ import { and, asc, eq, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import { favorites, masters } from "../db/schema.js";
+import { cartAvatars } from "./media.js";
 import { requireAuth } from "../lib/auth.js";
 import { windowService } from "../lib/favorites.js";
 import { nextFreeWindow } from "../lib/slots.js";
@@ -50,6 +51,9 @@ export async function favoriteRoutes(app: FastifyInstance) {
       .where(ownerFilter(request.currentUser!))
       .orderBy(asc(masters.name));
 
+    // Фото мастеров одним запросом: карточка избранного показывает превью.
+    const avatars = await cartAvatars(rows.map((row) => row.master.id));
+
     const items = [];
     for (const row of rows) {
       const service = await windowService(row.master.id);
@@ -58,6 +62,8 @@ export async function favoriteRoutes(app: FastifyInstance) {
       items.push({
         slug: row.master.slug,
         name: row.master.name,
+        avatarUrl: avatars.get(row.master.id)?.thumbUrl ?? null,
+        avatarFullUrl: avatars.get(row.master.id)?.url ?? null,
         tags: row.master.tags,
         metro: row.master.metro,
         address: row.master.address,

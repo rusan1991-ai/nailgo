@@ -53,6 +53,9 @@ export type CabinetReview = {
   status: "published" | "moderation" | "hidden";
   /** Почему отзыв скрыт — решение модератора с причиной. */
   hiddenReason: string | null;
+  /** Жалоба мастера на отзыв: текст и дата (решение принимает администратор). */
+  complaintText: string | null;
+  complaintAt: string | null;
   /** Ответ мастера: клиент видит его под отзывом. */
   replyText: string | null;
   repliedAt: string | null;
@@ -81,6 +84,17 @@ export function useCabinetClients(): Resource<{ items: CabinetClient[]; total: n
 export function useCabinetReviews(status?: string): Resource<CabinetReviews> {
   const query = status && status !== "all" ? `?status=${status}` : "";
   return useApiResource<CabinetReviews>(`/cabinet/reviews${query}`);
+}
+
+/**
+ * Жалоба мастера на отзыв.
+ *
+ * Отзыв публикуется сразу (он привязан к завершённому визиту), а жалоба уходит
+ * администратору: мастер объясняет, что не так, но скрыть отзыв сам не может —
+ * иначе негатив просто исчезал бы из витрины.
+ */
+export async function complainAboutReview(id: string, text: string): Promise<{ complaintText: string }> {
+  return api.post<{ complaintText: string }>(`/cabinet/reviews/${id}/complaint`, { text });
 }
 
 /** Ответ мастера на отзыв. Пустая строка — снять ранее оставленный ответ. */

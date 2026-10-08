@@ -150,6 +150,14 @@ export async function cabinetRoutes(app: FastifyInstance) {
         timezone: master.timezone,
         slotStepMinutes: master.slotStepMinutes,
         platformTimezone: platformTimezone(),
+        /**
+         * Решение площадки по профилю: мастер видит в кабинете, что снят с
+         * публикации или заблокирован, и по какой причине (блокировка ещё и
+         * закрывает вход — см. lib/auth.ts).
+         */
+        status: master.status,
+        statusReason: master.statusReason,
+        statusChangedAt: master.statusChangedAt?.toISOString() ?? null,
       },
     };
   });
@@ -682,6 +690,9 @@ export async function cabinetRoutes(app: FastifyInstance) {
         status: review.status,
         /** Почему отзыв скрыт: мастер должен знать причину решения модератора. */
         hiddenReason: review.hiddenReason,
+        /** Жалоба мастера: текст и дата — видно, что админ её уже получил. */
+        complaintText: review.complaintText,
+        complaintAt: review.complaintAt?.toISOString() ?? null,
         replyText: review.replyText,
         repliedAt: review.repliedAt?.toISOString() ?? null,
         createdAt: review.createdAt.toISOString(),
@@ -706,6 +717,40 @@ export async function cabinetRoutes(app: FastifyInstance) {
         hidden: rows.filter((review) => review.status === "hidden").length,
       },
     };
+  });
+
+  /**
+   * Жалоба мастера на отзыв.
+   *
+   * Мастер отзыв не скрывает (иначе негатив просто исчезал бы из витрины), но
+   * может объяснить, что не так: жалоба ложится в отзыв и всплывает в админке
+   * отдельным фильтром. Причину пишем обязательно — «мне не нравится» разбирать
+   * нечем.
+   */
+  app.post("/cabinet/reviews/:id/complaint", masterOnly, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { text } = z
+      .object({ text: z.string().trim().min(10, "Опишите причину жалобы (минимум 10 символов)").max(1000) })
+      .parse(request.body ?? {});
+
+    const masterSlug = request.currentUser!.masterSlug;
+    const [master] = masterSlug
+      ? await db.select().from(masters).where(eq(masters.slug, masterSlug)).limit(1)
+      : [];
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const [review] = await db.select().from(reviews).where(eq(reviews.id, id)).limit(1);
+    if (!review) return reply.code(404).send({ error: "not_found", message: "Отзыв не найден" });
+    if (review.masterId !== master.id) {
+      return reply.code(403).send({ error: "forbidden", message: "Это отзыв другого мастера" });
+    }
+
+    await db
+      .update(reviews)
+      .set({ complaintText: text.trim(), complaintAt: new Date() })
+      .where(eq(reviews.id, id));
+
+    return { ok: true, id, complaintText: text.trim(), complaintAt: new Date().toISOString() };
   });
 
   /** Пересоздать демо-данные (только вне прода). */

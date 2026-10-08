@@ -24,6 +24,17 @@ const listQuery = z.object({
   district: z.string().trim().max(60).optional(),
 });
 
+/**
+ * Мастер снят с публикации администратором (пауза или блокировка): витрина о
+ * нём молчит, записаться нельзя. Код ошибки отдельный, чтобы фронтенд и
+ * проверки отличали это от «нет такого slug».
+ */
+const MASTER_INACTIVE_MESSAGE = "Мастер снят с публикации";
+
+function inactiveReply(reply: { code: (status: number) => { send: (body: unknown) => unknown } }) {
+  return reply.code(404).send({ error: "master_inactive", message: MASTER_INACTIVE_MESSAGE });
+}
+
 const lastMinuteQuery = z.object({
   region: z.string().trim().optional(),
   days: z.coerce.number().int().min(1).max(14).default(3),
@@ -45,6 +56,9 @@ export async function catalogRoutes(app: FastifyInstance) {
 
     const rows = await db.select().from(masters).orderBy(desc(masters.rating));
     const filtered = rows
+        // Витрина показывает только активных: мастер на паузе или заблокирован
+        // администратором не должен собирать записи.
+        .filter((master) => master.status === "active")
         .filter((master) => {
           if (needle) {
             const haystack = `${master.name} ${master.tags} ${master.metro}`.toLowerCase();
@@ -121,7 +135,8 @@ export async function catalogRoutes(app: FastifyInstance) {
   app.get("/cities", async () => {
     const rows = await db
       .select({ region: masters.region, city: masters.city, lat: masters.lat, lng: masters.lng })
-      .from(masters);
+      .from(masters)
+      .where(eq(masters.status, "active"));
 
     const regions = new Map<string, { region: string; count: number; cities: Set<string>; points: { lat: number; lng: number }[] }>();
     for (const row of rows) {
@@ -159,6 +174,7 @@ export async function catalogRoutes(app: FastifyInstance) {
 
     const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Мастер не найден" });
+    if (master.status !== "active") return inactiveReply(reply);
 
     // Наружу отдаём только опубликованные отзывы: скрытые и ждущие модерации
     // клиент видеть не должен.
@@ -286,6 +302,7 @@ export async function catalogRoutes(app: FastifyInstance) {
 
     const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Мастер не найден" });
+    if (master.status !== "active") return inactiveReply(reply);
 
     const rows = await db
       .select()
@@ -317,6 +334,7 @@ export async function catalogRoutes(app: FastifyInstance) {
     const { region, days, limit, perMaster } = lastMinuteQuery.parse(request.query ?? {});
 
     const rows = (await db.select().from(masters))
+      .filter((master) => master.status === "active")
       .filter((master) => !region || region === "all" || master.region === region)
       .sort((a, b) => b.rating - a.rating);
 
@@ -340,6 +358,8 @@ export async function catalogRoutes(app: FastifyInstance) {
     });
 
     const byId = new Map(withServices.map((row) => [row.master.id, row]));
+    /** Превью мастера: карточки витрины показывают фото, а не инициалы. */
+    const avatars = await cartAvatars(withServices.map((row) => row.master.id));
     const offers = collected
       .flatMap((group) =>
         group.windows.map((window) => {
@@ -347,6 +367,8 @@ export async function catalogRoutes(app: FastifyInstance) {
           return {
             masterSlug: row.master.slug,
             masterName: row.master.name,
+            avatarUrl: avatars.get(row.master.id)?.thumbUrl ?? null,
+            avatarFullUrl: avatars.get(row.master.id)?.url ?? null,
             city: row.master.city,
             region: row.master.region,
             metro: row.master.metro,
@@ -393,6 +415,7 @@ export async function catalogRoutes(app: FastifyInstance) {
 
     const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Мастер не найден" });
+    if (master.status !== "active") return inactiveReply(reply);
 
     // Услуга должна быть из прайса этого мастера: иначе по чужой длительности
     // можно было бы посчитать окна, которых у мастера нет.

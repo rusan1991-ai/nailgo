@@ -1,14 +1,16 @@
 /**
- * Гео-привязка: справочник мест и фильтр витрины.
+ * Гео-привязка: справочник мест, сид и фильтр витрины.
  *
- * Проверяем, что справочник метро и городов ЛО заведён в базу, что мастер
- * связан со справочником (а не только текстовым адресом), что фильтр
- * `/masters?metro=` отбирает ровно своих и что карта мастеров показывает
- * настоящие места и позволяет выбрать станцию.
+ * Проверяем, что справочник метро и городов ЛО заведён в базу (его наполняет
+ * `npm run db:locations`, а на сервере — старт API), что мастер связан со
+ * справочником (а не только текстовым адресом), что фильтр `/masters?metro=`
+ * отбирает ровно своих, а главная и карта мастеров группируют станции по
+ * линиям метро и показывают только выбранное место.
  *
  * Запуск (при живых Vite и API):
  *   cd tools/devcheck && node bundle.mjs && npm run locations
  */
+import fs from "node:fs";
 import { api, check, loginMaster, makeDom, rootText, wait } from "./harness.mjs";
 
 let failures = 0;
@@ -26,9 +28,60 @@ assert(
   all.data.cities.length >= 10,
   `городов=${all.data?.cities?.length}`,
 );
-for (const name of ["Мурино", "Кудрово", "Гатчина", "Всеволожск"]) {
+// Города области из постановки: ключевые направления ЛО.
+for (const name of ["Мурино", "Кудрово", "Всеволожск", "Гатчина", "Выборг", "Сосновый Бор", "Сертолово", "Кингисепп"]) {
   assert(`в справочнике есть ${name}`, all.data.cities.some((item) => item.name === name));
 }
+
+// Станции метро из постановки: их обязательно показывает фильтр витрины.
+for (const name of [
+  "Девяткино",
+  "Проспект Просвещения",
+  "Озерки",
+  "Пионерская",
+  "Академическая",
+  "Ленинский проспект",
+  "Проспект Ветеранов",
+  "Комендантский проспект",
+  "Улица Дыбенко",
+  "Купчино",
+  "Звёздная",
+]) {
+  assert(`в справочнике есть станция ${name}`, all.data.metro.some((item) => item.name === name));
+}
+
+/* --- Сид справочника: скрипт есть, а на сервере он же идёт при старте --- */
+const apiPackage = JSON.parse(fs.readFileSync(new URL("../../apps/api/package.json", import.meta.url), "utf8"));
+assert(
+  "справочник наполняется отдельным скриптом (db:locations)",
+  typeof apiPackage.scripts?.["db:locations"] === "string",
+  String(apiPackage.scripts?.["db:locations"]),
+);
+assert(
+  "в сиде справочник пишется той же функцией",
+  fs
+    .readFileSync(new URL("../../apps/api/src/db/seed.ts", import.meta.url), "utf8")
+    .includes("syncLocations"),
+);
+
+/* --- Дерево линий: по нему рисуется фильтр витрины --- */
+const tree = await api("/locations/tree");
+assert("дерево справочника отвечает", tree.status === 200, `HTTP ${tree.status}`);
+assert(
+  "метро сгруппировано по линиям с цветами",
+  tree.data.lines.length === 5 && tree.data.lines.every((line) => line.color && line.items.length > 0),
+  tree.data.lines.map((line) => `${line.title}(${line.items.length})`).join(", "),
+);
+assert(
+  "в дереве те же станции и города, что в справочнике",
+  tree.data.totals.metro === all.data.metro.length && tree.data.totals.districts === all.data.cities.length,
+  JSON.stringify(tree.data.totals),
+);
+assert(
+  "у станций видно число мастеров",
+  tree.data.lines.every((line) => line.items.every((item) => typeof item.masters === "number")),
+  JSON.stringify(tree.data.lines.find((line) => line.title.includes("Невско"))?.items.slice(0, 3) ?? {}),
+);
 assert(
   "у станций метро указана линия и цвет",
   all.data.metro.every((item) => item.line && item.color),
@@ -142,6 +195,52 @@ if (metroChip) {
       window.document.body.textContent.includes("сбросить"),
   );
 }
+
+/* --- Главная: фильтр места в адресе и настоящие фото --- */
+
+const home = makeDom("/?metro=mayakovskaya");
+await wait(1600);
+const homeWindow = home.window;
+const homeText = rootText(home.dom);
+
+const picker = homeWindow.document.querySelector("[data-block='location-picker']");
+assert("на главной есть выбор места", Boolean(picker), homeText.slice(0, 120));
+assert(
+  "метро в фильтре сгруппировано по линиям",
+  homeWindow.document.querySelectorAll("[data-line]").length >= 5,
+  `блоков линий=${homeWindow.document.querySelectorAll("[data-line]").length}`,
+);
+assert(
+  "выбранная станция видна как активный чип",
+  Boolean(homeWindow.document.querySelector("[data-place='list-metro:mayakovskaya'][aria-pressed='true']")),
+);
+assert(
+  "выдача ограничена выбранным местом",
+  homeText.includes("Мастера у выбранного места") && homeText.includes("Маяковская"),
+  homeText.slice(homeText.indexOf("Мастера у"), homeText.indexOf("Мастера у") + 120),
+);
+assert(
+  "мастера другой станции в выдачу не попали",
+  !homeWindow.document.body.textContent.includes("Ольга Кравцова"),
+  "на Маяковской только Анна Смирнова",
+);
+
+// Ссылка на витрину с местом: ?metro=… открывается тем же фильтром.
+const link = homeWindow.document.querySelector("[data-place='list-district:vsevolozhsk']");
+assert("в фильтре есть города области", Boolean(link), link?.textContent?.trim() ?? "нет");
+
+const districtHome = makeDom("/?district=vsevolozhsk");
+await wait(1600);
+const districtText = rootText(districtHome.dom);
+assert(
+  "фильтр по городу области работает из адреса",
+  districtText.includes("Всеволожск") && districtText.includes("Ольга Кравцова"),
+  districtText.slice(districtText.indexOf("Мастера у"), districtText.indexOf("Мастера у") + 140),
+);
+assert(
+  "сброс места доступен",
+  Boolean(districtHome.window.document.querySelector("[data-action='clear-place']")),
+);
 
 console.log(failures === 0 ? "\nГео-фильтр: все проверки пройдены" : `\nГео-фильтр: провалов ${failures}`);
 process.exit(failures === 0 ? 0 : 1);

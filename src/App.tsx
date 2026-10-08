@@ -3,6 +3,9 @@ import { Link, BrowserRouter, Navigate, Route, Routes, useLocation } from "react
 import { AuthProvider, isMaster, useAuth } from "./auth/AuthContext";
 import { CityProvider } from "./city/CityContext";
 import { AdminLayout } from "./admin/AdminLayout";
+import { AdminDashboardPage } from "./admin/pages/AdminDashboardPage";
+import { AdminLimitsPage } from "./admin/pages/AdminLimitsPage";
+import { AdminMastersPage } from "./admin/pages/AdminMastersPage";
 import { AdminReviewsPage } from "./admin/pages/AdminReviewsPage";
 import { AdminDeliveriesPage } from "./admin/pages/AdminDeliveriesPage";
 import { AdminPaymentsPage } from "./admin/pages/AdminPaymentsPage";
@@ -240,8 +243,10 @@ export default function App() {
                 </RequireAuth>
               }
             >
-              <Route index element={<Navigate to="reviews" replace />} />
+              <Route index element={<AdminDashboardPage />} />
+              <Route path="masters" element={<AdminMastersPage />} />
               <Route path="reviews" element={<AdminReviewsPage />} />
+              <Route path="limits" element={<AdminLimitsPage />} />
               <Route path="deliveries" element={<AdminDeliveriesPage />} />
               <Route path="payments" element={<AdminPaymentsPage />} />
             </Route>

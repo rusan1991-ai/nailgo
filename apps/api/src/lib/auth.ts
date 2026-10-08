@@ -88,6 +88,19 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
     return reply.code(401).send({ error: "unauthorized", message: "Пользователь не найден" });
   }
 
+  /**
+   * Блокировка администратором закрывает кабинет сразу, не дожидаясь истечения
+   * токена: иначе заблокированный мастер работал бы ещё 15 минут.
+   */
+  if (user.blockedAt) {
+    return reply.code(403).send({
+      error: "account_blocked",
+      message: user.blockedReason
+        ? `Аккаунт заблокирован: ${user.blockedReason}`
+        : "Аккаунт заблокирован администратором",
+    });
+  }
+
   const [master] = await db.select().from(masters).where(eq(masters.userId, user.id)).limit(1);
 
   request.currentUser = {

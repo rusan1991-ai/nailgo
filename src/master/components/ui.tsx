@@ -39,17 +39,23 @@ export function CardTitle({ children, action }: { children: ReactNode; action?: 
 
 export function PageHeader({
   title,
+  subtitle,
   action,
   tabs,
 }: {
   title: string;
+  /** Подпись под заголовком: чем эта страница полезна. */
+  subtitle?: string;
   action?: ReactNode;
   tabs?: ReactNode;
 }) {
   return (
     <div className="mb-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
+          {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
+        </div>
         {action}
       </div>
       {tabs && <div className="mt-4">{tabs}</div>}
@@ -148,7 +154,28 @@ const avatarPalette = [
   "from-violet-200 to-purple-400",
 ];
 
-export function PersonAvatar({ name, size = 36 }: { name: string; size?: number }) {
+export function PersonAvatar({
+  name,
+  size = 36,
+  src = null,
+}: {
+  name: string;
+  size?: number;
+  /** Фото мастера (thumb из master_media): админка показывает его вместо инициалов. */
+  src?: string | null;
+}) {
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={`Фото мастера ${name}`}
+        loading="lazy"
+        className="inline-block shrink-0 rounded-full object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+
   const initials = name
     .split(" ")
     .filter(Boolean)

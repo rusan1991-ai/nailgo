@@ -15,6 +15,9 @@ export type FavoriteWindow = {
 export type FavoriteItem = {
   slug: string;
   name: string;
+  /** Превью мастера (thumb из master_media): карточка показывает фото. */
+  avatarUrl?: string | null;
+  avatarFullUrl?: string | null;
   tags: string;
   metro: string;
   address?: string | null;

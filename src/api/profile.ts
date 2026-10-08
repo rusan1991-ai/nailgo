@@ -24,6 +24,10 @@ export type CabinetProfile = {
   slotStepMinutes: number;
   /** Пояс площадки: с ним сравнивается выбранный пояс. */
   platformTimezone: string;
+  /** Решение площадки по профилю: active | paused | blocked. */
+  status?: "active" | "paused" | "blocked";
+  statusReason?: string | null;
+  statusChangedAt?: string | null;
 };
 
 /** Пояса России для выбора в кабинете: запад → восток. */

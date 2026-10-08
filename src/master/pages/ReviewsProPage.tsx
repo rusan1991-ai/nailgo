@@ -14,7 +14,7 @@ import {
   type ChipTone,
 } from "../components/ui";
 import { reviewRows } from "../data";
-import { replyToReview, useCabinetReviews, type CabinetReview } from "../../api/cabinet";
+import { complainAboutReview, replyToReview, useCabinetReviews, type CabinetReview } from "../../api/cabinet";
 import { formatDateLabel } from "../../store/bookings";
 
 type ReviewStatus = CabinetReview["status"];
@@ -41,6 +41,9 @@ export function ReviewsProPage() {
   const [details, setDetails] = useState<CabinetReview | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [replyBusy, setReplyBusy] = useState(false);
+  /** Жалоба на отзыв: текст пишется здесь, решение остаётся за администратором. */
+  const [complaintDraft, setComplaintDraft] = useState("");
+  const [complaintBusy, setComplaintBusy] = useState(false);
 
   const { data, loading, error, reload } = useCabinetReviews();
   const live = Boolean(data && data.items.length > 0);
@@ -56,6 +59,8 @@ export function ReviewsProPage() {
       service: row.service,
       status: row.status as ReviewStatus,
       hiddenReason: null,
+      complaintText: null,
+      complaintAt: null,
       replyText: null,
       repliedAt: null,
       createdAt: "2024-05-22T12:00:00.000Z",
@@ -97,6 +102,30 @@ export function ReviewsProPage() {
       );
     } finally {
       setReplyBusy(false);
+    }
+  };
+
+  /**
+   * Пожаловаться на отзыв: текст уходит администратору, отзыв остаётся в
+   * витрине до его решения. Мастер сам скрыть отзыв не может — в этом и смысл.
+   */
+  const sendComplaint = async (review: CabinetReview) => {
+    const text = complaintDraft.trim();
+    if (text.length < 10) {
+      setActionError("Опишите причину жалобы подробнее — минимум 10 символов");
+      return;
+    }
+    setComplaintBusy(true);
+    setActionError(null);
+    try {
+      const result = await complainAboutReview(review.id, text);
+      setDetails((current) => (current ? { ...current, complaintText: result.complaintText } : current));
+      setComplaintDraft("");
+      await reload();
+    } catch (caught) {
+      setActionError(`Жалоба не отправилась: ${caught instanceof Error ? caught.message : "ошибка сервера"}`);
+    } finally {
+      setComplaintBusy(false);
     }
   };
 
@@ -257,6 +286,42 @@ export function ReviewsProPage() {
               <span className="text-xs text-slate-400">{formatDateLabel(details.dateISO)}</span>
             </div>
             <p className="text-sm text-slate-700">{details.text}</p>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-3" data-block="complaint">
+              <p className="flex items-center gap-2 text-sm font-medium text-amber-800">
+                <Plus className="h-4 w-4" />
+                Жалоба администратору
+              </p>
+              {details.complaintText ? (
+                <p className="mt-2 rounded-xl bg-white px-3 py-2 text-sm text-amber-800" data-field="complaint-sent">
+                  Отправлено: {details.complaintText}
+                </p>
+              ) : (
+                <>
+                  <textarea
+                    value={complaintDraft}
+                    onChange={(event) => setComplaintDraft(event.target.value)}
+                    rows={3}
+                    maxLength={1000}
+                    placeholder="Что не так с отзывом: клиента не было, отзыв не о вашей услуге, оскорбления…"
+                    data-field="complaint-text"
+                    className="mt-2 w-full rounded-xl border border-amber-200 px-3 py-2 text-sm outline-none focus:border-amber-400"
+                  />
+                  <p className="mt-1 text-xs text-amber-700">
+                    Отзыв публикуется сразу. Скрыть его может только администратор — он разберёт жалобу.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={!live || complaintBusy}
+                    onClick={() => void sendComplaint(details)}
+                    data-action="complaint-send"
+                    className="mt-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {complaintBusy ? "Отправляем…" : "Отправить жалобу"}
+                  </button>
+                </>
+              )}
+            </div>
+
             <div className="rounded-2xl border border-slate-200 p-3">
               <p className="flex items-center gap-2 text-sm font-medium text-slate-700">
                 <MessageSquare className="h-4 w-4 text-pink-500" />

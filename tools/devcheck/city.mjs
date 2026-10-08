@@ -94,10 +94,20 @@ assert(
   mapSlugs.length === 1 && mapSlugs[0] === "olga-kravtsova",
   mapSlugs.join(", ") || "пусто",
 );
+// Каталог на главной — левая колонка (в списке мест есть станции СПб, поэтому
+// смотрим именно карточки каталога, а не текст всей страницы).
+const catalogSlugs = [
+  ...home.dom.window.document.querySelectorAll("[data-block='home-masters'] a[href^='/master/']"),
+].map((node) => node.getAttribute("href"));
 assert(
   "каталог на главной тоже показывает мастеров региона",
-  afterSwitch.includes("Всеволожск") && !afterSwitch.includes("Невский проспект"),
-  afterSwitch.slice(80, 200),
+  catalogSlugs.length === 1 && catalogSlugs[0] === "/master/olga-kravtsova",
+  catalogSlugs.join(", ") || "пусто",
+);
+assert(
+  "в каталоге области нет мастеров другого региона",
+  !catalogSlugs.includes("/master/anna-smirnova"),
+  catalogSlugs.join(", "),
 );
 assert(
   "выбор города сохранился",

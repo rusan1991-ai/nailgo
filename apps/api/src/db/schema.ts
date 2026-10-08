@@ -46,6 +46,13 @@ export const users = pgTable("users", {
   /** Чёрный список: неявки. Снимается только администратором. */
   blacklistedAt: timestamp("blacklisted_at", { withTimezone: true }),
   blacklistReason: text("blacklist_reason"),
+  /**
+   * Блокировка учётной записи администратором: аккаунт не входит (все роли,
+   * не только мастер) и не проходит проверку токена. Снимается там же, где
+   * поставлена — в админке.
+   */
+  blockedAt: timestamp("blocked_at", { withTimezone: true }),
+  blockedReason: text("blocked_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -107,6 +114,16 @@ export const masters = pgTable("masters", {
    */
   metroSlug: text("metro_slug"),
   districtSlug: text("district_slug"),
+  /**
+   * Модерация площадки: активный мастер попадает в витрину и принимает записи,
+   * `paused` — приостановлен (витрина его не показывает, записаться нельзя),
+   * `blocked` — заблокирован вместе с аккаунтом: кабинет закрыт, вход запрещён.
+   * Меняет только администратор (см. routes/admin.ts).
+   */
+  status: text("status").notNull().default("active"), // active | paused | blocked
+  /** Почему мастер снят с публикации — видно в админке и в кабинете. */
+  statusReason: text("status_reason"),
+  statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
   email: text("email"),
   site: text("site"),
   priceFrom: integer("price_from").notNull(),
@@ -258,6 +275,13 @@ export const reviews = pgTable(
      * объясняет, почему. Видно только в админке — это служебное поле.
      */
     hiddenReason: text("hidden_reason"),
+    /**
+     * Жалоба мастера на отзыв: текст, который мастер пишет из кабинета.
+     * Жалоба не снимает отзыв с публикации — решение принимает администратор
+     * (в админке такие отзывы видны отдельным фильтром).
+     */
+    complaintText: text("complaint_text"),
+    complaintAt: timestamp("complaint_at", { withTimezone: true }),
     /** Ответ мастера: одна реплика на отзыв. */
     replyText: text("reply_text"),
     repliedAt: timestamp("replied_at", { withTimezone: true }),

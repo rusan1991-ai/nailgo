@@ -4,6 +4,9 @@ import { useApiResource, type Resource } from "./resource";
 export type LastMinuteOffer = {
   masterSlug: string;
   masterName: string;
+  /** Превью мастера (thumb из master_media). */
+  avatarUrl?: string | null;
+  avatarFullUrl?: string | null;
   city: string;
   region: string;
   metro: string;

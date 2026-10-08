@@ -1,6 +1,6 @@
 import { FavoriteButton } from "../components/FavoriteButton";
 import { motion } from "framer-motion";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AppHeader } from "../components/AppHeader";
 import { CityMap } from "../components/CityMap";
@@ -9,6 +9,7 @@ import { DEFAULT_REGIONS, useCity } from "../city/CityContext";
 import { Avatar, NailStrip } from "../components/NailUi";
 import { formatRub, slots } from "../data/mock";
 import { useCatalog, durationLabel } from "../catalog/store";
+import { LocationPicker, type PickedPlace } from "../components/LocationPicker";
 import { demoWeek } from "../store/bookings";
 
 const filters = [
@@ -24,12 +25,42 @@ export function HomePage() {
   const { user } = useAuth();
   const { masters, services } = useCatalog();
   const { region, chosen } = useCity();
+  /**
+   * Выбранное место живёт в адресе (?metro=… или ?district=…): так ссылку на
+   * «мастера у Маяковской» можно отправить, а перезагрузка не сбрасывает фильтр.
+   */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const metroParam = searchParams.get("metro");
+  const districtParam = searchParams.get("district");
+  const place: PickedPlace = metroParam
+    ? { kind: "metro", slug: metroParam, name: masters.find((master) => master.metroSlug === metroParam)?.metro.replace(/^м\.\s*/, "") ?? metroParam }
+    : districtParam
+      ? { kind: "district", slug: districtParam, name: masters.find((master) => master.districtSlug === districtParam)?.metro.replace(/^г\.\s*/, "") ?? districtParam }
+      : null;
+
+  const choosePlace = (next: PickedPlace) => {
+    const params = new URLSearchParams(searchParams);
+    params.delete("metro");
+    params.delete("district");
+    if (next) params.set(next.kind === "metro" ? "metro" : "district", next.slug);
+    setSearchParams(params, { replace: true });
+  };
   /** Блок «услуги студии» показывает прайс мастера, к которому ведёт запись. */
   const spotlightServices = services.filter((service) => service.masterSlug === "anna-smirnova");
   const showcase = spotlightServices.length > 0 ? spotlightServices : services;
   const regionInfo = DEFAULT_REGIONS.find((item) => item.region === region) ?? DEFAULT_REGIONS[0];
   /** Мастера выбранного города: карта показывает именно их. */
   const regionalMasters = masters.filter((master) => !master.region || master.region === region);
+
+  /**
+   * Фильтр по месту: сравнение идёт по справочнику (`metroSlug`/`districtSlug`),
+   * а не по тексту адреса — станция должна совпадать, а не «упоминаться».
+   */
+  const placeMasters = place
+    ? masters.filter((master) =>
+        place.kind === "metro" ? master.metroSlug === place.slug : master.districtSlug === place.slug,
+      )
+    : regionalMasters;
   const defaultServiceId = services[1]?.id ?? services[0]?.id ?? "s1";
   const bookingTarget = `/booking?master=anna-smirnova&service=${defaultServiceId}&date=${demoWeek[0].iso}&slot=19:00`;
   const bookingLink = user ? bookingTarget : `/login?returnTo=${encodeURIComponent(bookingTarget)}`;
@@ -84,17 +115,23 @@ export function HomePage() {
 
         <section className="mt-8 grid gap-5 xl:grid-cols-[420px_1fr_430px]">
           <div>
+            <LocationPicker place={place} onPick={choosePlace} className="mb-4" />
+
             <div className="mb-3">
-              <h2 className="text-3xl font-semibold">Мастера рядом</h2>
+              <h2 className="text-3xl font-semibold">{place ? "Мастера у выбранного места" : "Мастера рядом"}</h2>
               <p className="text-slate-500">
-                {regionalMasters.length > 0
-                  ? `${regionalMasters.length} ${regionalMasters.length === 1 ? "мастер" : "мастера"} в регионе: ${region}`
-                  : `в регионе «${region}» мастеров пока нет`}
+                {place
+                  ? placeMasters.length > 0
+                    ? `${placeMasters.length} ${placeMasters.length === 1 ? "мастер" : "мастера"}: ${place.kind === "metro" ? "м. " : "г. "}${place.name}`
+                    : `у места «${place.name}» мастеров пока нет — выберите другое`
+                  : regionalMasters.length > 0
+                    ? `${regionalMasters.length} ${regionalMasters.length === 1 ? "мастер" : "мастера"} в регионе: ${region}`
+                    : `в регионе «${region}» мастеров пока нет`}
               </p>
             </div>
 
-            <div className="space-y-3">
-              {regionalMasters.map((master, idx) => (
+            <div className="space-y-3" data-block="home-masters">
+              {placeMasters.map((master, idx) => (
                 <motion.article
                   key={master.slug}
                   initial={{ opacity: 0, x: -14 }}
@@ -105,7 +142,8 @@ export function HomePage() {
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <Avatar className="h-14 w-14" />
+                    {/* Фото мастера из портфолио (thumb 320): инициалы — запасной вид. */}
+                    <Avatar className="h-14 w-14" src={master.avatarUrl} name={master.name} />
                     <div className="min-w-0 flex-1">
                       <Link to={`/master/${master.slug}`} className="truncate text-lg font-semibold hover:text-pink-600">
                         {master.name}
@@ -136,11 +174,18 @@ export function HomePage() {
             )}
             <CityPicker variant="wide" />
             <CityMap
-              masters={regionalMasters}
-              center={regionInfo.center}
-              zoom={regionInfo.cities.length > 1 ? 9 : 11}
+              masters={placeMasters}
+              center={
+                place && placeMasters.find((master) => master.lat && master.lng)
+                  ? {
+                      lat: placeMasters.find((master) => master.lat && master.lng)!.lat!,
+                      lng: placeMasters.find((master) => master.lat && master.lng)!.lng!,
+                    }
+                  : regionInfo.center
+              }
+              zoom={place ? 13 : regionInfo.cities.length > 1 ? 9 : 11}
               height={430}
-              title={`Мастера: ${region}`}
+              title={place ? `Мастера: ${place.name}` : `Мастера: ${region}`}
             />
           </div>
 

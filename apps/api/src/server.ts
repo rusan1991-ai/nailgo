@@ -5,8 +5,10 @@ import multipart from "@fastify/multipart";
 import { ZodError } from "zod";
 import { env, isDev } from "./env.js";
 import { closeDb, db, pingDb, runMigrations } from "./db/index.js";
+import { syncLocations } from "./db/locations-sync.js";
 import { masters, bookings } from "./db/schema.js";
 import { adminRoutes } from "./routes/admin.js";
+import { adminMasterRoutes } from "./routes/admin-masters.js";
 import { dispatchDue } from "./lib/delivery/outbox.js";
 import { runSchedulerTick } from "./lib/scheduler.js";
 import { authRoutes } from "./routes/auth.js";
@@ -96,6 +98,7 @@ export async function buildServer() {
       await instance.register(bookingRoutes);
       await instance.register(cabinetRoutes);
       await instance.register(adminRoutes);
+      await instance.register(adminMasterRoutes);
       await instance.register(authRoutes);
       await instance.register(notificationRoutes);
       await instance.register(messageRoutes);
@@ -118,6 +121,15 @@ async function start() {
   const app = await buildServer();
   try {
     await runMigrations();
+    /**
+     * Справочник мест — константа в коде, но живёт в базе (фильтры витрины и
+     * привязка мастеров идут по slug). Синхронизируем при старте: на чистой
+     * базе фильтр работает сразу, а новые станции появляются без деплоя данных.
+     */
+    const locations = await syncLocations();
+    app.log.info(
+      `Справочник мест: ${locations.total} (метро ${locations.metro}, область ${locations.district})`,
+    );
     await app.listen({ port: env.port, host: env.host });
     app.log.info(`NailGo API: http://${env.host}:${env.port}/api/health`);
 

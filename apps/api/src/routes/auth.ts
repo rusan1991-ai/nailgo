@@ -27,7 +27,7 @@ import {
 import { messengerDeepLink, messengerConfigured, verifyTelegramWidget } from "../lib/messengers.js";
 import { DELIVERY_KINDS, enqueueDelivery } from "../lib/delivery/outbox.js";
 import { normalizePhone } from "../lib/phone.js";
-import { ERROR_CODES } from "../lib/errors.js";
+import { BookingError, ERROR_CODES } from "../lib/errors.js";
 import {
   RATE_LIMIT_PREFIX,
   RATE_LIMIT_SETTINGS,
@@ -67,6 +67,20 @@ async function currentUserView(user: typeof users.$inferSelect) {
  * Возвращает и представление пользователя — фронтенду оно нужно сразу.
  */
 async function issueSession(user: typeof users.$inferSelect) {
+  /**
+   * Заблокированный аккаунт не входит ни одним способом (телефон, OAuth, бот):
+   * иначе блокировка обходилась бы повторным входом.
+   */
+  if (user.blockedAt) {
+    throw new BookingError(
+      403,
+      "account_blocked",
+      user.blockedReason
+        ? `Аккаунт заблокирован: ${user.blockedReason}`
+        : "Аккаунт заблокирован администратором",
+    );
+  }
+
   const payload = { sub: user.id, phone: user.phone, role: user.role };
   const refreshToken = await openSession(user);
   return {
@@ -148,6 +162,24 @@ export async function authRoutes(app: FastifyInstance) {
         error: "phone_login_disabled",
         message: "Вход по SMS отключён. Войдите через Яндекс ID, VK ID или мессенджер — это бесплатно.",
         providers: availableProviders().filter((item) => item.available).map((item) => item.provider),
+      });
+    }
+
+    /**
+     * Заблокированному аккаунту код не выдаём вовсе: блокировка ставится
+     * администратором, и «код отправлен, но вход запрещён» только путает.
+     */
+    const [knownUser] = await db
+      .select({ blockedAt: users.blockedAt, blockedReason: users.blockedReason })
+      .from(users)
+      .where(eq(users.phone, normalizePhone(phone)))
+      .limit(1);
+    if (knownUser?.blockedAt) {
+      return reply.code(403).send({
+        error: "account_blocked",
+        message: knownUser.blockedReason
+          ? `Аккаунт заблокирован: ${knownUser.blockedReason}`
+          : "Аккаунт заблокирован администратором",
       });
     }
 

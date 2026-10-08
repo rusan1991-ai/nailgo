@@ -24,18 +24,41 @@ import { clientPolicy, clearClientRestrictions } from "../lib/booking-policy.js"
 import { runSchedulerTick, schedulerPreview } from "../lib/scheduler.js";
 import { paymentSettings, paymentsSummary, savePaymentSettings } from "../lib/payments.js";
 import { deliveryChannelsSummary } from "../lib/delivery/transports.js";
-import { payments, services } from "../db/schema.js";
+import { locations, payments, services } from "../db/schema.js";
 
 const statusSchema = z.enum(["published", "moderation", "hidden"]);
+
+/**
+ * Справочник мест для сводки админки: сколько станций метро и городов области
+ * реально лежит в базе (его заводит db:locations и старт API).
+ */
+async function locationsSummary() {
+  const rows = await db.select({ kind: locations.kind }).from(locations);
+  return {
+    total: rows.length,
+    metro: rows.filter((row) => row.kind === "metro").length,
+    district: rows.filter((row) => row.kind === "district").length,
+  };
+}
 
 export async function adminRoutes(app: FastifyInstance) {
   const adminOnly = { preHandler: [requireAuth, requireAdmin] };
 
-  /** Очередь модерации: отзывы всех мастеров, свежие сверху. */
+  /**
+   * Очередь модерации: отзывы всех мастеров, свежие сверху.
+   *
+   * `complaints=1` оставляет только отзывы с жалобой мастера — это рабочий
+   * список администратора: отзыв публикуется сразу (решение 7), а разбирается
+   * по жалобе. Жалоба не снимает публикацию сама, решение принимает админ.
+   */
   app.get("/admin/reviews", adminOnly, async (request) => {
-    const { status } = z
-      .object({ status: statusSchema.or(z.literal("all")).optional() })
+    const { status, complaints } = z
+      .object({
+        status: statusSchema.or(z.literal("all")).optional(),
+        complaints: z.enum(["1", "0"]).optional(),
+      })
       .parse(request.query ?? {});
+    const onlyComplaints = complaints === "1";
 
     const rows = await db
       .select({ review: reviews, master: masters })
@@ -44,6 +67,7 @@ export async function adminRoutes(app: FastifyInstance) {
       .orderBy(desc(reviews.createdAt));
 
     const items = rows
+      .filter(({ review }) => (onlyComplaints ? Boolean(review.complaintText) : true))
       .filter(({ review }) => (status && status !== "all" ? review.status === status : true))
       .map(({ review, master }) => ({
         id: review.id,
@@ -57,6 +81,9 @@ export async function adminRoutes(app: FastifyInstance) {
         status: review.status,
         /** Причина скрытия: по ней видно, за что отзыв сняли с публикации. */
         hiddenReason: review.hiddenReason,
+        /** Жалоба мастера: текст и дата — по ним админ принимает решение. */
+        complaintText: review.complaintText,
+        complaintAt: review.complaintAt?.toISOString() ?? null,
         replyText: review.replyText,
         repliedAt: review.repliedAt?.toISOString() ?? null,
         createdAt: review.createdAt.toISOString(),
@@ -71,6 +98,8 @@ export async function adminRoutes(app: FastifyInstance) {
         moderation: rows.filter(({ review }) => review.status === "moderation").length,
         hidden: rows.filter(({ review }) => review.status === "hidden").length,
       },
+      /** Сколько отзывов ждёт разбора жалобы — счётчик для админки. */
+      complaints: rows.filter(({ review }) => Boolean(review.complaintText)).length,
     };
   });
 
@@ -123,15 +152,25 @@ export async function adminRoutes(app: FastifyInstance) {
   /** Сводка админки: сколько отзывов ждёт решения и что уже сделано. */
   app.get("/admin/summary", adminOnly, async () => {
     const rows = await db
-      .select({ status: reviews.status, score: reviews.score })
+      .select({ status: reviews.status, score: reviews.score, complaintText: reviews.complaintText })
       .from(reviews);
 
-    const masterRows = await db.select({ id: masters.id }).from(masters);
+    const masterRows = await db.select({ id: masters.id, status: masters.status }).from(masters);
 
     const deliveryRows = await db.select({ status: deliveries.status }).from(deliveries);
 
     return {
       masters: masterRows.length,
+      /** Состояние витрины: сколько мастеров активно, на паузе и заблокировано. */
+      mastersByStatus: {
+        active: masterRows.filter((row) => row.status === "active").length,
+        paused: masterRows.filter((row) => row.status === "paused").length,
+        blocked: masterRows.filter((row) => row.status === "blocked").length,
+      },
+      /** Отзывы с жалобой мастера: их разбирает админ. */
+      reviewComplaints: rows.filter((row) => Boolean(row.complaintText)).length,
+      /** Справочник мест: сколько станций и городов доступно фильтру витрины. */
+      locations: await locationsSummary(),
       reviews: rows.length,
       byStatus: {
         published: rows.filter((row) => row.status === "published").length,

@@ -167,5 +167,42 @@ assert(
   "фото работ есть в галерее кабинета",
 );
 
+/* --- Витрина: карточки показывают превью, а не инициалы --- */
+
+// Портфолио для проверки витрины: файл остался после удаления выше, поэтому
+// загружаем ещё одну работу — карточка должна показать именно превью (thumb).
+const showcase = await api("/masters");
+const anna = showcase.data.items.find((item) => item.slug === "anna-smirnova");
+assert(
+  "каталог отдаёт превью и полную ссылку",
+  anna?.avatarUrl?.includes("/thumb") && anna?.avatarFullUrl?.includes("/web"),
+  `${anna?.avatarUrl} / ${anna?.avatarFullUrl}`,
+);
+
+const thumbFile = await fetch(`${ORIGIN}${anna.avatarUrl}`);
+assert("превью реально отдаётся", thumbFile.status === 200, `HTTP ${thumbFile.status}`);
+
+const home = makeDom("/");
+await wait(1600);
+const homeImage = home.window.document.querySelector("img[src*='/api/media/']");
+assert(
+  "на главной карточка мастера показывает фото",
+  Boolean(homeImage),
+  homeImage?.getAttribute("src") ?? rootText(home.dom).slice(0, 140),
+);
+assert(
+  "на витрине именно превью 320, а не полный файл",
+  homeImage?.getAttribute("src")?.includes("/thumb") === true,
+  String(homeImage?.getAttribute("src")),
+);
+
+const searchPage = makeDom("/search");
+await wait(1600);
+assert(
+  "в поиске карточки тоже с фото",
+  Boolean(searchPage.window.document.querySelector("img[src*='/api/media/']")),
+  "карточка поиска",
+);
+
 console.log(failures === 0 ? "\nМедиа: все проверки пройдены" : `\nМедиа: провалов ${failures}`);
 process.exit(failures === 0 ? 0 : 1);

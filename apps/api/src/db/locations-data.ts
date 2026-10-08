@@ -160,6 +160,8 @@ export const LOCATIONS_SEED: LocationSeed[] = [
   district("tosno", "Тосно", LO, 59.5407, 30.8772, 250),
   district("priozersk", "Приозерск", LO, 61.0384, 30.1126, 260),
   district("volkhov", "Волхов", LO, 59.9255, 32.3386, 270),
+  district("kingisepp", "Кингисепп", LO, 59.3739, 28.6114, 280),
+  district("luga", "Луга", LO, 58.7372, 29.8477, 290),
 ];
 
 /** Сколько чего в справочнике — пригодится админке и проверкам. */

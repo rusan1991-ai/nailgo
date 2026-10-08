@@ -3,14 +3,17 @@ import { useAuth } from "../auth/AuthContext";
 import { cn } from "../utils/cn";
 
 const navItems = [
+  { to: "/admin", label: "Обзор", end: true },
+  { to: "/admin/masters", label: "Мастера" },
   { to: "/admin/reviews", label: "Отзывы" },
+  { to: "/admin/limits", label: "Лимиты" },
   { to: "/admin/deliveries", label: "Доставка" },
   { to: "/admin/payments", label: "Платежи" },
 ];
 
 /**
- * Каркас админки: модерация отзывов, очередь доставки сообщений и предоплаты.
- * Управление мастерами и контентом — пункт 10 карты.
+ * Каркас админки: обзор, мастера, модерация отзывов, лимиты входа, доставка и
+ * предоплаты. Все разделы ходят под ролью admin.
  */
 export function AdminLayout() {
   const { user, signOut } = useAuth();
@@ -21,7 +24,7 @@ export function AdminLayout() {
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-3">
           <div className="flex items-center gap-6">
-            <Link to="/admin/reviews" className="text-sm font-semibold uppercase tracking-[0.2em] text-pink-500">
+            <Link to="/admin" className="text-sm font-semibold uppercase tracking-[0.2em] text-pink-500">
               NailGo · админка
             </Link>
             <nav className="flex items-center gap-1">
@@ -29,6 +32,7 @@ export function AdminLayout() {
                 <NavLink
                   key={item.to}
                   to={item.to}
+                  end={item.end}
                   className={({ isActive }) =>
                     cn(
                       "rounded-lg px-3 py-1.5 text-sm transition",

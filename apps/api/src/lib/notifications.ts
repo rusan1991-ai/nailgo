@@ -39,7 +39,9 @@ export type NotificationType =
   /** У избранного мастера освободилось окно. */
   | "favorite_slot"
   /** Просьба привязать мессенджер: иначе напоминания не дойдут. */
-  | "link_messenger";
+  | "link_messenger"
+  /** Решение площадки по профилю мастера: снят с публикации, блокировка, возврат. */
+  | "master_status";
 
 type BookingRow = typeof schema.bookings.$inferSelect;
 

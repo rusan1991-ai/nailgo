@@ -39,6 +39,29 @@ const navItems = [
   { to: "/pro/settings", label: "Настройки", icon: Settings },
 ];
 
+/** Плашка модерации: показывается, только когда профиль снят или заблокирован. */
+function ModerationBanner() {
+  const { data } = useCabinetProfile();
+  const status = data?.profile.status;
+  if (!status || status === "active") return null;
+
+  return (
+    <div
+      data-block="moderation-banner"
+      data-status={status}
+      className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+    >
+      <p className="font-medium">
+        {status === "blocked" ? "Аккаунт заблокирован администратором" : "Профиль снят с публикации"}
+      </p>
+      <p className="mt-1">
+        {data?.profile.statusReason ?? "Причина не указана."}{" "}
+        {status === "paused" ? "Клиенты не видят профиль и не могут записаться." : "Вход в кабинет закрыт — напишите в поддержку."}
+      </p>
+    </div>
+  );
+}
+
 function Logo() {
   return (
     <Link to="/pro" className="flex items-center gap-2.5">
@@ -166,6 +189,9 @@ export function MasterLayout() {
           )}
 
           <main key={pathname} className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+            {/* Решение площадки видно сразу: снятый с публикации профиль не
+                показывается клиентам, и мастер должен понимать, почему. */}
+            <ModerationBanner />
             {/* Напоминания клиентам уходят только в мессенджер — мастеру это тоже важно. */}
             <MessengerBanner settingsTo="/pro/settings" className="mb-5" />
             <Outlet />

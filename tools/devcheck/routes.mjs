@@ -36,10 +36,21 @@ const masterRoutes = [
   "/pro/promotion",
   "/pro/stats",
   "/pro/messages",
+  "/pro/media",
   "/pro/settings",
 ];
 
-const adminRoutes = ["/admin/reviews"];
+// Админка: вход отдельной формой, разделы — обзор, мастера, отзывы, лимиты,
+// доставка и платежи (последние два — этап 9).
+const adminRoutes = [
+  "/admin/login",
+  "/admin",
+  "/admin/masters",
+  "/admin/reviews",
+  "/admin/limits",
+  "/admin/deliveries",
+  "/admin/payments",
+];
 
 const routes = [
   ...clientRoutes.map((route) => ({ route, session })),

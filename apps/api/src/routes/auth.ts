@@ -1,12 +1,32 @@
-import { createHash, randomInt } from "node:crypto";
+import { createHash, randomBytes, randomInt } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { masters, otpCodes, sessions, users } from "../db/schema.js";
+import { authFlows, masters, otpCodes, sessions, users } from "../db/schema.js";
 import { env, isDev } from "../env.js";
 import { requireAuth, signAccessToken, signRefreshToken, verifyRefreshToken } from "../lib/auth.js";
-import { DELIVERY_KINDS, enqueueDelivery, sendDelivery } from "../lib/delivery/outbox.js";
+import {
+  ensureMasterProfile,
+  findFlow,
+  linkIdentity,
+  listIdentities,
+  purgeExpiredFlows,
+  signInWithIdentity,
+  unlinkIdentity,
+} from "../lib/identities.js";
+import {
+  authorizeUrl,
+  availableProviders,
+  createPkcePair,
+  exchangeCode,
+  fetchProfile,
+  providerAvailable,
+  redirectUri,
+} from "../lib/oauth.js";
+import { messengerDeepLink, messengerConfigured, verifyTelegramWidget } from "../lib/messengers.js";
+import { DELIVERY_KINDS, enqueueDelivery } from "../lib/delivery/outbox.js";
+import { normalizePhone } from "../lib/phone.js";
 import { ERROR_CODES } from "../lib/errors.js";
 import {
   RATE_LIMIT_PREFIX,
@@ -17,7 +37,6 @@ import {
   rateLimitKey,
   resetRateLimit,
 } from "../lib/rate-limit.js";
-import { slugify } from "../lib/slug.js";
 
 const phoneSchema = z
   .string()
@@ -26,39 +45,35 @@ const phoneSchema = z
   .max(25)
   .transform((value) => value.replace(/[^\d+]/g, ""));
 
-/** Представление пользователя для клиента: роль и slug мастера, если он мастер. */
-async function currentUserView(id: string, phone: string, name: string, role: string) {
-  const [master] = await db.select().from(masters).where(eq(masters.userId, id)).limit(1);
-  return { id, phone, name, role, masterSlug: master?.slug ?? null };
+/**
+ * Представление пользователя для клиента: роль, slug мастера и привязанные
+ * способы входа. Интерфейсу нужно знать, чем человек уже вошёл, чтобы не
+ * предлагать привязку повторно.
+ */
+async function currentUserView(user: typeof users.$inferSelect) {
+  const [master] = await db.select().from(masters).where(eq(masters.userId, user.id)).limit(1);
+  return {
+    id: user.id,
+    phone: user.phone,
+    name: user.name,
+    role: user.role,
+    masterSlug: master?.slug ?? null,
+    identities: await listIdentities(user.id),
+  };
 }
 
 /**
- * Профиль мастера для нового кабинета: без него кабинету не с чем работать.
- * Slug делаем из имени, а если такой уже занят — добавляем номер.
+ * Выдать пару токенов: единая точка для кода из SMS-стенда, OAuth и ботов.
+ * Возвращает и представление пользователя — фронтенду оно нужно сразу.
  */
-async function ensureMasterProfile(userId: string, name: string): Promise<void> {
-  const [existing] = await db.select().from(masters).where(eq(masters.userId, userId)).limit(1);
-  if (existing) return;
-
-  const base = slugify(name);
-  let slug = base;
-  for (let attempt = 2; attempt < 50; attempt += 1) {
-    const [taken] = await db.select({ id: masters.id }).from(masters).where(eq(masters.slug, slug)).limit(1);
-    if (!taken) break;
-    slug = `${base}-${attempt}`;
-  }
-
-  await db.insert(masters).values({
-    slug,
-    userId,
-    name,
-    tags: "Маникюр",
-    metro: "Не указано",
-    distance: "—",
-    // Цену и услуги мастер укажет сам: в каталоге такие карточки подписаны «цена по запросу».
-    priceFrom: 0,
-    experience: "Не указано",
-  });
+async function issueSession(user: typeof users.$inferSelect) {
+  const payload = { sub: user.id, phone: user.phone, role: user.role };
+  const refreshToken = await openSession(user);
+  return {
+    accessToken: signAccessToken(payload),
+    refreshToken,
+    user: await currentUserView(user),
+  };
 }
 
 function generateCode(): string {
@@ -96,7 +111,7 @@ function requestIp(request: { ip: string; headers: Record<string, unknown> }): s
  * Новая сессия входа для устройства: строка в sessions плюс refresh-токен,
  * в который зашит её id. Просроченные сессии пользователя попутно подчищаем.
  */
-async function openSession(user: { id: string; phone: string; role: string }) {
+async function openSession(user: { id: string; phone: string | null; role: string }) {
   await db.delete(sessions).where(and(eq(sessions.userId, user.id), lt(sessions.expiresAt, new Date())));
 
   const [session] = await db
@@ -118,11 +133,24 @@ async function openSession(user: { id: string; phone: string; role: string }) {
 
 export async function authRoutes(app: FastifyInstance) {
   /**
-   * Запрос кода подтверждения. На проде код уходит в SMS (провайдер подключается
-   * отдельно), в dev возвращается в ответе — иначе нечего тестировать.
+   * Запрос кода подтверждения.
+   *
+   * Платные SMS площадка не покупает (этап 2), поэтому телефонный вход остался
+   * рабочим инструментом стенда: в dev код возвращается в ответе или пишется
+   * в журнал. В проде ручка честно отвечает 503 и отправляет человека к
+   * бесплатным способам входа — Яндекс ID, VK ID, Telegram, Max.
    */
   app.post("/auth/request-otp", async (request, reply) => {
     const { phone } = z.object({ phone: phoneSchema }).parse(request.body ?? {});
+
+    if (env.otpDelivery === "sms" || !isDev) {
+      return reply.code(503).send({
+        error: "phone_login_disabled",
+        message: "Вход по SMS отключён. Войдите через Яндекс ID, VK ID или мессенджер — это бесплатно.",
+        providers: availableProviders().filter((item) => item.available).map((item) => item.provider),
+      });
+    }
+
     const ip = requestIp({ ip: request.ip, headers: request.headers as Record<string, unknown> });
 
     // Лимиты против «SMS-бомбинга»: и по номеру, и по адресу. Оба берут
@@ -174,36 +202,16 @@ export async function authRoutes(app: FastifyInstance) {
       expiresAt: new Date(Date.now() + env.otpTtlSeconds * 1000),
     });
 
-    // Куда уходит код — определяет OTP_DELIVERY (см. env.ts).
-    // Реальная отправка идёт через очередь доставки: строка в deliveries видна
-    // администратору, при сбое провайдера попытка повторяется, а не теряется.
-    if (env.otpDelivery === "sms") {
-      const queued = await enqueueDelivery({
-        channel: "sms",
-        kind: DELIVERY_KINDS.otp,
-        recipient: phone,
-        body: `NailGo: код подтверждения ${code}. Никому его не сообщайте.`,
-      });
-      const sent = await sendDelivery(queued.id);
-
-      if (!sent || sent.status !== "sent") {
-        app.log.error({ phone, error: sent?.error }, "SMS с кодом не ушла — проверьте настройки провайдера");
-        return reply.code(503).send({
-          error: "sms_not_configured",
-          message: sent?.error ? `SMS не отправлена: ${sent.error}` : "Отправка SMS ещё не подключена",
-        });
-      }
-    }
-
+    // Код идёт в журнал системы: SMS не отправляем, но событие видно в очереди
+    // доставки — по ней понятно, что код «ушёл» бы человеку, будь канал.
     if (env.otpDelivery === "log") {
-      // Код остаётся в логе сервера, но и в очереди: видно, что SMS «ушла».
       await enqueueDelivery({
-        channel: "sms",
+        channel: "log",
         kind: DELIVERY_KINDS.otp,
         recipient: phone,
         body: `NailGo: код подтверждения ${code}. Никому его не сообщайте.`,
       });
-      app.log.warn({ phone }, `SMS не подключён — код подтверждения: ${code}`);
+      app.log.warn({ phone }, `Код подтверждения (стенд, без SMS): ${code}`);
     } else {
       app.log.info({ phone }, "OTP: код сгенерирован");
     }
@@ -376,14 +384,279 @@ export async function authRoutes(app: FastifyInstance) {
       await ensureMasterProfile(user.id, user.name);
     }
 
-    const payload = { sub: user.id, phone: user.phone, role: user.role };
-    const refreshToken = await openSession(user);
+    // Телефон, которым человек вошёл, становится привязкой: так аккаунт можно
+    // будет узнать и после появления других способов входа.
+    await linkIdentity(user.id, {
+      provider: "phone",
+      providerUserId: normalizePhone(user.phone ?? phone),
+      displayName: user.name,
+    });
+
+    return await issueSession(user);
+  });
+
+  /* ------------------------------------------------------------- OAuth --- */
+
+  /** Какие способы входа доступны: кнопки на экране входа берут список отсюда. */
+  app.get("/auth/providers", async () => {
+    return {
+      items: [
+        ...availableProviders().map((item) => ({
+          provider: item.provider,
+          title: item.title,
+          kind: "oauth" as const,
+          available: item.available,
+        })),
+        {
+          provider: "telegram",
+          title: "Telegram",
+          kind: "messenger" as const,
+          // Кнопка живая всегда: вход через бота работает и без «красивого» бота,
+          // но если токена нет — интерфейс честно скажет, что стенд без бота.
+          available: true,
+          botConfigured: messengerConfigured("telegram"),
+        },
+        {
+          provider: "max",
+          title: "Max",
+          kind: "messenger" as const,
+          available: true,
+          botConfigured: messengerConfigured("max"),
+        },
+        {
+          provider: "phone",
+          title: "Код по телефону (стенд)",
+          kind: "otp" as const,
+          // На проде телефонный вход выключен: SMS мы не покупаем.
+          available: isDev && env.otpDelivery !== "sms",
+        },
+      ],
+    };
+  });
+
+  /**
+   * Начало входа через Яндекс ID или VK ID.
+   *
+   * Возвращаем ссылку, а не редирект: фронтенд показывает кнопку и сам решает,
+   * открыть её в этом окне или в новом. `state` — одноразовый токен потока
+   * входа: по нему колбэк находит, кого мы ждём, и не даёт подделать ответ.
+   */
+  app.post("/auth/oauth/:provider/start", async (request, reply) => {
+    const { provider } = request.params as { provider: string };
+    if (!providerAvailable(provider)) {
+      return reply.code(404).send({ error: "unknown_provider", message: "Неизвестный способ входа" });
+    }
+
+    const config = availableProviders().find((item) => item.provider === provider);
+    if (!config?.available) {
+      return reply.code(503).send({
+        error: "provider_not_configured",
+        message: `Вход через ${provider} не настроен: нет ключей приложения`,
+      });
+    }
+
+    const { returnTo } = z.object({ returnTo: z.string().trim().max(300).optional() }).parse(request.body ?? {});
+    await purgeExpiredFlows();
+
+    const pkce = provider === "vk" ? createPkcePair() : null;
+    const token = randomBytes(24).toString("base64url");
+    await db.insert(authFlows).values({
+      kind: "oauth",
+      provider,
+      token,
+      codeVerifier: pkce?.verifier ?? null,
+      returnTo: returnTo ?? null,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
 
     return {
-      accessToken: signAccessToken(payload),
-      refreshToken,
-      user: await currentUserView(user.id, user.phone, user.name, user.role),
+      provider,
+      state: token,
+      url: authorizeUrl(provider, { state: token, challenge: pkce?.challenge }),
     };
+  });
+
+  /**
+   * Возврат от провайдера: код меняем на токен, токен — на профиль, профиль —
+   * на аккаунт и сессию. Дальше отправляем человека в интерфейс с токенами
+   * во фрагменте ссылки: он не попадает ни в логи сервера, ни в Referer.
+   */
+  app.get("/auth/oauth/:provider/callback", async (request, reply) => {
+    const { provider } = request.params as { provider: string };
+    if (!providerAvailable(provider)) {
+      return reply.code(404).send({ error: "unknown_provider", message: "Неизвестный способ входа" });
+    }
+
+    const query = request.query as Record<string, string | undefined>;
+    const failTo = (reason: string) =>
+      reply.redirect(`${env.publicWebUrl}/auth/callback?error=${encodeURIComponent(reason)}`);
+
+    if (query.error) return failTo(query.error_description ?? query.error);
+    if (!query.code || !query.state) return failTo("Нет кода подтверждения от провайдера");
+
+    const flow = await findFlow(query.state);
+    if (!flow || flow.kind !== "oauth" || flow.provider !== provider) {
+      return failTo("Ссылка входа устарела — попробуйте снова");
+    }
+
+    const exchanged = await exchangeCode(provider, {
+      code: query.code,
+      codeVerifier: flow.codeVerifier,
+      deviceId: query.device_id ?? null,
+    });
+    if (!exchanged.ok) {
+      await db.update(authFlows).set({ status: "failed", error: exchanged.error }).where(eq(authFlows.id, flow.id));
+      return failTo(exchanged.error);
+    }
+
+    const profile = await fetchProfile(provider, exchanged.accessToken);
+    if (!profile) {
+      await db.update(authFlows).set({ status: "failed", error: "profile_failed" }).where(eq(authFlows.id, flow.id));
+      return failTo("Провайдер не отдал профиль");
+    }
+
+    const { user, created } = await signInWithIdentity(profile, { role: "client" });
+    const session = await issueSession(user);
+    await db.update(authFlows).set({ status: "consumed", userId: user.id }).where(eq(authFlows.id, flow.id));
+
+    const params = new URLSearchParams({
+      access_token: session.accessToken,
+      refresh_token: session.refreshToken,
+      provider,
+      created: created ? "1" : "0",
+      to: flow.returnTo ?? "/",
+    });
+    return reply.redirect(`${env.publicWebUrl}/auth/callback#${params.toString()}`);
+  });
+
+  /* ------------------------------------------------ мессенджеры и боты --- */
+
+  /**
+   * Вход через Telegram Login Widget: провайдер подписывает данные секретом
+   * бота, мы проверяем подпись и срок. Это отдельный путь от «диплинка в бота»:
+   * виджет работает прямо на странице входа, без перехода в мессенджер.
+   */
+  app.post("/auth/telegram/widget", async (request, reply) => {
+    const payload = z.record(z.string(), z.unknown()).parse(request.body ?? {});
+    if (!messengerConfigured("telegram")) {
+      return reply.code(503).send({ error: "provider_not_configured", message: "Вход через Telegram не настроен" });
+    }
+
+    const profile = verifyTelegramWidget(payload);
+    if (!profile) {
+      return reply.code(401).send({ error: "bad_signature", message: "Подпись Telegram не совпала или устарела" });
+    }
+
+    const { role } = z.object({ role: z.enum(["client", "master"]).optional() }).parse(request.body ?? {});
+    const { user } = await signInWithIdentity({ ...profile, provider: "telegram" }, { role });
+    return await issueSession(user);
+  });
+
+  /**
+   * Начало входа через бота: выдаём одноразовый токен и диплинк.
+   * Человек открывает бота, бот зовёт наш вебхук — и вход подтверждается.
+   */
+  app.post("/auth/bot/:provider/start", async (request, reply) => {
+    const { provider } = request.params as { provider: string };
+    if (provider !== "telegram" && provider !== "max") {
+      return reply.code(404).send({ error: "unknown_provider", message: "Неизвестный мессенджер" });
+    }
+
+    const { returnTo, role } = z
+      .object({ returnTo: z.string().trim().max(300).optional(), role: z.enum(["client", "master"]).optional() })
+      .parse(request.body ?? {});
+
+    await purgeExpiredFlows();
+    const expiresAt = new Date(Date.now() + env.botLoginTtlMinutes * 60 * 1000);
+    const token = randomBytes(24).toString("base64url");
+    await db.insert(authFlows).values({
+      kind: "bot_link",
+      provider,
+      token,
+      // Роль и возврат кодируем в одном поле: после подтверждения ботом
+      // пользователь создаётся с той ролью, которую выбрал на сайте.
+      returnTo: `${role === "master" ? "master" : "client"}|${returnTo ?? "/"}`,
+      expiresAt,
+    });
+
+    return {
+      provider,
+      token,
+      expiresAt: expiresAt.toISOString(),
+      deepLink: messengerDeepLink(provider, token),
+      // Бот ещё не создан — интерфейсу нужно объяснить, что делать человеку.
+      configuredBot: messengerConfigured(provider),
+    };
+  });
+
+  /**
+   * Состояние входа через бота: фронтенд опрашивает ручку, пока человек
+   * подтверждает вход в мессенджере. Как только бот подтвердил — выдаём сессию
+   * и помечаем поток использованным: второй раз тот же токен не сработает.
+   */
+  app.get("/auth/bot/:provider/status", async (request, reply) => {
+    const { provider } = request.params as { provider: string };
+    const { token } = z.object({ token: z.string().trim().min(8) }).parse(request.query ?? {});
+
+    const flow = await findFlow(token);
+    if (!flow || flow.kind !== "bot_link" || flow.provider !== provider) {
+      return reply.code(404).send({ error: "flow_not_found", message: "Ссылка входа устарела — начните заново" });
+    }
+    if (flow.status === "pending") return { status: "pending" as const };
+    if (flow.status === "failed") {
+      return reply.code(400).send({ error: "flow_failed", message: flow.error ?? "Вход не подтверждён" });
+    }
+    if (flow.status === "consumed" || !flow.userId) {
+      return reply.code(409).send({ error: "flow_used", message: "Эта ссылка уже использована" });
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.id, flow.userId)).limit(1);
+    if (!user) return reply.code(404).send({ error: "flow_not_found", message: "Пользователь не найден" });
+
+    const session = await issueSession(user);
+    await db.update(authFlows).set({ status: "consumed" }).where(eq(authFlows.id, flow.id));
+    return { status: "confirmed" as const, ...session };
+  });
+
+  /* --------------------------------------------- привязки и телефон --- */
+
+  /** Мои привязки: чем я могу войти в этот аккаунт. */
+  app.get("/auth/identities", { preHandler: requireAuth }, async (request) => {
+    return { items: await listIdentities(request.currentUser!.id) };
+  });
+
+  /** Снять привязку, кроме последней: иначе в аккаунт нечем войти. */
+  app.delete("/auth/identities/:id", { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const result = await unlinkIdentity(request.currentUser!.id, id);
+    if (!result.ok) {
+      const message =
+        result.reason === "last_identity"
+          ? "Это последний способ входа: сначала привяжите другой"
+          : "Привязка не найдена";
+      return reply.code(result.reason === "last_identity" ? 409 : 404).send({ error: result.reason, message });
+    }
+    return { ok: true, remaining: result.remaining };
+  });
+
+  /**
+   * Телефон как контакт: мы его больше не проверяем через SMS.
+   * Пустая строка стирает номер — аккаунт продолжит работать на мессенджерах.
+   */
+  app.patch("/auth/phone", { preHandler: requireAuth }, async (request, reply) => {
+    const { phone } = z.object({ phone: z.string().trim().max(25) }).parse(request.body ?? {});
+    const me = request.currentUser!;
+    const normalized = phone ? normalizePhone(phone) : null;
+
+    if (normalized) {
+      const [taken] = await db.select({ id: users.id }).from(users).where(eq(users.phone, normalized)).limit(1);
+      if (taken && taken.id !== me.id) {
+        return reply.code(409).send({ error: "phone_taken", message: "Этот номер уже привязан к другому аккаунту" });
+      }
+    }
+
+    const [updated] = await db.update(users).set({ phone: normalized }).where(eq(users.id, me.id)).returning();
+    return { ok: true, user: await currentUserView(updated!) };
   });
 
   /**
@@ -426,7 +699,7 @@ export async function authRoutes(app: FastifyInstance) {
       accessToken: signAccessToken(next),
       refreshToken: rotated,
       expiresInSeconds: env.accessTtlSeconds,
-      user: await currentUserView(user.id, user.phone, user.name, user.role),
+      user: await currentUserView(user),
     };
   });
 
@@ -450,8 +723,10 @@ export async function authRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  /** Текущий пользователь по access-токену. */
+  /** Текущий пользователь по access-токену: с привязками, для настроек. */
   app.get("/auth/me", { preHandler: requireAuth }, async (request) => {
-    return { user: request.currentUser };
+    const [user] = await db.select().from(users).where(eq(users.id, request.currentUser!.id)).limit(1);
+    if (!user) return { user: request.currentUser };
+    return { user: await currentUserView(user) };
   });
 }

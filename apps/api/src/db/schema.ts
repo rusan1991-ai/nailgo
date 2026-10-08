@@ -15,7 +15,13 @@ const id = () =>
 
 export const users = pgTable("users", {
   id: id(),
-  phone: text("phone").notNull().unique(),
+  /**
+   * Телефон — просто контакт, а не логин: аккаунт может существовать вовсе без
+   * номера (вход через Яндекс, VK, Telegram). Уникальность сохраняем: один
+   * номер не должен «прилипнуть» к двум аккаунтам, но NULL-ы Postgres
+   * допускает сколько угодно.
+   */
+  phone: text("phone").unique(),
   name: text("name").notNull(),
   role: text("role").notNull().default("client"), // client | master | admin
   /**
@@ -93,6 +99,14 @@ export const masters = pgTable("masters", {
   /** Координаты для карты: у мастеров без адреса остаются null. */
   lat: doublePrecision("lat"),
   lng: doublePrecision("lng"),
+  /**
+   * Привязка к справочнику (`locations`): станция метро Санкт-Петербурга или
+   * город/район Ленинградской области. Текстовые `metro` и `city` остаются для
+   * показа, а фильтр витрины идёт по слагам — иначе «м. Маяковская» и
+   * «Маяковская» были бы разными станциями.
+   */
+  metroSlug: text("metro_slug"),
+  districtSlug: text("district_slug"),
   email: text("email"),
   site: text("site"),
   priceFrom: integer("price_from").notNull(),
@@ -147,6 +161,12 @@ export const bookings = pgTable(
   "bookings",
   {
     id: id(),
+    /**
+     * Кто из пользователей записался. Телефон — контакт из формы, он может
+     * быть чужим (записал друга) и может быть не заполнен; по `userId`
+     * строится кабинет клиента и проверка «это моя запись».
+     */
+    userId: text("user_id"),
     masterId: text("master_id")
       .notNull()
       .references(() => masters.id),
@@ -319,7 +339,12 @@ export const favorites = pgTable(
   "favorites",
   {
     id: id(),
-    clientPhone: text("client_phone").notNull(),
+    /**
+     * Владелец избранного: аккаунт и/или телефон. Аккаунт надёжнее (у человека
+     * может не быть номера вообще), телефон нужен для старых записей и гостей.
+     */
+    userId: text("user_id"),
+    clientPhone: text("client_phone"),
     masterId: text("master_id")
       .notNull()
       .references(() => masters.id, { onDelete: "cascade" }),
@@ -327,6 +352,7 @@ export const favorites = pgTable(
   },
   (table) => [
     uniqueIndex("favorites_client_master").on(table.clientPhone, table.masterId),
+    uniqueIndex("favorites_user_master").on(table.userId, table.masterId),
     index("favorites_master").on(table.masterId),
   ],
 );
@@ -360,7 +386,12 @@ export const deliveries = pgTable(
   "deliveries",
   {
     id: id(),
-    channel: text("channel").notNull(), // sms | email | push
+    /**
+     * Канал доставки: `telegram`, `max` — бесплатные мессенджеры, `log` —
+     * запись в лог системы (канал не привязан: платные SMS мы не отправляем).
+     * SMTP/вебхук можно подключить как транспорт поверх этих каналов.
+     */
+    channel: text("channel").notNull(), // telegram | max | log | email | webhook
     kind: text("kind").notNull(),
     /** Телефон, почта или id устройства — смотря какой канал. */
     recipient: text("recipient").notNull(),
@@ -415,6 +446,116 @@ export const payments = pgTable(
  * Коды входа хранятся только хешем (`sha256(code + pepper)`): утечка базы
  * не даёт войти под клиентом. Прежние коды гасятся при запросе нового.
  */
+/**
+ * Способы входа, привязанные к аккаунту: `provider` + внешний идентификатор.
+ *
+ * Один пользователь — сколько угодно identities (Яндекс, VK, Telegram, Max,
+ * телефон), и одна и та же внешняя учётка не может быть привязана к двум
+ * аккаунтам. Именно identities, а не колонка phone, отвечают на вопрос
+ * «какой аккаунт соответствует этому человеку».
+ */
+export const identities = pgTable(
+  "identities",
+  {
+    id: id(),
+    userId: text("user_id").notNull(),
+    provider: text("provider").notNull(), // yandex | vk | telegram | max | phone
+    providerUserId: text("provider_user_id").notNull(),
+    /** Что показал провайдер: имя, ник, аватар, почта — как есть. */
+    displayName: text("display_name"),
+    avatarUrl: text("avatar_url"),
+    username: text("username"),
+    email: text("email"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("identities_provider_user").on(table.provider, table.providerUserId),
+    index("identities_user").on(table.userId),
+  ],
+);
+
+/**
+ * Незавершённый вход: OAuth-редирект или диплинк в мессенджер.
+ *
+ * Строка живёт минуты: для OAuth хранит `state` (защита от подделки ответа)
+ * и PKCE-верификатор, для входа через бота — статус `pending`, который бот
+ * переводит в `confirmed` вместе с внешним id. Клиент забирает сессию по
+ * `GET /auth/bot/status?token=` и строка становится `consumed`.
+ */
+export const authFlows = pgTable(
+  "auth_flows",
+  {
+    id: id(),
+    kind: text("kind").notNull(), // oauth | bot_link
+    provider: text("provider").notNull(),
+    token: text("token").notNull().unique(),
+    codeVerifier: text("code_verifier"),
+    /** Возврат после входа: куда отправить человека в интерфейсе. */
+    returnTo: text("return_to"),
+    status: text("status").notNull().default("pending"), // pending | confirmed | consumed | failed
+    /** Кого подтвердил бот: telegram_id или user_id в Max. */
+    providerUserId: text("provider_user_id"),
+    displayName: text("display_name"),
+    username: text("username"),
+    avatarUrl: text("avatar_url"),
+    userId: text("user_id"),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("auth_flows_status").on(table.status, table.expiresAt)],
+);
+
+/**
+ * Справочник мест работы: станции метро Санкт-Петербурга и города
+ * Ленинградской области. По нему фильтруется витрина — «где удобно приехать»
+ * важнее текстового адреса.
+ */
+export const locations = pgTable(
+  "locations",
+  {
+    id: id(),
+    slug: text("slug").notNull().unique(),
+    kind: text("kind").notNull(), // metro | district
+    name: text("name").notNull(),
+    region: text("region").notNull().default("Санкт-Петербург"),
+    /** Линия метро (1–5) и её цвет — для группировки в фильтре. */
+    line: text("line"),
+    color: text("color"),
+    lat: doublePrecision("lat"),
+    lng: doublePrecision("lng"),
+    sort: integer("sort").notNull().default(0),
+  },
+  (table) => [index("locations_kind").on(table.kind, table.sort)],
+);
+
+/**
+ * Медиа мастера: аватар, портфолио, сертификат.
+ *
+ * Хранится относительный путь файла внутри MEDIA_DIR; сам файл лежит на диске
+ * в двух вариантах (web и thumb), которые делает sharp при загрузке.
+ */
+export const masterMedia = pgTable(
+  "master_media",
+  {
+    id: id(),
+    masterId: text("master_id").notNull(),
+    kind: text("kind").notNull(), // avatar | portfolio | certificate
+    /** Исходное имя файла — чтобы мастер узнавал свои фото. */
+    fileName: text("file_name").notNull(),
+    mime: text("mime").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    /** Подпись к работе в портфолио («Френч, 2 часа»). */
+    caption: text("caption"),
+    sort: integer("sort").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("master_media_master").on(table.masterId, table.kind, table.sort)],
+);
+
 export const otpCodes = pgTable(
   "otp_codes",
   {

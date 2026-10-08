@@ -1,9 +1,9 @@
 /**
  * Очередь доставки в админке.
  *
- * Здесь видно, что и кому ушло: коды входа, подтверждения, напоминания о визите,
- * отмены. Сообщение с ошибкой можно повторить после починки провайдера, а канал
- * доставки (лог, вебхук, SMS.ru) переключается на ходу, без перезапуска сервера.
+ * Здесь видно, что и кому ушло: подтверждения, напоминания о визите, отмены.
+ * Сообщение с ошибкой можно повторить после починки канала, а сам канал
+ * (мессенджеры, журнал системы, вебхук) переключается на ходу, без перезапуска.
  */
 import { useState } from "react";
 import { AlertTriangle, Check, Loader2, RefreshCw, Send } from "lucide-react";
@@ -29,6 +29,15 @@ const STATUS_FILTERS: { id: string; label: string }[] = [
   { id: "cancelled", label: "Отменённые" },
 ];
 
+/** Подписи каналов: в таблице должно быть понятно, куда ушло сообщение. */
+const CHANNEL_LABELS: Record<string, string> = {
+  telegram: "Telegram",
+  max: "Max",
+  log: "журнал",
+  webhook: "вебхук",
+  email: "почта",
+};
+
 const STATUS_STYLE: Record<DeliveryStatus, string> = {
   queued: "bg-amber-50 text-amber-700",
   sent: "bg-emerald-50 text-emerald-700",
@@ -36,10 +45,14 @@ const STATUS_STYLE: Record<DeliveryStatus, string> = {
   cancelled: "bg-slate-100 text-slate-500",
 };
 
+/**
+ * Транспорты доставки. SMS у площадки нет: сообщение уходит либо в мессенджер
+ * по привязке человека (`auto`), либо в журнал системы, либо на свой вебхук.
+ */
 const TRANSPORTS = [
-  { id: "log", label: "Лог сервера", hint: "Ничего не отправляется наружу — режим стенда" },
-  { id: "webhook", label: "Вебхук", hint: "POST-запрос на адрес шлюза: SMS, почта, свой обработчик" },
-  { id: "smsru", label: "SMS.ru", hint: "Реальный провайдер: нужен SMSRU_API_ID в окружении" },
+  { id: "auto", label: "Мессенджер", hint: "Telegram, если привязан, иначе Max; без привязки — журнал системы" },
+  { id: "log", label: "Журнал системы", hint: "Ничего не отправляется наружу — режим стенда" },
+  { id: "webhook", label: "Вебхук", hint: "POST-запрос на свой адрес: обработчик или внешний шлюз" },
 ];
 
 export function AdminDeliveriesPage() {
@@ -53,7 +66,7 @@ export function AdminDeliveriesPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const currentTransport = transport ?? settings.data?.transport ?? "log";
+  const currentTransport = transport ?? settings.data?.transport ?? "auto";
   const currentWebhook = webhookUrl ?? settings.data?.webhookUrl ?? "";
 
   const saveSettings = async () => {
@@ -168,7 +181,7 @@ export function AdminDeliveriesPage() {
             <input
               value={currentWebhook}
               onChange={(event) => setWebhookUrl(event.target.value)}
-              placeholder="Адрес шлюза, например https://sms.example.ru/hook"
+              placeholder="Адрес приёмника, например https://hook.example.ru/nailgo"
               data-field="webhook-url"
               className="min-w-[260px] flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-pink-300"
             />
@@ -188,7 +201,9 @@ export function AdminDeliveriesPage() {
           {settings.data && (
             <p className="text-xs text-slate-400">
               Неудачные попытки повторяются до {settings.data.maxAttempts} раз; рассыльщик проверяет очередь каждые{" "}
-              {settings.data.intervalSeconds} с. SMS.ru: {settings.data.smsRuConfigured ? "ключ задан" : "ключа нет"}.
+              {settings.data.intervalSeconds} с. Боты: Telegram —{" "}
+              {settings.data.channels?.telegram ? "подключён" : "нет токена"}, Max —{" "}
+              {settings.data.channels?.max ? "подключён" : "нет токена"}. SMS не отправляем — их нет в системе.
             </p>
           )}
         </div>
@@ -250,7 +265,7 @@ export function AdminDeliveriesPage() {
                   <td className="py-2 pr-4 whitespace-nowrap">
                     <span className="text-slate-700">{item.recipient}</span>
                     <span className="ml-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">
-                      {item.channel}
+                      {CHANNEL_LABELS[item.channel] ?? item.channel}
                     </span>
                   </td>
                   <td className="py-2 pr-4 whitespace-nowrap text-slate-600">{kindLabel(item.kind)}</td>

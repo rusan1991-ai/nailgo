@@ -14,6 +14,8 @@ backups
 .DS_Store
 apps/api/.pglite
 apps/api/.pglite-pg
+# Загруженные фото мастеров (MEDIA_DIR): лежат на диске, в базе только метаданные.
+apps/api/data
 apps/api/dist
 tools/devcheck/bundle.js
 shots

@@ -23,7 +23,7 @@ import { db } from "../db/index.js";
 import { bookings, services } from "../db/schema.js";
 import { env } from "../env.js";
 import { applyBookingStatus } from "./booking-status.js";
-import { notifyBookingEvent } from "./notify.js";
+import { notifyBookingEvent } from "./notifications.js";
 import { refundBookingPayment } from "./payments.js";
 
 export type SchedulerResult = {

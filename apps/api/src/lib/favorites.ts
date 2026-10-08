@@ -1,16 +1,16 @@
 /**
  * Избранное клиента: мастера, которых он отметил, и уведомления об окнах.
  *
- * Клиент добавляет мастера в избранное (телефон — из сессии), а когда
+ * Клиент добавляет мастера в избранное (аккаунт из сессии), а когда
  * у мастера освобождается время (кто-то отменил или перенёс запись,
  * открылся рабочий день) — избранные клиенты получают уведомление
  * в приложении. Ограничение: не чаще одного такого уведомления на клиента
  * за `WINDOW_COOLDOWN_HOURS`, иначе отмены сыпали бы спамом.
  */
-import { and, desc, eq, gt, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, or } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { bookings, favorites, masters, notifications, services } from "../db/schema.js";
-import { notifyClient } from "./notify.js";
+import { notifyClient } from "./notifications.js";
 import { normalizePhone } from "./phone.js";
 import { formatMinutes } from "./time.js";
 
@@ -25,13 +25,17 @@ export function windowText(dateISO: string, startMinutes: number): string {
   return `${day} ${MONTHS[(month ?? 1) - 1]} ${formatMinutes(startMinutes)}`;
 }
 
-/** Кто добавил мастера в избранное. */
-export async function favoritePhones(masterId: string): Promise<string[]> {
+/**
+ * Кто добавил мастера в избранное. Телефона может не быть (вход через
+ * мессенджер), но уведомление об окне всё равно нужно доставить — тогда
+ * адресатом становится аккаунт клиента.
+ */
+export async function favoriteOwners(masterId: string): Promise<{ userId: string | null; phone: string | null }[]> {
   const rows = await db
-    .select({ phone: favorites.clientPhone })
+    .select({ userId: favorites.userId, phone: favorites.clientPhone })
     .from(favorites)
     .where(eq(favorites.masterId, masterId));
-  return rows.map((row) => row.phone);
+  return rows;
 }
 
 /** Слаг мастера по id — нужен, чтобы отдать избранное фронтенду. */
@@ -55,25 +59,28 @@ export async function notifyFavoritesAboutWindow(params: {
   const master = await masterById(params.masterId);
   if (!master) return 0;
 
-  const phones = await favoritePhones(params.masterId);
-  if (phones.length === 0) return 0;
+  const owners = await favoriteOwners(params.masterId);
+  if (owners.length === 0) return 0;
 
   const actor = params.excludePhone ? normalizePhone(params.excludePhone) : null;
   const cooldownStart = new Date(Date.now() - WINDOW_COOLDOWN_HOURS * 60 * 60 * 1000);
 
   let sent = 0;
-  for (const phone of phones) {
-    if (actor && phone === actor) continue;
+  for (const owner of owners) {
+    if (actor && owner.phone === actor) continue;
 
     // Занятому клиенту предлагать нечего: у него уже есть предстоящий визит
     // к этому мастеру. Прошедшие и завершённые визиты предложение не отменяют.
+    const bookedFilter = owner.userId
+      ? or(eq(bookings.userId, owner.userId), owner.phone ? eq(bookings.clientPhone, owner.phone) : undefined)
+      : eq(bookings.clientPhone, owner.phone ?? "");
     const [alreadyBooked] = await db
       .select({ id: bookings.id })
       .from(bookings)
       .where(
         and(
           eq(bookings.masterId, params.masterId),
-          eq(bookings.clientPhone, phone),
+          bookedFilter,
           inArray(bookings.status, ["pending", "confirmed"]),
           gte(bookings.startAt, new Date()),
         ),
@@ -82,12 +89,15 @@ export async function notifyFavoritesAboutWindow(params: {
     if (alreadyBooked) continue;
 
     // Не спамим: уведомления об окнах — не чаще одного в 6 часов.
+    const recentFilter = owner.userId
+      ? or(eq(notifications.userId, owner.userId), owner.phone ? eq(notifications.phone, owner.phone) : undefined)
+      : eq(notifications.phone, owner.phone ?? "");
     const [recent] = await db
       .select({ id: notifications.id })
       .from(notifications)
       .where(
         and(
-          eq(notifications.phone, phone),
+          recentFilter,
           eq(notifications.type, "favorite_slot"),
           gt(notifications.createdAt, cooldownStart),
         ),
@@ -96,11 +106,12 @@ export async function notifyFavoritesAboutWindow(params: {
       .limit(1);
     if (recent) continue;
 
-    await notifyClient(phone, {
+    // Телефон неизвестен — уведомление всё равно нужно: адресом служит аккаунт.
+    await notifyClient(owner.phone ?? "", {
       type: "favorite_slot",
       title: "Освободилось окно у вашего мастера",
       body: `${master.name} · ${windowText(params.dateISO, params.startMinutes)} — успейте записаться`,
-    });
+    }, owner.userId);
     sent += 1;
   }
 

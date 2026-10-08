@@ -9,6 +9,7 @@ import { isValidISODate, platformTimezone, toISODate } from "../lib/time.js";
 import { freeSlotsForDay, freeWindows, windowLabel } from "../lib/slots.js";
 import { collectWindows } from "../lib/lastMinute.js";
 import { windowService } from "../lib/favorites.js";
+import { cartAvatars, masterGallery } from "./media.js";
 
 const listQuery = z.object({
   query: z.string().trim().optional(),
@@ -17,6 +18,10 @@ const listQuery = z.object({
   region: z.string().trim().optional(),
   /** `windows=1` — посчитать ближайшие свободные окна для карточек. */
   windows: z.string().trim().optional(),
+  /** Станция метро из справочника: фильтр «удобно приехать». */
+  metro: z.string().trim().max(60).optional(),
+  /** Город Ленинградской области из справочника. */
+  district: z.string().trim().max(60).optional(),
 });
 
 const lastMinuteQuery = z.object({
@@ -34,7 +39,7 @@ const slotsQuery = z.object({
 export async function catalogRoutes(app: FastifyInstance) {
   /** Каталог мастеров с поиском по имени, тегам и метро. */
   app.get("/masters", async (request) => {
-    const { query, service, region, windows } = listQuery.parse(request.query ?? {});
+    const { query, service, region, windows, metro, district } = listQuery.parse(request.query ?? {});
     const needle = query?.toLowerCase();
     const serviceNeedle = service?.toLowerCase();
 
@@ -47,6 +52,10 @@ export async function catalogRoutes(app: FastifyInstance) {
           }
           if (serviceNeedle && !master.tags.toLowerCase().includes(serviceNeedle)) return false;
           if (region && region !== "all" && master.region !== region) return false;
+          // География: точное совпадение по справочнику, а не поиск подстроки —
+          // «Маяковская» не должна находиться у мастеров с другого конца города.
+          if (metro && master.metroSlug !== metro) return false;
+          if (district && master.districtSlug !== district) return false;
           return true;
         });
 
@@ -54,9 +63,16 @@ export async function catalogRoutes(app: FastifyInstance) {
     // свободные слоты вместо демо-времени. Считаем только по запросу, чтобы
     // каталог для главной не платил за лишние расчёты.
     const withWindows = windows === "1";
+
+    /** Аватары всех мастеров одним запросом: витрина показывает фото, не инициалы. */
+    const avatars = await cartAvatars(filtered.map((master) => master.id));
     const items = [];
     for (const master of filtered) {
       const base = {
+        avatarUrl: avatars.get(master.id)?.thumbUrl ?? null,
+        avatarFullUrl: avatars.get(master.id)?.url ?? null,
+        metroSlug: master.metroSlug,
+        districtSlug: master.districtSlug,
         slug: master.slug,
         name: master.name,
         tags: master.tags,
@@ -172,6 +188,10 @@ export async function catalogRoutes(app: FastifyInstance) {
       experience: master.experience,
       rating: master.rating,
       reviewsCount: master.reviewsCount,
+      metroSlug: master.metroSlug,
+      districtSlug: master.districtSlug,
+      /** Настоящие фото работ: аватар и портфолио вместо инициалов. */
+      gallery: await masterGallery(master.id),
       hours: hours.map((item) => ({
         weekday: item.weekday,
         startMinute: item.startMinute,

@@ -221,6 +221,7 @@ export function useAuthScreen(mode: "login" | "register", initialRole: LoginRole
     step,
     role,
     setRole,
+    setError,
     name,
     setName,
     phone,

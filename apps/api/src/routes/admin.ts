@@ -13,7 +13,7 @@ import { db } from "../db/index.js";
 import { bookings } from "../db/schema.js";
 import { deliveries, masters, reviews } from "../db/schema.js";
 import { requireAdmin, requireAuth } from "../lib/auth.js";
-import { notifyClient } from "../lib/notify.js";
+import { notifyClient } from "../lib/notifications.js";
 import { recalcMasterRating } from "../lib/reviews.js";
 import { platformTimezone, toISODate } from "../lib/time.js";
 import { env, isDev } from "../env.js";
@@ -23,6 +23,7 @@ import { RATE_LIMIT_PREFIX, RATE_LIMIT_SETTINGS, clearRateLimits, rateLimitCount
 import { clientPolicy, clearClientRestrictions } from "../lib/booking-policy.js";
 import { runSchedulerTick, schedulerPreview } from "../lib/scheduler.js";
 import { paymentSettings, paymentsSummary, savePaymentSettings } from "../lib/payments.js";
+import { deliveryChannelsSummary } from "../lib/delivery/transports.js";
 import { payments, services } from "../db/schema.js";
 
 const statusSchema = z.enum(["published", "moderation", "hidden"]);
@@ -287,21 +288,23 @@ export async function adminRoutes(app: FastifyInstance) {
       transport: await currentTransport(),
       webhookUrl: await currentWebhookUrl(),
       envTransport: env.deliveryTransport,
-      smsRuConfigured: Boolean(env.smsRuApiId),
       intervalSeconds: env.deliveryIntervalSeconds,
       maxAttempts: env.deliveryMaxAttempts,
+      /** Бесплатные каналы: подключены ли боты Telegram и Max. */
+      channels: await deliveryChannelsSummary(),
     };
   });
 
   /**
-   * Переключить транспорт на ходу: `log`, `webhook` или `smsru`.
-   * Так подключается провайдер без перезапуска сервера — и так же проверяется
+   * Переключить транспорт на ходу: `auto` (по каналу — Telegram или Max),
+   * `log` (журнал стенда) или `webhook` (свой приёмник).
+   * Так подключается канал без перезапуска сервера — и так же проверяется
    * доставка в тестах (вебхук на локальный приёмник).
    */
   app.put("/admin/deliveries/settings", adminOnly, async (request, reply) => {
     const { transport, webhookUrl } = z
       .object({
-        transport: z.enum(["log", "webhook", "smsru"]),
+        transport: z.enum(["auto", "log", "webhook"]),
         /**
          * Адрес шлюза. Пустая строка убирает сохранённый адрес — тогда снова
          * действует значение из окружения. Так стенд возвращается в исходное

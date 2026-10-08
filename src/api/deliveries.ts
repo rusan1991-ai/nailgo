@@ -6,7 +6,8 @@ export type DeliveryStatus = "queued" | "sent" | "failed" | "cancelled";
 
 export type DeliveryItem = {
   id: string;
-  channel: "sms" | "email" | "push";
+  /** Канал доставки: бесплатные мессенджеры, журнал системы или вебхук. */
+  channel: "telegram" | "max" | "log" | "email" | "webhook";
   kind: string;
   recipient: string;
   subject: string | null;
@@ -32,7 +33,8 @@ export type DeliverySettings = {
   transport: string;
   webhookUrl: string | null;
   envTransport: string;
-  smsRuConfigured: boolean;
+  /** Подключены ли боты: по ним видно, уйдут ли сообщения в мессенджеры. */
+  channels?: { transport: string; webhookUrl: string | null; telegram: boolean; max: boolean };
   intervalSeconds: number;
   maxAttempts: number;
 };
@@ -48,7 +50,7 @@ export function useDeliverySettings(): Resource<DeliverySettings> {
   return useApiResource<DeliverySettings>("/admin/deliveries/settings");
 }
 
-/** Сменить транспорт на ходу: log, webhook или smsru. */
+/** Сменить транспорт на ходу: auto (мессенджеры), log или webhook. */
 export async function saveDeliverySettings(input: { transport: string; webhookUrl?: string }): Promise<void> {
   await api.put("/admin/deliveries/settings", input);
 }

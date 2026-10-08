@@ -8,6 +8,7 @@
  */
 import { Link, useNavigate } from "react-router-dom";
 import { AuthCard, CodeStep, RoleChoice, useAuthScreen } from "./auth-shared";
+import { QuickLogin } from "../components/QuickLogin";
 
 export function RegisterPage() {
   const screen = useAuthScreen("register");
@@ -21,7 +22,7 @@ export function RegisterPage() {
       title="Регистрация"
       subtitle={
         screen.step === "phone"
-          ? "Выберите, кем регистрируетесь, и введите имя с телефоном — отправим код."
+          ? "Выберите, кем регистрируетесь — и войдите одним из бесплатных способов или по коду стенда."
           : `Код отправлен на ${screen.phone}. ${
               screen.role === "master" ? "Создаём кабинет мастера." : "Создаём кабинет клиента."
             }`
@@ -49,6 +50,7 @@ export function RegisterPage() {
       }
     >
       {screen.step === "phone" ? (
+        <>
         <form onSubmit={screen.askCode} className="mt-6 space-y-3">
           <RoleChoice
             role={screen.role}
@@ -93,6 +95,8 @@ export function RegisterPage() {
             {screen.pending ? "Отправляем код..." : "Получить код"}
           </button>
         </form>
+        <QuickLogin role={screen.role} returnTo={screen.returnTo} onError={screen.setError} />
+        </>
       ) : (
         <CodeStep {...screen} submitLabel="Создать аккаунт" />
       )}

@@ -10,6 +10,7 @@ import {
   TextField,
   Toggle,
 } from "../components/ui";
+import { LoginMethodsCard } from "../../components/MessengerBanner";
 import { settingsNav } from "../data";
 import { exportBookings, resetDemoData, useBookingsStore, useStoreStatus } from "../../store/bookings";
 import {
@@ -131,7 +132,11 @@ export function SettingsProPage() {
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)_320px]">
+      {/* Способы входа и каналы уведомлений — до формы профиля: без мессенджера
+          мастер не получит напоминание о визите. */}
+      <LoginMethodsCard />
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)_320px]">
         <Card className="h-fit" padded={false}>
           <nav className="p-3">
             {settingsNav.map((group) => (

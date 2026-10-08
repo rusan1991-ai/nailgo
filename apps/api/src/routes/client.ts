@@ -32,7 +32,7 @@ const deleteSchema = z.object({
 export async function clientRoutes(app: FastifyInstance) {
   /** Профиль клиента: имя, телефон и текущие настройки. */
   app.get("/client/profile", { preHandler: requireAuth }, async (request, reply) => {
-    const profile = await clientProfile(request.currentUser!.phone);
+    const profile = await clientProfile(request.currentUser!.id);
     if (!profile) return reply.code(404).send({ error: "not_found", message: "Профиль не найден" });
     return { profile };
   });
@@ -40,17 +40,17 @@ export async function clientRoutes(app: FastifyInstance) {
   /** Правка имени: оно же показывается мастеру в записях. */
   app.patch("/client/profile", { preHandler: requireAuth }, async (request, reply) => {
     const { name } = nameSchema.parse(request.body ?? {});
-    const updated = await updateClientName(request.currentUser!.phone, name);
+    const updated = await updateClientName(request.currentUser!.id, name);
     if (!updated) return reply.code(404).send({ error: "not_found", message: "Профиль не найден" });
 
-    const profile = await clientProfile(request.currentUser!.phone);
+    const profile = await clientProfile(request.currentUser!.id);
     return { ok: true, user: { name: updated }, profile };
   });
 
   /** Переключатели уведомлений: выключенная категория перестаёт приходить. */
   app.patch("/client/settings", { preHandler: requireAuth }, async (request, reply) => {
     const patch = settingsSchema.parse(request.body ?? {});
-    const settings = await updateClientSettings(request.currentUser!.phone, patch);
+    const settings = await updateClientSettings(request.currentUser!.id, patch);
     if (!settings) return reply.code(404).send({ error: "not_found", message: "Профиль не найден" });
     return { ok: true, settings };
   });
@@ -61,7 +61,7 @@ export async function clientRoutes(app: FastifyInstance) {
    */
   app.delete("/client/account", { preHandler: requireAuth }, async (request, reply) => {
     deleteSchema.parse(request.body ?? {});
-    const removed = await deleteClientAccount(request.currentUser!.phone);
+    const removed = await deleteClientAccount(request.currentUser!.id);
     if (!removed) return reply.code(404).send({ error: "not_found", message: "Профиль не найден" });
 
     return { ok: true, removed };

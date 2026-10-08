@@ -24,7 +24,11 @@
     "past-slot": "node past-slot.mjs",
     "no-show": "node no-show.mjs",
     "scheduler": "node scheduler.mjs",
-    "otp-limits": "node otp-limits.mjs"
+    "otp-limits": "node otp-limits.mjs",
+    "locations": "node locations.mjs",
+    "oauth": "node oauth.mjs",
+    "messengers": "node messengers.mjs",
+    "media": "node media.mjs"
   },
   "dependencies": {
     "jsdom": "^30.1.2"

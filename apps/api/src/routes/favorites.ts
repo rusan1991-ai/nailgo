@@ -1,13 +1,14 @@
 /**
  * Избранное клиента.
  *
- * Клиент — это телефон из сессии: чужое избранное недоступно, повторное
- * добавление не создаёт дубль. К карточке мастера сразу прикладываем
+ * Владелец избранного — аккаунт из сессии, телефон служит вторым ключом для
+ * гостевых записей: чужое избранное недоступно, повторное добавление не
+ * создаёт дубль. К карточке мастера сразу прикладываем
  * ближайшее свободное окно, чтобы страница избранного была полезной,
  * а не просто списком ссылок.
  */
 import type { FastifyInstance } from "fastify";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import { favorites, masters } from "../db/schema.js";
@@ -18,29 +19,35 @@ import { normalizePhone } from "../lib/phone.js";
 
 const addSchema = z.object({ masterSlug: z.string().trim().min(1) });
 
+/**
+ * Кто владеет избранным: аккаунт из сессии плюс, если он есть, телефон.
+ * Условие одно для всех ручек — иначе «сердечко» и страница избранного
+ * разошлись бы в том, что считать своим.
+ */
+function ownerFilter(user: { id: string; phone: string | null }) {
+  const phone = user.phone ? normalizePhone(user.phone) : null;
+  return phone ? or(eq(favorites.userId, user.id), eq(favorites.clientPhone, phone)) : eq(favorites.userId, user.id);
+}
+
 export async function favoriteRoutes(app: FastifyInstance) {
   /** Есть ли мастер в избранном: `{slugs}` для сердечек на карточках. */
   app.get("/favorites/ids", { preHandler: requireAuth }, async (request) => {
-    const phone = normalizePhone(request.currentUser!.phone);
-
     const rows = await db
       .select({ master: masters.slug })
       .from(favorites)
       .innerJoin(masters, eq(favorites.masterId, masters.id))
-      .where(eq(favorites.clientPhone, phone));
+      .where(ownerFilter(request.currentUser!));
 
     return { slugs: rows.map((row) => row.master).sort() };
   });
 
   /** Список избранного с ближайшим свободным окном у каждого мастера. */
   app.get("/favorites", { preHandler: requireAuth }, async (request) => {
-    const phone = normalizePhone(request.currentUser!.phone);
-
     const rows = await db
       .select({ favorite: favorites, master: masters })
       .from(favorites)
       .innerJoin(masters, eq(favorites.masterId, masters.id))
-      .where(eq(favorites.clientPhone, phone))
+      .where(ownerFilter(request.currentUser!))
       .orderBy(asc(masters.name));
 
     const items = [];
@@ -81,7 +88,8 @@ export async function favoriteRoutes(app: FastifyInstance) {
   /** Добавить в избранное. Повторное добавление — не ошибка, а `created: false`. */
   app.post("/favorites", { preHandler: requireAuth }, async (request, reply) => {
     const { masterSlug } = addSchema.parse(request.body ?? {});
-    const phone = normalizePhone(request.currentUser!.phone);
+    const me = request.currentUser!;
+    const phone = me.phone ? normalizePhone(me.phone) : null;
 
     const [master] = await db.select().from(masters).where(eq(masters.slug, masterSlug)).limit(1);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Мастер не найден" });
@@ -89,28 +97,27 @@ export async function favoriteRoutes(app: FastifyInstance) {
     const [existing] = await db
       .select({ id: favorites.id })
       .from(favorites)
-      .where(and(eq(favorites.clientPhone, phone), eq(favorites.masterId, master.id)))
+      .where(and(ownerFilter(me), eq(favorites.masterId, master.id)))
       .limit(1);
 
     if (existing) {
       return reply.code(200).send({ ok: true, created: false, masterSlug: master.slug });
     }
 
-    await db.insert(favorites).values({ clientPhone: phone, masterId: master.id });
+    await db.insert(favorites).values({ userId: me.id, clientPhone: phone, masterId: master.id });
     return reply.code(201).send({ ok: true, created: true, masterSlug: master.slug });
   });
 
   /** Убрать из избранного: удаление того, чего нет, тоже успех. */
   app.delete("/favorites/:slug", { preHandler: requireAuth }, async (request) => {
     const { slug } = request.params as { slug: string };
-    const phone = normalizePhone(request.currentUser!.phone);
 
     const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
     if (!master) return { ok: true, removed: false, masterSlug: slug };
 
     const removed = await db
       .delete(favorites)
-      .where(and(eq(favorites.clientPhone, phone), eq(favorites.masterId, master.id)))
+      .where(and(ownerFilter(request.currentUser!), eq(favorites.masterId, master.id)))
       .returning({ id: favorites.id });
 
     return { ok: true, removed: removed.length > 0, masterSlug: master.slug };

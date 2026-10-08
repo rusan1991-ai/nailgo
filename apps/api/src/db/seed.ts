@@ -16,11 +16,13 @@ import { normalizePhone } from "../lib/phone.js";
 import { recalcMasterRating } from "../lib/reviews.js";
 import { prepaymentFor } from "../lib/payments.js";
 import { db } from "./index.js";
+import { LOCATIONS_SEED } from "./locations-data.js";
 import {
   bookings,
   conversations,
   deliveries,
   favorites,
+  locations,
   payments,
   masters,
   messages,
@@ -41,6 +43,7 @@ const mastersSeed = [
     about:
       "Мастер маникюра и педикюра с опытом более 5 лет. Качественный уход, стерильные инструменты и индивидуальный подход к каждому клиенту.",
     metro: "м. Маяковская",
+    metroSlug: "mayakovskaya",
     distance: "300 м",
     address: "Невский проспект, 112",
     city: "Санкт-Петербург",
@@ -58,6 +61,7 @@ const mastersSeed = [
     tags: "Маникюр, Педикюр",
     about: "Спокойный темп, аккуратная работа и покрытие, которое держится долго.",
     metro: "м. Петроградская",
+    metroSlug: "petrogradskaya",
     distance: "450 м",
     address: "Большой проспект П.С., 34",
     city: "Санкт-Петербург",
@@ -75,6 +79,7 @@ const mastersSeed = [
     tags: "Маникюр, Педикюр",
     about: "Люблю сложные формы и чистые блики. Работаю с укреплением и ремонтом.",
     metro: "м. Московская",
+    metroSlug: "moskovskaya",
     distance: "600 м",
     address: "Московский проспект, 205",
     city: "Санкт-Петербург",
@@ -92,6 +97,7 @@ const mastersSeed = [
     tags: "Наращивание, Дизайн",
     about: "Наращивание гелем, коррекции и авторский дизайн.",
     metro: "г. Всеволожск",
+    districtSlug: "vsevolozhsk",
     distance: "700 м",
     address: "Всеволожский проспект, 72",
     city: "Всеволожск",
@@ -294,6 +300,13 @@ export async function seed() {
   await db.delete(masters);
   await db.delete(otpCodes);
   await db.delete(sessions);
+
+  /**
+   * Справочник мест заводим первым: мастер ссылается на станцию метро или
+   * город области по slug. Повторный прогон не должен плодить дубли,
+   * поэтому вставка идемпотентная — по уникальному slug.
+   */
+  await db.insert(locations).values(LOCATIONS_SEED).onConflictDoNothing();
 
   const masterRows = await db.insert(masters).values(mastersSeed).returning();
 

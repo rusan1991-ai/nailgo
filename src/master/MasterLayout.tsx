@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   CalendarDays,
+  Image as ImageIcon,
   CircleDollarSign,
   LayoutDashboard,
   LineChart,
@@ -21,6 +22,7 @@ import { NotificationsBell } from "./components/NotificationsBell";
 import { useStoreStatus } from "../store/bookings";
 import { useUnreadMessages } from "../api/messages";
 import { useCabinetProfile } from "../api/profile";
+import { MessengerBanner } from "../components/MessengerBanner";
 import { masterProfile } from "./data";
 
 const navItems = [
@@ -33,6 +35,7 @@ const navItems = [
   { to: "/pro/promotion", label: "Продвижение", icon: TrendingUp },
   { to: "/pro/stats", label: "Статистика", icon: LineChart },
   { to: "/pro/messages", label: "Сообщения", icon: MessagesSquare },
+  { to: "/pro/media", label: "Портфолио", icon: ImageIcon },
   { to: "/pro/settings", label: "Настройки", icon: Settings },
 ];
 
@@ -163,6 +166,8 @@ export function MasterLayout() {
           )}
 
           <main key={pathname} className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+            {/* Напоминания клиентам уходят только в мессенджер — мастеру это тоже важно. */}
+            <MessengerBanner settingsTo="/pro/settings" className="mb-5" />
             <Outlet />
           </main>
         </div>

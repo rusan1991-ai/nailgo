@@ -11,7 +11,8 @@ import { safeStorage } from "../utils/storage";
 export type AuthUser = {
   id?: string;
   name: string;
-  phone: string;
+  /** Телефон — контакт, а не логин: при входе через мессенджер его может не быть. */
+  phone: string | null;
   role?: "client" | "master" | "admin";
   /** slug мастера: заполнен, если пользователь владеет кабинетом. */
   masterSlug?: string | null;
@@ -82,6 +83,12 @@ type AuthContextValue = {
 };
 
 const AUTH_STORAGE_KEY = "nailgo_auth_user";
+/**
+ * Сессия, полученная вне формы входа (вход через бота в мессенджере).
+ * Кладём её сюда и перезагружаем страницу — так все способы входа
+ * заканчиваются одним и тем же состоянием AuthProvider.
+ */
+const PENDING_SESSION_KEY = "nailgo_pending_session";
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -91,6 +98,22 @@ export function normalizePhone(value: string): string {
   if (digits.length === 11 && digits.startsWith("8")) return `+7${digits.slice(1)}`;
   if (digits.length === 11 && digits.startsWith("7")) return `+${digits}`;
   return digits.length === 10 ? `+7${digits}` : value.trim();
+}
+
+/** Забрать сессию, выданную входом через бота: она одноразовая. */
+function adoptPendingSession(): Session | null {
+  const raw = safeStorage.get(PENDING_SESSION_KEY);
+  if (!raw) return null;
+  safeStorage.remove(PENDING_SESSION_KEY);
+  try {
+    const parsed = JSON.parse(raw) as Partial<AuthResponse>;
+    if (parsed?.accessToken && parsed?.refreshToken && parsed.user) {
+      return { user: parsed.user, accessToken: parsed.accessToken, refreshToken: parsed.refreshToken };
+    }
+  } catch {
+    // Битое значение просто игнорируем: пользователь войдёт заново.
+  }
+  return null;
 }
 
 function readSession(): Session | null {
@@ -114,7 +137,7 @@ function readSession(): Session | null {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(() => {
-    const stored = readSession();
+    const stored = adoptPendingSession() ?? readSession();
     setAuthToken(stored?.accessToken ?? null);
     return stored;
   });

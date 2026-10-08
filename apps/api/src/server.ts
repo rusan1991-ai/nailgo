@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
 import { ZodError } from "zod";
 import { env, isDev } from "./env.js";
 import { closeDb, db, pingDb, runMigrations } from "./db/index.js";
@@ -17,6 +18,9 @@ import { favoriteRoutes } from "./routes/favorites.js";
 import { messageRoutes } from "./routes/messages.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { paymentRoutes } from "./routes/payments.js";
+import { messengerRoutes } from "./routes/messengers.js";
+import { mediaRoutes } from "./routes/media.js";
+import { locationRoutes } from "./routes/locations.js";
 import { reviewRoutes } from "./routes/reviews.js";
 import { serviceRoutes } from "./routes/services.js";
 
@@ -24,6 +28,14 @@ export async function buildServer() {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? (isDev ? "warn" : "info") } });
 
   await app.register(cors, { origin: true, credentials: true });
+  /**
+   * Загрузка медиа: мастер присылает фото мастера из кабинета. Лимит размера
+   * задаём здесь же — fastify не должен буферизовать больше, чем разрешено
+   * правилами площадки (5 МБ).
+   */
+  await app.register(multipart, {
+    limits: { fileSize: env.mediaMaxBytes, files: 1 },
+  });
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
@@ -41,6 +53,18 @@ export async function buildServer() {
     // Пустое тело с content-type: application/json — это ошибка клиента, а не сбой.
     if ((error as { code?: string }).code === "FST_ERR_CTP_EMPTY_JSON_BODY") {
       return reply.code(400).send({ error: "empty_body", message: "Пустое тело запроса" });
+    }
+
+    /**
+     * Файл больше разрешённого: это не сбой сервера, а понятная ошибка
+     * загрузки. Отвечаем 413 и говорим, сколько можно загрузить.
+     */
+    if ((error as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE") {
+      const limit = Math.round(env.mediaMaxBytes / (1024 * 1024));
+      return reply.code(413).send({
+        error: "too_large",
+        message: `Файл больше ${limit} МБ — сожмите фото и попробуйте снова`,
+      });
     }
 
     request.log.error(error);
@@ -80,6 +104,9 @@ export async function buildServer() {
       await instance.register(favoriteRoutes);
       await instance.register(clientRoutes);
       await instance.register(paymentRoutes);
+      await instance.register(messengerRoutes);
+      await instance.register(mediaRoutes);
+      await instance.register(locationRoutes);
     },
     { prefix: "/api" },
   );

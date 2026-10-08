@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, BellRing, Check, Mail } from "lucide-react";
 import { ClientShell } from "../components/ClientShell";
+import { LoginMethodsCard } from "../components/MessengerBanner";
 import { useAuth } from "../auth/AuthContext";
 import {
   deleteClientAccount,
@@ -131,11 +132,14 @@ export function SettingsPage() {
           </p>
         )}
 
+        {/* Вход и уведомления: SMS не отправляем, напоминания идут в мессенджер. */}
+        <LoginMethodsCard />
+
         <article className="rounded-2xl border border-[#f1dde6] p-4">
           <p className="font-medium">Имя</p>
           <p className="mt-1 text-sm text-slate-500">
-            Так вас видят мастера в записях и переписке. Телефон {profile?.phone ?? user.phone} изменить нельзя —
-            он же вход в аккаунт.
+            Так вас видят мастера в записях и переписке. Телефон {profile?.phone ?? user.phone ?? "не указан"} —
+            просто контакт для связи: его можно изменить или убрать, вход от этого не зависит.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <input

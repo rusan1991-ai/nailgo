@@ -9,6 +9,7 @@ import { formatRub } from "../data/mock";
 import { useCatalog, durationLabel } from "../catalog/store";
 import { formatDateLabel } from "../store/bookings";
 import { openThread } from "../api/messages";
+import { useMasterCard } from "../api/masterCard";
 
 /** «Сегодня» / «Завтра» / «13 окт» — подпись дня у окна. */
 function windowLabel(dateISO: string): string {
@@ -28,6 +29,8 @@ export function MasterPage() {
   const params = useParams();
   const { masters, services } = useCatalog();
   const master = masters.find((item) => item.slug === params.slug) ?? masters[0];
+  /** Полная карточка с фото: каталог отдаёт её отдельной ручкой. */
+  const { data: card } = useMasterCard(params.slug);
 
   /** У мастера свой прайс: показываем и предлагаем к записи только его услуги. */
   const ownServices = useMemo(() => {
@@ -72,7 +75,8 @@ export function MasterPage() {
         <section className="mt-7 grid gap-6 xl:grid-cols-[1fr_360px]">
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
             <div className="flex items-start gap-4">
-              <Avatar className="h-24 w-24" />
+              {/* Аватар из кабинета мастера: если фотографии нет — заливка с буквой. */}
+              <Avatar className="h-24 w-24" src={card?.gallery.avatar?.thumbUrl ?? master.avatarUrl} name={master.name} />
               <div className="min-w-0 flex-1">
                 <h1 className="text-4xl font-semibold">{master.name}</h1>
                 <p className="mt-1 text-slate-500">{master.tags}</p>
@@ -86,9 +90,28 @@ export function MasterPage() {
               </div>
             </div>
 
-            <div className="mt-5">
-              <NailStrip />
-            </div>
+            {card && card.gallery.portfolio.length > 0 ? (
+              <div className="mt-5" data-block="portfolio">
+                <p className="text-sm font-medium text-slate-700">Работы мастера</p>
+                <div className="mt-2 flex gap-3 overflow-x-auto pb-2">
+                  {card.gallery.portfolio.map((photo) => (
+                    <figure key={photo.id} className="w-40 shrink-0">
+                      <img
+                        src={photo.thumbUrl}
+                        alt={photo.caption ?? `Работа мастера ${master.name}`}
+                        loading="lazy"
+                        className="h-40 w-40 rounded-2xl border border-[#f3e3ea] object-cover"
+                      />
+                      {photo.caption && <figcaption className="mt-1 text-xs text-slate-500">{photo.caption}</figcaption>}
+                    </figure>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-5">
+                <NailStrip />
+              </div>
+            )}
 
             <div className="mt-6 border-b border-[#f2e3ea] pb-2">
               <nav className="flex gap-6 text-sm">

@@ -1,10 +1,11 @@
 /**
  * Доставка сообщений: очередь, провайдер, напоминания и повтор после сбоя.
  *
- * Настоящие SMS проверить негде, поэтому здесь поднимается локальный приёмник
- * вебхука: админка переключает транспорт на `webhook` и указывает его адрес.
- * Так проверяется весь путь целиком — от записи клиента до тела POST-запроса,
- * который ушёл бы в SMS-шлюз.
+ * SMS площадка не покупает, поэтому маршрут сообщения такой: привязан
+ * мессенджер — уходит в Telegram или Max; не привязан — событие пишется
+ * в журнал системы. Здесь поднимается локальный приёмник вебхука: админка
+ * переключает транспорт на `webhook`, и проверяется весь путь целиком —
+ * от записи клиента до тела POST-запроса, который ушёл бы провайдеру.
  *
  * Запуск (при живых Vite и API):
  *   cd tools/devcheck && npm run deliveries
@@ -55,13 +56,30 @@ const queue = async (kind) => {
 
 try {
   /* --- Настройки доставки: админ переключает транспорт на ходу --- */
+  // Прошлые прогоны могли оставить сохранённый транспорт: возвращаем «auto»,
+  // чтобы проверка значения по умолчанию была осмысленной.
+  await setTransport("auto", "");
   const settings = await apiAs(admin, "/admin/deliveries/settings");
   assert(
     "админ видит настройки доставки",
     settings.status === 200 && typeof settings.data.transport === "string",
     JSON.stringify(settings.data),
   );
-  assert("по умолчанию доставка идёт в лог", settings.data.transport === "log", settings.data.transport);
+  assert(
+    "по умолчанию транспорт выбирает канал сам (auto)",
+    settings.data.transport === "auto",
+    settings.data.transport,
+  );
+  assert(
+    "админка видит состояние бесплатных каналов",
+    typeof settings.data.channels?.telegram === "boolean" && typeof settings.data.channels?.max === "boolean",
+    JSON.stringify(settings.data.channels ?? {}),
+  );
+  assert(
+    "SMS в системе нет — ни транспорта, ни канала",
+    !JSON.stringify(settings.data).includes("sms"),
+    JSON.stringify(settings.data).slice(0, 140),
+  );
 
   // Чистое состояние: адрес вебхука из прошлых прогонов не должен влиять.
   await setTransport("log", "");
@@ -122,8 +140,13 @@ try {
   );
   assert(
     "приёмник получил сообщение целиком",
-    received.length >= 1 && received.every((item) => item.channel === "sms" && item.to && item.text),
+    received.length >= 1 && received.every((item) => item.channel && item.to && item.text),
     JSON.stringify(received[0] ?? {}).slice(0, 140),
+  );
+  assert(
+    "клиент без мессенджера получает запись в журнал, а не SMS",
+    received.every((item) => item.channel === "log"),
+    JSON.stringify([...new Set(received.map((item) => item.channel))]),
   );
   assert(
     "в сообщении есть мастер и время визита",
@@ -164,18 +187,18 @@ try {
     remindersAfterCancel.map((item) => item.status).join(", "),
   );
 
-  const cancelSms = (await queue("booking_cancelled")).find((item) => item.bookingId === bookingId);
+  const cancelNotice = (await queue("booking_cancelled")).find((item) => item.bookingId === bookingId);
   assert(
-    "клиенту поставлено SMS об отмене",
-    Boolean(cancelSms),
-    cancelSms ? `${cancelSms.status}, адресат ${cancelSms.recipient}` : "строки нет",
+    "клиенту поставлено уведомление об отмене",
+    Boolean(cancelNotice),
+    cancelNotice ? `${cancelNotice.status}, канал ${cancelNotice.channel}` : "строки нет",
   );
 
   received.length = 0;
   await apiAs(admin, "/admin/deliveries/dispatch", { method: "POST" });
   assert(
-    "SMS об отмене ушла в провайдера",
-    received.some((item) => item.kind === "booking_cancelled" && item.text.includes("отменён")),
+    "уведомление об отмене ушло в доставку",
+    received.some((item) => item.kind === "booking_cancelled" && item.text.toLowerCase().includes("отмен")),
     JSON.stringify(received.map((item) => item.kind)),
   );
 

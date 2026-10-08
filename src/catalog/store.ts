@@ -27,6 +27,12 @@ export type Master = {
     serviceName: string | null;
   }[];
   address?: string;
+  /** Фото мастера из кабинета: карточка показывает его вместо инициалов. */
+  avatarUrl?: string | null;
+  avatarFullUrl?: string | null;
+  /** Привязка к справочнику мест: по ней работает фильтр «метро» и «город». */
+  metroSlug?: string | null;
+  districtSlug?: string | null;
   /** Город и регион — по ним работает выбор города и карта. */
   city?: string;
   region?: string;
@@ -83,6 +89,10 @@ const fallback: Pick<State, "masters" | "services"> = {
     priceFrom: master.priceFrom,
     experience: master.experience,
     address: undefined,
+    avatarUrl: null,
+    avatarFullUrl: null,
+    metroSlug: null,
+    districtSlug: null,
     city: "city" in master ? (master.city as string) : undefined,
     region: "region" in master ? (master.region as string) : undefined,
     lat: "lat" in master ? (master.lat as number) : null,

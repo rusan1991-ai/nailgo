@@ -6,6 +6,7 @@
  */
 import { Link } from "react-router-dom";
 import { AuthCard, CodeStep, RoleChoice, useAuthScreen } from "./auth-shared";
+import { QuickLogin } from "../components/QuickLogin";
 
 export function LoginPage() {
   const screen = useAuthScreen("login");
@@ -15,7 +16,7 @@ export function LoginPage() {
       title="Вход"
       subtitle={
         screen.step === "phone"
-          ? "Выберите, куда входите, и введите телефон — отправим код подтверждения."
+          ? "Войдите в один клик — или, на стенде, по коду из журнала сервера."
           : `Код отправлен на ${screen.phone}. Он действует 5 минут. ${
               screen.role === "master" ? "Входите как мастер." : "Входите как клиент."
             }`
@@ -33,8 +34,9 @@ export function LoginPage() {
             </Link>
           </p>
           <p className="mt-3 rounded-xl bg-[#fff4f8] px-3 py-2 text-xs text-slate-500">
+            Стенд без SMS: код подтверждения пишется в журнал сервера и подставляется в форму автоматически.
             Демо-доступы: мастер — <span className="font-medium text-slate-700">+7 999 000-00-01</span>,
-            клиент — любой зарегистрированный номер. Код подставляется автоматически в dev-режиме.
+            клиент — любой зарегистрированный номер.
           </p>
           <Link to="/" className="mt-2 inline-block text-pink-600 hover:text-pink-700">
             Вернуться на главную
@@ -43,6 +45,8 @@ export function LoginPage() {
       }
     >
       {screen.step === "phone" ? (
+        <>
+        <QuickLogin role={screen.role} returnTo={screen.returnTo} onError={screen.setError} />
         <form onSubmit={screen.askCode} className="mt-6 space-y-3">
           <RoleChoice
             role={screen.role}
@@ -66,6 +70,7 @@ export function LoginPage() {
             {screen.pending ? "Отправляем код..." : "Получить код"}
           </button>
         </form>
+        </>
       ) : (
         <CodeStep {...screen} submitLabel="Войти" />
       )}

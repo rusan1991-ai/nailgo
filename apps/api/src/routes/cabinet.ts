@@ -25,7 +25,7 @@ import { normalizePhone } from "../lib/phone.js";
 import { serializeBooking } from "../lib/serialize.js";
 import { requireAuth, requireMaster } from "../lib/auth.js";
 import { createBooking, createBookingSchema, rescheduleSchema, rescheduleBooking, withRelations } from "./bookings.js";
-import { notifyBookingEvent, notifyClient, notifyStudio } from "../lib/notify.js";
+import { notifyBookingEvent, notifyClient, notifyStudio } from "../lib/notifications.js";
 import { markPaid, refundBookingPayment } from "../lib/payments.js";
 import { paymentRowsForBooking } from "./payments.js";
 import { notifyFavoritesAboutWindow, windowService } from "../lib/favorites.js";

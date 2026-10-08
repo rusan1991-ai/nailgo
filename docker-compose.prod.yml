@@ -39,14 +39,54 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
       JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-2592000}
-      # Код подтверждения: log — в лог сервера (пока не подключён SMS-провайдер),
-      # sms — ответит 503, пока провайдер не реализован.
+      # Код по телефону — инструмент стенда: в проде /auth/request-otp отвечает 503,
+      # вход идёт через Яндекс ID, VK ID и мессенджеры.
       DEV_OTP_ENABLED: ${DEV_OTP_ENABLED:-false}
       OTP_DELIVERY: ${OTP_DELIVERY:-log}
       OTP_TTL_SECONDS: ${OTP_TTL_SECONDS:-300}
+      OTP_PEPPER: ${OTP_PEPPER:-}
+      OTP_REQUEST_LIMIT_PER_PHONE: ${OTP_REQUEST_LIMIT_PER_PHONE:-5}
+      OTP_REQUEST_LIMIT_PER_IP: ${OTP_REQUEST_LIMIT_PER_IP:-30}
+      OTP_VERIFY_LIMIT: ${OTP_VERIFY_LIMIT:-5}
+      OTP_WINDOW_SECONDS: ${OTP_WINDOW_SECONDS:-900}
       SLOT_STEP_MINUTES: ${SLOT_STEP_MINUTES:-30}
+      # Правила времени и статусов записей (этап 1).
+      PLATFORM_TIMEZONE: ${PLATFORM_TIMEZONE:-Europe/Moscow}
+      BOOKING_MIN_LEAD_MINUTES: ${BOOKING_MIN_LEAD_MINUTES:-60}
+      BOOKING_CONFIRM_DEADLINE_MINUTES: ${BOOKING_CONFIRM_DEADLINE_MINUTES:-120}
+      BOOKING_AUTOCOMPLETE_HOURS: ${BOOKING_AUTOCOMPLETE_HOURS:-24}
+      CANCEL_FREE_HOURS: ${CANCEL_FREE_HOURS:-6}
+      LATE_CANCEL_LIMIT: ${LATE_CANCEL_LIMIT:-3}
+      NO_SHOW_LIMIT: ${NO_SHOW_LIMIT:-2}
+      SCHEDULER_INTERVAL_SECONDS: ${SCHEDULER_INTERVAL_SECONDS:-60}
+      # Уведомления: SMS не отправляем, уходит в привязанный мессенджер или в журнал.
+      DELIVERY_TRANSPORT: ${DELIVERY_TRANSPORT:-auto}
+      DELIVERY_WEBHOOK_URL: ${DELIVERY_WEBHOOK_URL:-}
+      DELIVERY_INTERVAL_SECONDS: ${DELIVERY_INTERVAL_SECONDS:-30}
+      DELIVERY_MAX_ATTEMPTS: ${DELIVERY_MAX_ATTEMPTS:-3}
+      # Вход через внешние сервисы и боты (этап 2).
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL}
+      OAUTH_REDIRECT_BASE: ${OAUTH_REDIRECT_BASE}
+      YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
+      YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
+      VK_CLIENT_ID: ${VK_CLIENT_ID:-}
+      VK_CLIENT_SECRET: ${VK_CLIENT_SECRET:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
+      MAX_BOT_NAME: ${MAX_BOT_NAME:-}
+      MAX_WEBHOOK_SECRET: ${MAX_WEBHOOK_SECRET:-}
+      BOT_LOGIN_TTL_MINUTES: ${BOT_LOGIN_TTL_MINUTES:-10}
+      # Фото мастеров: файлы на томе media_data, в базе — только метаданные.
+      MEDIA_DIR: ${MEDIA_DIR:-/data/media}
+      MEDIA_MAX_BYTES: ${MEDIA_MAX_BYTES:-5242880}
+      MEDIA_WEB_WIDTH: ${MEDIA_WEB_WIDTH:-1200}
+      MEDIA_THUMB_WIDTH: ${MEDIA_THUMB_WIDTH:-320}
       PG_POOL_MAX: ${PG_POOL_MAX:-10}
       TZ: ${TZ:-Europe/Moscow}
+    volumes:
+      - media_data:${MEDIA_DIR:-/data/media}
     expose:
       - "${API_PORT:-4000}"
     depends_on:
@@ -70,5 +110,7 @@ services:
 
 volumes:
   postgres_data:
+  # Фото мастеров: переживают пересборку контейнера, но не входят в дамп базы.
+  media_data:
   caddy_data:
   caddy_config:

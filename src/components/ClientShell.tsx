@@ -3,6 +3,7 @@ import { Link, NavLink } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { Avatar } from "./NailUi";
 import { CityPicker } from "./CityPicker";
+import { MessengerBanner } from "./MessengerBanner";
 
 const links = [
   { to: "/", label: "Главная" },
@@ -68,7 +69,11 @@ export function ClientShell({ title, children }: { title: string; children: Reac
             </div>
           </div>
 
-          <div className="pt-5">{children}</div>
+          <div className="space-y-4 pt-5">
+            {/* Напоминания идут только в мессенджер: без привязки человек их не увидит. */}
+            {user && <MessengerBanner settingsTo="/settings" />}
+            {children}
+          </div>
         </section>
       </div>
     </main>

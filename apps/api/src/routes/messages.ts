@@ -15,7 +15,7 @@ import { and, asc, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { bookings, conversations, masters, messages } from "../db/schema.js";
 import { requireAuth } from "../lib/auth.js";
-import { notifyClient, notifyStudio } from "../lib/notify.js";
+import { notifyClient, notifyStudio } from "../lib/notifications.js";
 import { normalizePhone, samePhone } from "../lib/phone.js";
 
 /** «15:42» — время сообщения рядом с текстом. */
@@ -32,6 +32,28 @@ function snippet(text: string, limit = 80): string {
 /** Кто пишет в диалоге от лица текущего пользователя. */
 const isStudio = (role: string) => role === "master" || role === "admin";
 
+/**
+ * Телефоны, по которым клиенту видны переписки.
+ *
+ * Переписка привязана к телефону из записи, а у клиента из мессенджера номера
+ * может не быть вовсе. Поэтому берём и контакт из профиля, и телефоны своих
+ * записей — иначе человек не увидит даже свой собственный диалог с мастером.
+ */
+async function clientPhones(me: { id: string; phone: string | null }): Promise<string[]> {
+  const phones = new Set<string>();
+  if (me.phone) phones.add(normalizePhone(me.phone));
+
+  const own = await db.select({ phone: bookings.clientPhone }).from(bookings).where(eq(bookings.userId, me.id));
+  for (const row of own) if (row.phone) phones.add(normalizePhone(row.phone));
+
+  return [...phones];
+}
+
+/** Условие «это переписка клиента»: по любому из его телефонов. */
+function clientThreadFilter(phones: string[]) {
+  return phones.length > 0 ? inArray(conversations.clientPhone, phones) : eq(conversations.id, "__none__");
+}
+
 export async function messageRoutes(app: FastifyInstance) {
   /**
    * Диалоги пользователя: у мастера — его кабинет, у клиента — его телефон.
@@ -42,14 +64,13 @@ export async function messageRoutes(app: FastifyInstance) {
     const studio = isStudio(me.role);
 
     if (studio && !me.masterSlug) return { items: [], unread: 0 };
+    const phones = studio ? [] : await clientPhones(me);
 
     const rows = await db
       .select({ conversation: conversations, master: masters })
       .from(conversations)
       .innerJoin(masters, eq(conversations.masterId, masters.id))
-      .where(
-        studio ? eq(masters.slug, me.masterSlug!) : eq(conversations.clientPhone, normalizePhone(me.phone)),
-      )
+      .where(studio ? eq(masters.slug, me.masterSlug!) : clientThreadFilter(phones))
       .orderBy(desc(conversations.lastMessageAt));
 
     const ids = rows.map((row) => row.conversation.id);
@@ -95,11 +116,7 @@ export async function messageRoutes(app: FastifyInstance) {
       .select({ id: conversations.id })
       .from(conversations)
       .innerJoin(masters, eq(conversations.masterId, masters.id))
-      .where(
-        studio
-          ? eq(masters.slug, me.masterSlug!)
-          : eq(conversations.clientPhone, normalizePhone(me.phone)),
-      );
+      .where(studio ? eq(masters.slug, me.masterSlug!) : clientThreadFilter(await clientPhones(me)));
 
     const ids = rows.map((row) => row.id);
     if (ids.length === 0) return { unread: 0 };
@@ -135,7 +152,7 @@ export async function messageRoutes(app: FastifyInstance) {
     if (studio && row.master.slug !== me.masterSlug) {
       return reply.code(403).send({ error: "forbidden", message: "Это диалог другого мастера" });
     }
-    if (!studio && !samePhone(row.conversation.clientPhone, me.phone)) {
+    if (!studio && !(await clientPhones(me)).includes(normalizePhone(row.conversation.clientPhone))) {
       return reply.code(403).send({ error: "forbidden", message: "Это не ваш диалог" });
     }
 
@@ -199,7 +216,7 @@ export async function messageRoutes(app: FastifyInstance) {
     if (studio && row.master.slug !== me.masterSlug) {
       return reply.code(403).send({ error: "forbidden", message: "Это диалог другого мастера" });
     }
-    if (!studio && !samePhone(row.conversation.clientPhone, me.phone)) {
+    if (!studio && !(await clientPhones(me)).includes(normalizePhone(row.conversation.clientPhone))) {
       return reply.code(403).send({ error: "forbidden", message: "Это не ваш диалог" });
     }
 
@@ -270,7 +287,7 @@ export async function messageRoutes(app: FastifyInstance) {
     const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Мастер не найден" });
 
-    const clientPhone = studio ? normalizePhone(input.clientPhone ?? "") : normalizePhone(me.phone);
+    const clientPhone = studio ? normalizePhone(input.clientPhone ?? "") : normalizePhone(me.phone ?? "");
     if (!clientPhone) {
       return reply.code(400).send({ error: "no_client", message: "Не указан клиент" });
     }

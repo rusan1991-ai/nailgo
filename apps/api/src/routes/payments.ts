@@ -15,12 +15,12 @@ import { z } from "zod";
 import { db } from "../db/index.js";
 import { bookings, masters, payments, services } from "../db/schema.js";
 import { requireAuth } from "../lib/auth.js";
-import { notifyClient, notifyStudio } from "../lib/notify.js";
-import { samePhone } from "../lib/phone.js";
+import { notifyClient, notifyStudio } from "../lib/notifications.js";
+import { ownsBooking } from "../lib/auth.js";
 import { initiatePayment, markPaid, paymentSettings, refundBookingPayment } from "../lib/payments.js";
 
 /** Роли, которым видна операция: клиент этой записи, её мастер и админ. */
-async function accessTo(bookingId: string, user: { phone: string; role: string; masterSlug: string | null }) {
+async function accessTo(bookingId: string, user: { id: string; phone: string | null; role: string; masterSlug: string | null }) {
   const [row] = await db
     .select({ booking: bookings, master: masters, service: services })
     .from(bookings)
@@ -30,7 +30,7 @@ async function accessTo(bookingId: string, user: { phone: string; role: string; 
     .limit(1);
   if (!row) return null;
 
-  const isOwner = samePhone(row.booking.clientPhone, user.phone);
+  const isOwner = ownsBooking(row.booking, user);
   const isMaster = user.role === "master" && user.masterSlug === row.master.slug;
   const isAdmin = user.role === "admin";
   if (!isOwner && !isMaster && !isAdmin) return null;

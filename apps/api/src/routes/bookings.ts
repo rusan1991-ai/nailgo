@@ -1,9 +1,9 @@
 import type { FastifyInstance } from "fastify";
-import { and, desc, eq, gt, inArray, lt, ne } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import { bookings, masters, reviews, services } from "../db/schema.js";
-import { requireAuth } from "../lib/auth.js";
+import { optionalUserId, ownsBooking, requireAuth } from "../lib/auth.js";
 import { applyBookingStatus, bookingHistory, logBookingEvent } from "../lib/booking-status.js";
 import {
   assertClientCanBook,
@@ -12,7 +12,7 @@ import {
   type ClientPolicy,
 } from "../lib/booking-policy.js";
 import { BookingError as DomainError, ERROR_CODES } from "../lib/errors.js";
-import { notifyBookingEvent } from "../lib/notify.js";
+import { notifyBookingEvent } from "../lib/notifications.js";
 import { initiatePayment, prepaymentFor, refundBookingPayment } from "../lib/payments.js";
 import { notifyFavoritesAboutWindow } from "../lib/favorites.js";
 import { env } from "../env.js";
@@ -122,7 +122,13 @@ export async function assertSlotFree(params: {
  */
 export async function createBooking(
   input: CreateBookingInput,
-  options: { source: "client" | "master"; status: "pending" | "confirmed"; now?: Date },
+  options: {
+    source: "client" | "master";
+    status: "pending" | "confirmed";
+    now?: Date;
+    /** Аккаунт клиента, если он вошёл: запись сразу привязана к кабинету. */
+    userId?: string | null;
+  },
 ) {
   const [master] = await db.select().from(masters).where(eq(masters.slug, input.masterSlug)).limit(1);
   if (!master) throw new DomainError(404, "master_not_found", "Мастер не найден");
@@ -160,6 +166,7 @@ export async function createBooking(
     .values({
       masterId: master.id,
       serviceId: service.id,
+      userId: options.userId ?? null,
       clientName: input.clientName,
       clientPhone: input.clientPhone,
       comment: input.comment,
@@ -296,6 +303,8 @@ export async function bookingRoutes(app: FastifyInstance) {
       source: "client",
       status: "pending",
       now: devNow(input.now),
+      // Запись от вошедшего клиента сразу попадает в его кабинет.
+      userId: await optionalUserId(request),
     });
     await notifyBookingEvent(row, service, "created_by_client");
 
@@ -316,17 +325,21 @@ export async function bookingRoutes(app: FastifyInstance) {
       .object({ phone: z.string().trim().min(6).optional() })
       .parse(request.query ?? {});
 
-    if (askedPhone && !samePhone(askedPhone, me.phone) && me.role !== "admin") {
+    if (askedPhone && (!me.phone || !samePhone(askedPhone, me.phone)) && me.role !== "admin") {
       return reply.code(403).send({ error: "forbidden", message: "Это не ваш номер телефона" });
     }
-    const phone = me.phone;
+
+    // Свои записи: по привязке к аккаунту плюс гостевые заявки с моего номера.
+    const scope = me.phone
+      ? or(eq(bookings.userId, me.id), eq(bookings.clientPhone, normalizePhone(me.phone)))
+      : eq(bookings.userId, me.id);
 
     const rows = await db
       .select({ booking: bookings, master: masters, service: services })
       .from(bookings)
       .innerJoin(masters, eq(bookings.masterId, masters.id))
       .innerJoin(services, eq(bookings.serviceId, services.id))
-      .where(eq(bookings.clientPhone, normalizePhone(phone)))
+      .where(scope)
       .orderBy(desc(bookings.startAt));
 
     // К каждой записи прикладываем её отзыв: интерфейс по этому полю решает,
@@ -371,7 +384,7 @@ export async function bookingRoutes(app: FastifyInstance) {
     const [booking] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
     if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
 
-    const isOwner = samePhone(booking.clientPhone, me.phone);
+    const isOwner = ownsBooking(booking, me);
     const isAdmin = me.role === "admin";
     // Мастеру историю его записи отдаёт кабинет: там проверка по своему слагу.
     if (!isOwner && !isAdmin) {
@@ -389,7 +402,7 @@ export async function bookingRoutes(app: FastifyInstance) {
 
     const [booking] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
     if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
-    if (!samePhone(booking.clientPhone, me.phone) && me.role !== "admin") {
+    if (!ownsBooking(booking, me)) {
       return reply.code(403).send({ error: "forbidden", message: "Это не ваша запись" });
     }
 
@@ -404,7 +417,7 @@ export async function bookingRoutes(app: FastifyInstance) {
 
     const [booking] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
     if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
-    if (!samePhone(booking.clientPhone, me.phone) && me.role !== "admin") {
+    if (!ownsBooking(booking, me)) {
       return reply.code(403).send({ error: "forbidden", message: "Это не ваша запись" });
     }
     if (booking.status === "cancelled") return { ok: true, late: false };

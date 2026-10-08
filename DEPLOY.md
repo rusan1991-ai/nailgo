@@ -37,20 +37,31 @@ nano .env
 openssl rand -hex 32   # для JWT_ACCESS_SECRET и JWT_REFRESH_SECRET
 ```
 
-Про доставку кодов входа (`OTP_DELIVERY`):
+Вход и уведомления (подробности — в комментариях `.env.production.example`):
 
-- `log` — код подтверждения пишется в лог API. Так работает закрытый стенд,
-  пока не подключён SMS-провайдер: `docker compose --env-file .env -f docker-compose.prod.yml logs -f api`
-- `sms` — вариант для боевого запуска, но провайдер ещё не подключён:
-  API ответит `503 sms_not_configured`, а не «код отправлен»
-- `response` — код возвращается прямо в ответе API, только для локальной разработки
-
-Про внешние каналы и деньги (подробности — в комментариях `.env.production.example`):
-
-- `DELIVERY_TRANSPORT` — чем отправляем SMS и письма: `log` (в лог, режим стенда),
-  `webhook` (POST на `DELIVERY_WEBHOOK_URL` — любой SMS-шлюз или почтовый сервис),
-  `smsru` (нужен `SMSRU_API_ID`). Транспорт и адрес можно поменять на ходу
-  в админке, `/admin/deliveries`.
+- **Платных SMS у площадки нет.** Телефонный код (`OTP_DELIVERY`) — инструмент стенда:
+  `log` пишет код в лог API, `response` отдаёт его в ответе (только локальная разработка).
+  В проде `/api/auth/request-otp` отвечает `503 phone_login_disabled` и отправляет человека
+  к бесплатным способам входа.
+- `PUBLIC_WEB_URL` и `OAUTH_REDIRECT_BASE` — адрес сайта и публичный адрес API.
+  Второй должен совпадать с редиректом, зарегистрированным у провайдера:
+  `<OAUTH_REDIRECT_BASE>/api/auth/oauth/<провайдер>/callback` (`yandex`, `vk`).
+- `YANDEX_CLIENT_ID`/`SECRET`, `VK_CLIENT_ID`/`SECRET` — OAuth-приложения. Пустой ключ
+  означает «провайдер не подключён»: кнопка на входе рисуется выключенной,
+  `/auth/oauth/<провайдер>/start` отвечает `503`.
+- `TELEGRAM_BOT_TOKEN` + `TELEGRAM_BOT_USERNAME` + `TELEGRAM_WEBHOOK_SECRET`, `MAX_BOT_TOKEN`
+  + `MAX_BOT_NAME` + `MAX_WEBHOOK_SECRET` — боты для входа по диплинку и бесплатных
+  напоминаний. Вебхуки: `POST /api/messengers/telegram/webhook` (секрет в заголовке
+  `x-telegram-bot-api-secret-token`) и `POST /api/messengers/max/webhook`
+  (заголовок `x-max-bot-api-secret` или поле `secret`). Max требует домен
+  `platform-api2.max.ru` и TLS-цепочку Минцифры: в контейнер положите
+  `russian_trusted_root_ca.crt` и задайте `NODE_EXTRA_CA_CERTS`.
+- `DELIVERY_TRANSPORT` — как уходят уведомления: `auto` (по каналу: Telegram → Max → журнал
+  системы), `log` (только журнал), `webhook` (POST на `DELIVERY_WEBHOOK_URL`).
+  Транспорт и адрес можно поменять на ходу в админке, `/admin/deliveries`.
+- `MEDIA_DIR`, `MEDIA_MAX_BYTES`, `MEDIA_WEB_WIDTH`, `MEDIA_THUMB_WIDTH` — хранилище фото
+  мастеров: путь на диске (том `media_data`), лимит загрузки (5 МБ) и ширины вариантов
+  `web` и `thumb`, которые считает sharp. Без постоянного тома фото исчезнут при пересборке.
 - `PAYMENT_PROVIDER` — как принимаем предоплату: `manual` (деньги принимает мастер,
   факт отмечается в кабинете) или `webhook` (`PAYMENT_WEBHOOK_URL` — платёжный шлюз,
   он возвращает ссылку на оплату и сообщает об оплате вебхуком
@@ -106,8 +117,10 @@ docker compose --env-file .env -f docker-compose.prod.yml \
 ./scripts/restore.sh backups/postgres_20240101_120000.sql
 ```
 
-Данные Postgres и сертификаты Caddy живут в томах `postgres_data`, `caddy_data`,
-`caddy_config` — они переживают пересборку контейнеров.
+Данные Postgres, фото мастеров и сертификаты Caddy живут в томах `postgres_data`,
+`media_data`, `caddy_data`, `caddy_config` — они переживают пересборку контейнеров.
+Фото мастеров (`MEDIA_DIR=/data/media`) в резервную копию базы не входят: их копируют
+отдельно тем же `scripts/backup.sh` (том целиком) или средствами сервера.
 
 ## Проверка прод-пути без Docker
 
@@ -134,7 +147,13 @@ curl -fsS http://127.0.0.1:4000/api/health   # storage: postgres
 - `OTP_DELIVERY=log` — режим закрытого стенда: код входа виден в логах, не давайте
   к ним доступ посторонним.
 - `DELIVERY_TRANSPORT=log` — то же для всех сообщений клиентам: на закрытом стенде они
-  не уходят наружу, а пишутся в лог.
+  не уходят наружу, а пишутся в журнал системы.
+- Вебхуки ботов защищены секретами (`TELEGRAM_WEBHOOK_SECRET`, `MAX_WEBHOOK_SECRET`):
+  без них подтвердить вход по одноразовой ссылке смог бы любой, кто её подсмотрел.
+  Секреты задавайте своими длинными значениями.
+- Токены входа через бота одноразовые (`auth_flows`, по умолчанию живут
+  `BOT_LOGIN_TTL_MINUTES=10`): повторный запрос статуса отвечает `409`, просроченные
+  потоки удаляются при следующем входе.
 - Вебхук шлюза (`POST /api/payments/webhook`) принимает оплату по номеру операции.
   В проде задайте `PAYMENT_WEBHOOK_SECRET`: без него ручка открыта всем, кто знает номер.
 - Прод-образ API собирается без PGlite: при `DATABASE_URL=postgres://` локальный

@@ -19,7 +19,7 @@ import { db } from "../db/index.js";
 import { bookings, masters, payments, services, type Booking, type Payment } from "../db/schema.js";
 import { env } from "../env.js";
 import { settingValue, saveSetting } from "./delivery/transports.js";
-import { notifyClient, notifyStudio } from "./notify.js";
+import { notifyClient, notifyStudio } from "./notifications.js";
 
 export type PaymentProvider = "manual" | "webhook";
 

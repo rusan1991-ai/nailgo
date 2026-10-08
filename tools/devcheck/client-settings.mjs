@@ -9,15 +9,28 @@
  * Запуск (при живых Vite и API):
  *   cd tools/devcheck && npm run settings-client
  */
-import { api, apiAs, check, click, login, loginMaster, makeDom, resetDemo, rootText, setField, wait } from "./harness.mjs";
+import {
+  api,
+  apiAs,
+  check,
+  click,
+  login,
+  loginMaster,
+  makeDom,
+  nextWorkingISO,
+  resetDemo,
+  rootText,
+  setField,
+  wait,
+} from "./harness.mjs";
 
 let failures = 0;
 const assert = (label, ok, extra = "") => {
   if (!check(label, ok, extra)) failures += 1;
 };
 
-const PHONE = "+79990001666";
-const ACTOR_PHONE = "+79990001511";
+const PHONE = process.env.TEST_CLIENT_PHONE ?? `+7999${String(1000000 + Math.floor(Math.random() * 1000000))}`;
+const ACTOR_PHONE = `+7999${String(4000000 + Math.floor(Math.random() * 1000000))}`;
 const MASTER = "anna-smirnova";
 
 const master = await loginMaster();
@@ -60,20 +73,27 @@ const emptyPatch = await apiAs(client, "/client/settings", { method: "PATCH", bo
 assert("пустой патч настроек отклонён", emptyPatch.status === 400, `status=${emptyPatch.status}`);
 
 // Запись: клиент с выключенными уведомлениями о записи не получает ничего.
-const slots = await api(`/masters/${MASTER}/slots?date=2026-11-10&serviceId=${MASTER}-s1`);
+// Дату и слот выбираем из свободных: фиксированный день забивается прошлыми
+// прогонами, и проверка падала бы на «нет свободных окон».
+const quietDateISO = nextWorkingISO(12 + Math.floor(Math.random() * 20));
+const slots = await api(`/masters/${MASTER}/slots?date=${quietDateISO}&serviceId=${MASTER}-s1`);
 const slot = slots.data.slots[0];
 const quiet = await apiAs(client, "/bookings", {
   method: "POST",
   body: {
     masterSlug: MASTER,
     serviceId: `${MASTER}-s1`,
-    dateISO: "2026-11-10",
+    dateISO: quietDateISO,
     startMinutes: slot.startMinute,
     clientName: "Марина Умная",
     clientPhone: PHONE,
   },
 });
-assert("запись создана", quiet.status === 201, `status=${quiet.status}`);
+assert(
+  "запись создана",
+  quiet.status === 201,
+  `status=${quiet.status} ${JSON.stringify(quiet.data).slice(0, 200)} слот=${slot?.label} дата=${quietDateISO}`,
+);
 
 const quietFeed = await apiAs(client, "/notifications");
 assert(
@@ -101,7 +121,7 @@ assert(
 await apiAs(client, "/client/settings", { method: "PATCH", body: { notifyNews: false } });
 await apiAs(client, "/favorites", { method: "POST", body: { masterSlug: MASTER } });
 
-const feed = await api(`/last-minute?days=7&limit=5`);
+const feed = await api(`/last-minute?days=14&limit=40`);
 const offer = feed.data.items.find((item) => item.masterSlug === MASTER);
 const booked = await apiAs(actor, "/bookings", {
   method: "POST",

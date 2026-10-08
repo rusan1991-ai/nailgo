@@ -1,6 +1,6 @@
 import { FavoriteButton } from "../components/FavoriteButton";
 import { motion } from "framer-motion";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ClientShell } from "../components/ClientShell";
 import { Avatar } from "../components/NailUi";
@@ -9,18 +9,46 @@ import { useCatalog } from "../catalog/store";
 import { CityMap } from "../components/CityMap";
 import { CityPicker } from "../components/CityPicker";
 import { DEFAULT_REGIONS, useCity } from "../city/CityContext";
+import { locationsApi, type PopularItem } from "../api/locations";
 
 export function SearchMapPage() {
   const [mode, setMode] = useState<"list" | "map">("list");
+  /** Выбранное место: станция метро или город области из справочника. */
+  const [place, setPlace] = useState<{ kind: "metro" | "district"; slug: string; name: string } | null>(null);
+  const [popular, setPopular] = useState<{ metro: PopularItem[]; cities: PopularItem[] } | null>(null);
 
   const { masters } = useCatalog();
   const { region } = useCity();
+
+  useEffect(() => {
+    let alive = true;
+    void locationsApi
+      .popular()
+      .then((response) => {
+        if (alive) setPopular(response);
+      })
+      .catch(() => {
+        // Фильтр — не критичный ресурс: без него витрина работает как раньше.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const regionInfo = DEFAULT_REGIONS.find((item) => item.region === region) ?? DEFAULT_REGIONS[0];
-  /** Сначала мастера выбранного города, потом остальные — карта показывает первых. */
+  /**
+   * Сначала мастера выбранного города, потом остальные — карта показывает
+   * первых. Если выбрана станция метро или город области, оставляем только
+   * совпадения по справочнику: «рядом с Маяковской» — это не поиск подстроки.
+   */
   const sorted = useMemo(() => {
-    const regional = masters.filter((master) => !master.region || master.region === region);
-    return [...regional, ...masters.filter((master) => !regional.includes(master))];
-  }, [masters, region]);
+    const byPlace = place
+      ? masters.filter((master) =>
+          place.kind === "metro" ? master.metroSlug === place.slug : master.districtSlug === place.slug,
+        )
+      : masters;
+    const regional = byPlace.filter((master) => !master.region || master.region === region);
+    return [...regional, ...byPlace.filter((master) => !regional.includes(master))];
+  }, [masters, region, place]);
   const cards = useMemo(() => sorted.slice(0, 4), [sorted]);
   const regionalMasters = useMemo(
     () => masters.filter((master) => !master.region || master.region === region),
@@ -32,17 +60,52 @@ export function SearchMapPage() {
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap gap-2">
-            {[
-              "Сегодня",
-              "До 2500 ₽",
-              "Рядом",
-              "Маникюр + гель-лак",
-              "Все фильтры",
-            ].map((chip) => (
-              <button key={chip} className="rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 hover:border-pink-300">
-                {chip}
+            {place ? (
+              <button
+                type="button"
+                onClick={() => setPlace(null)}
+                data-action="clear-place"
+                className="rounded-xl border border-pink-300 bg-pink-50 px-3 py-2 text-sm text-pink-600"
+              >
+                {place.kind === "metro" ? "м. " : "г. "}
+                {place.name} ✕
               </button>
-            ))}
+            ) : (
+              <>
+                {(popular?.metro ?? []).slice(0, 3).map((item) => (
+                  <button
+                    key={item.slug}
+                    type="button"
+                    onClick={() => setPlace({ kind: "metro", slug: item.slug, name: item.name })}
+                    data-place={`metro:${item.slug}`}
+                    className="rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 hover:border-pink-300"
+                  >
+                    м. {item.name}
+                    <span className="ml-1 text-xs text-slate-400">{item.masters}</span>
+                  </button>
+                ))}
+                {(popular?.cities ?? []).slice(0, 2).map((item) => (
+                  <button
+                    key={item.slug}
+                    type="button"
+                    onClick={() => setPlace({ kind: "district", slug: item.slug, name: item.name })}
+                    data-place={`district:${item.slug}`}
+                    className="rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 hover:border-pink-300"
+                  >
+                    г. {item.name}
+                    <span className="ml-1 text-xs text-slate-400">{item.masters}</span>
+                  </button>
+                ))}
+                {!popular && (
+                  <>
+                    <span className="rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-400">Рядом</span>
+                    <span className="rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-400">
+                      Маникюр + гель-лак
+                    </span>
+                  </>
+                )}
+              </>
+            )}
           </div>
 
           <div className="inline-flex rounded-xl border border-[#f1dde6] p-1 text-sm">
@@ -72,7 +135,7 @@ export function SearchMapPage() {
                 className="rounded-2xl border border-[#f1dde6] p-4"
               >
                 <div className="flex items-center gap-3">
-                  <Avatar className="h-12 w-12" />
+                  <Avatar className="h-12 w-12" src={master.avatarUrl} name={master.name} />
                   <div className="min-w-0 flex-1">
                     <Link to={`/master/${master.slug}`} className="truncate font-semibold hover:text-pink-600">
                       {master.name}
@@ -109,6 +172,12 @@ export function SearchMapPage() {
           </div>
 
           <div className={`space-y-3 ${mode === "map" ? "xl:order-1" : ""}`}>
+            <PlacePicker
+              metro={popular?.metro ?? []}
+              cities={popular?.cities ?? []}
+              place={place}
+              onPick={setPlace}
+            />
             <CityPicker variant="wide" />
             <CityMap
               masters={regionalMasters}
@@ -121,5 +190,85 @@ export function SearchMapPage() {
         </div>
       </div>
     </ClientShell>
+  );
+}
+
+/**
+ * Выбор места: метро Санкт-Петербурга и города области.
+ * Показываем только те, где есть мастера, — список приходит с сервера.
+ */
+function PlacePicker({
+  metro,
+  cities,
+  place,
+  onPick,
+}: {
+  metro: PopularItem[];
+  cities: PopularItem[];
+  place: { kind: "metro" | "district"; slug: string; name: string } | null;
+  onPick: (place: { kind: "metro" | "district"; slug: string; name: string } | null) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-[#f1dde6] p-4" data-block="place-filter">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-slate-800">Где вам удобно</p>
+        {place && (
+          <button type="button" onClick={() => onPick(null)} className="text-xs text-pink-600 hover:text-pink-700">
+            сбросить
+          </button>
+        )}
+      </div>
+
+      {metro.length > 0 && (
+        <>
+          <p className="mt-3 text-xs uppercase tracking-wide text-slate-400">Метро</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {metro.map((item) => (
+              <button
+                key={item.slug}
+                type="button"
+                onClick={() => onPick({ kind: "metro", slug: item.slug, name: item.name })}
+                data-place={`list-metro:${item.slug}`}
+                className={`rounded-lg border px-2 py-1 text-xs transition ${
+                  place?.kind === "metro" && place.slug === item.slug
+                    ? "border-pink-400 bg-pink-50 text-pink-600"
+                    : "border-[#f1dde6] text-slate-600 hover:border-pink-300"
+                }`}
+              >
+                <span
+                  className="mr-1 inline-block h-2 w-2 rounded-full"
+                  style={{ backgroundColor: item.color ?? "#cbd5e1" }}
+                  aria-hidden
+                />
+                {item.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {cities.length > 0 && (
+        <>
+          <p className="mt-3 text-xs uppercase tracking-wide text-slate-400">Ленинградская область</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {cities.map((item) => (
+              <button
+                key={item.slug}
+                type="button"
+                onClick={() => onPick({ kind: "district", slug: item.slug, name: item.name })}
+                data-place={`list-district:${item.slug}`}
+                className={`rounded-lg border px-2 py-1 text-xs transition ${
+                  place?.kind === "district" && place.slug === item.slug
+                    ? "border-pink-400 bg-pink-50 text-pink-600"
+                    : "border-[#f1dde6] text-slate-600 hover:border-pink-300"
+                }`}
+              >
+                {item.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   );
 }

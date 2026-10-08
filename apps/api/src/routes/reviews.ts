@@ -11,12 +11,12 @@
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { bookings, masters, reviews, services } from "../db/schema.js";
-import { requireAuth } from "../lib/auth.js";
-import { notifyStudio } from "../lib/notify.js";
-import { samePhone } from "../lib/phone.js";
+import { ownsBooking, requireAuth } from "../lib/auth.js";
+import { notifyStudio } from "../lib/notifications.js";
+import { normalizePhone } from "../lib/phone.js";
 import { recalcMasterRating } from "../lib/reviews.js";
 import { platformTimezone, toISODate } from "../lib/time.js";
 
@@ -35,7 +35,7 @@ export async function reviewRoutes(app: FastifyInstance) {
     const [booking] = await db.select().from(bookings).where(eq(bookings.id, input.bookingId)).limit(1);
     if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
 
-    if (!samePhone(booking.clientPhone, me.phone) && me.role !== "admin") {
+    if (!ownsBooking(booking, me)) {
       return reply.code(403).send({ error: "forbidden", message: "Это не ваша запись" });
     }
     if (booking.status !== "completed") {
@@ -101,11 +101,23 @@ export async function reviewRoutes(app: FastifyInstance) {
   app.get("/reviews/mine", { preHandler: requireAuth }, async (request) => {
     const me = request.currentUser!;
 
+    // Свои отзывы: по аккаунту (записи, сделанные после входа) и по телефону —
+    // отзывы гостевых заявок с моего номера тоже мои.
+    const phones = me.phone ? [normalizePhone(me.phone)] : [];
+    const ownBookings = await db.select({ id: bookings.id }).from(bookings).where(eq(bookings.userId, me.id));
+    const scope =
+      phones.length > 0 || ownBookings.length > 0
+        ? or(
+            phones.length > 0 ? inArray(reviews.clientPhone, phones) : undefined,
+            ownBookings.length > 0 ? inArray(reviews.bookingId, ownBookings.map((row) => row.id)) : undefined,
+          )
+        : eq(reviews.id, "__none__");
+
     const rows = await db
       .select({ review: reviews, master: masters })
       .from(reviews)
       .innerJoin(masters, eq(reviews.masterId, masters.id))
-      .where(and(eq(reviews.clientPhone, me.phone)))
+      .where(scope)
       .orderBy(desc(reviews.createdAt));
 
     return {

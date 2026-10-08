@@ -13,6 +13,7 @@ import { HomePage } from "./pages/HomePage";
 import { JournalPage } from "./pages/JournalPage";
 import { LastMinutePage } from "./pages/LastMinutePage";
 import { LoginPage } from "./pages/LoginPage";
+import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { AdminLoginPage } from "./pages/AdminLoginPage";
 import { PayPage } from "./pages/PayPage";
@@ -34,6 +35,7 @@ import { PromotionPage } from "./master/pages/PromotionPage";
 import { StatsPage } from "./master/pages/StatsPage";
 import { MessagesPage } from "./master/pages/MessagesPage";
 import { SettingsProPage } from "./master/pages/SettingsProPage";
+import { MediaPage } from "./master/pages/MediaPage";
 
 function NotFoundPage() {
   return (
@@ -79,7 +81,7 @@ function RequireAuth({
           <p className="text-sm uppercase tracking-[0.2em] text-pink-500">NailGo</p>
           <h1 className="mt-3 text-3xl font-semibold text-slate-900">Раздел доступен администратору</h1>
           <p className="mt-2 text-sm">
-            Вы вошли как {user.role === "master" ? "мастер" : "клиент"} ({user.phone}). Модерация отзывов — на
+            Вы вошли как {user.role === "master" ? "мастер" : "клиент"} ({user.phone ?? "без телефона"}). Модерация отзывов — на
             администраторе.
           </p>
           <div className="mt-6 flex justify-center gap-3">
@@ -105,7 +107,7 @@ function RequireAuth({
           <p className="text-sm uppercase tracking-[0.2em] text-pink-500">NailGo</p>
           <h1 className="mt-3 text-3xl font-semibold text-slate-900">Кабинет доступен мастерам</h1>
           <p className="mt-2 text-sm">
-            Вы вошли как клиент ({user.phone}). Чтобы открыть кабинет, войдите по номеру мастера.
+            Вы вошли как клиент ({user.phone ?? "без телефона"}). Чтобы открыть кабинет, войдите как мастер.
           </p>
           <div className="mt-6 flex justify-center gap-3">
             <button
@@ -139,6 +141,8 @@ export default function App() {
             <Route path="/last-minute/:city" element={<LastMinutePage />} />
             <Route path="/journal" element={<JournalPage />} />
             <Route path="/login" element={<LoginPage />} />
+            {/* Сюда возвращает провайдер входа (Яндекс ID, VK ID). */}
+            <Route path="/auth/callback" element={<AuthCallbackPage />} />
             <Route path="/register" element={<RegisterPage />} />
             {/* Отдельный вход администратора: на сайте на него нет ссылок. */}
             <Route path="/admin/login" element={<AdminLoginPage />} />
@@ -169,6 +173,7 @@ export default function App() {
               <Route path="promotion" element={<PromotionPage />} />
               <Route path="stats" element={<StatsPage />} />
               <Route path="messages" element={<MessagesPage />} />
+              <Route path="media" element={<MediaPage />} />
               <Route path="settings" element={<SettingsProPage />} />
             </Route>
             <Route

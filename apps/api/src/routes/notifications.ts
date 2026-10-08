@@ -1,6 +1,7 @@
 /**
  * Уведомления в приложении. Одни и те же ручки обслуживают обе роли:
- * клиент получает уведомления по телефону из своей сессии, мастер — по user_id.
+ * адресат — аккаунт из сессии, а телефон служит дополнительным ключом для
+ * уведомлений, выписанных гостю по номеру из записи.
  */
 import type { FastifyInstance } from "fastify";
 import { and, desc, eq, isNull, or } from "drizzle-orm";
@@ -15,6 +16,16 @@ const readSchema = z.object({
   all: z.boolean().optional(),
 });
 
+/**
+ * Какие уведомления мои: по аккаунту, а если он привязан к телефону —
+ * и по номеру. Иначе клиент, зашедший через мессенджер, не увидел бы ничего.
+ */
+function myNotifications(me: { id: string; phone: string | null }) {
+  return me.phone
+    ? or(eq(notifications.userId, me.id), eq(notifications.phone, normalizePhone(me.phone)))
+    : eq(notifications.userId, me.id);
+}
+
 export async function notificationRoutes(app: FastifyInstance) {
   /** Список уведомлений текущего пользователя: свежие сверху. */
   app.get("/notifications", { preHandler: requireAuth }, async (request) => {
@@ -23,10 +34,7 @@ export async function notificationRoutes(app: FastifyInstance) {
       .object({ limit: z.coerce.number().int().min(1).max(100).default(30) })
       .parse(request.query ?? {});
 
-    const scope =
-      me.role === "master" || me.role === "admin"
-        ? eq(notifications.userId, me.id)
-        : eq(notifications.phone, normalizePhone(me.phone));
+    const scope = myNotifications(me);
 
     const rows = await db
       .select()
@@ -56,10 +64,7 @@ export async function notificationRoutes(app: FastifyInstance) {
     const me = request.currentUser!;
     const { ids, all } = readSchema.parse(request.body ?? {});
 
-    const isMaster = me.role === "master" || me.role === "admin";
-    const scope = isMaster
-      ? eq(notifications.userId, me.id)
-      : eq(notifications.phone, normalizePhone(me.phone));
+    const scope = myNotifications(me);
     const unreadOnly = isNull(notifications.readAt);
 
     if (ids && ids.length > 0) {
@@ -80,8 +85,7 @@ export async function notificationRoutes(app: FastifyInstance) {
   /** Сколько непрочитанных — для счётчика в интерфейсе. */
   app.get("/notifications/count", { preHandler: requireAuth }, async (request) => {
     const me = request.currentUser!;
-    const isMaster = me.role === "master" || me.role === "admin";
-    const scope = isMaster ? eq(notifications.userId, me.id) : eq(notifications.phone, me.phone);
+    const scope = myNotifications(me);
 
     const rows = await db
       .select({ id: notifications.id })

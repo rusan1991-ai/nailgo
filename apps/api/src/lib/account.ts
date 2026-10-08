@@ -1,12 +1,12 @@
 /**
  * Личные данные клиента: профиль, настройки и удаление аккаунта.
  *
- * Клиент в этой системе опознаётся по телефону из сессии — отдельной таблицы
- * «клиенты» нет. Поэтому удаление аккаунта — это не только строка в users:
+ * Клиент опознаётся по аккаунту (`users.id`) — телефон теперь просто контакт
+ * и может быть не заполнен. Удаление аккаунта — это не только строка в users:
  * нужно убрать личные данные из избранного, уведомлений, переписки и записей,
  * но сохранить историю визитов мастера (иначе поедут его деньги и статистика).
  */
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, or } from "drizzle-orm";
 import { db } from "../db/index.js";
 import {
   bookings,
@@ -22,9 +22,9 @@ import { normalizePhone } from "./phone.js";
 
 export type ClientSettings = { notifyBookings: boolean; notifyNews: boolean };
 
-/** Профиль клиента: имя, телефон и настройки уведомлений. */
-export async function clientProfile(phone: string) {
-  const [user] = await db.select().from(users).where(eq(users.phone, normalizePhone(phone))).limit(1);
+/** Профиль клиента: имя, контактный телефон и настройки уведомлений. */
+export async function clientProfile(userId: string) {
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   if (!user) return null;
 
   return {
@@ -38,24 +38,20 @@ export async function clientProfile(phone: string) {
 }
 
 /** Имя клиента: правка из настроек. */
-export async function updateClientName(phone: string, name: string): Promise<string | null> {
-  const [updated] = await db
-    .update(users)
-    .set({ name })
-    .where(eq(users.phone, normalizePhone(phone)))
-    .returning({ name: users.name });
+export async function updateClientName(userId: string, name: string): Promise<string | null> {
+  const [updated] = await db.update(users).set({ name }).where(eq(users.id, userId)).returning({ name: users.name });
   return updated?.name ?? null;
 }
 
 /** Переключатели уведомлений. */
-export async function updateClientSettings(phone: string, patch: Partial<ClientSettings>): Promise<ClientSettings | null> {
+export async function updateClientSettings(userId: string, patch: Partial<ClientSettings>): Promise<ClientSettings | null> {
   const [updated] = await db
     .update(users)
     .set({
       notifyBookings: patch.notifyBookings,
       notifyNews: patch.notifyNews,
     })
-    .where(eq(users.phone, normalizePhone(phone)))
+    .where(eq(users.id, userId))
     .returning({ notifyBookings: users.notifyBookings, notifyNews: users.notifyNews });
 
   return updated ?? null;
@@ -85,12 +81,21 @@ function anonymizedPhone(phone: string): string {
  * - избранное, уведомления, переписка и сессии удаляются полностью;
  * - отзывы остаются: они уже опубликованы и относятся к мастеру, но связь с телефоном рвётся.
  */
-export async function deleteClientAccount(phone: string, now = new Date()): Promise<DeleteAccountResult | null> {
-  const normalized = normalizePhone(phone);
-  const [user] = await db.select().from(users).where(eq(users.phone, normalized)).limit(1);
+export async function deleteClientAccount(userId: string, now = new Date()): Promise<DeleteAccountResult | null> {
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   if (!user) return null;
 
-  const ownBookings = await db.select().from(bookings).where(eq(bookings.clientPhone, normalized));
+  // Записи ищем и по аккаунту, и по телефону: часть заявок сделана до входа,
+  // а часть — вообще без аккаунта (гость записался с этого номера).
+  const normalized = user.phone ? normalizePhone(user.phone) : null;
+  const ownBookings = await db
+    .select()
+    .from(bookings)
+    .where(
+      normalized
+        ? or(eq(bookings.userId, user.id), eq(bookings.clientPhone, normalized))
+        : eq(bookings.userId, user.id),
+    );
 
   const future = ownBookings.filter(
     (booking) => booking.startAt >= now && booking.status !== "cancelled" && booking.status !== "completed",
@@ -102,33 +107,32 @@ export async function deleteClientAccount(phone: string, now = new Date()): Prom
       .where(inArray(bookings.id, future.map((booking) => booking.id)));
   }
 
-  // Обезличиваем все свои записи, включая отменённые: телефон не должен
-  // остаться в истории ни у мастера, ни в статистике.
-  const masked = anonymizedPhone(normalized);
+  // Обезличиваем все свои записи, включая отменённые: ни телефон, ни привязка
+  // к аккаунту не должны остаться в истории у мастера и в статистике.
+  const masked = anonymizedPhone(normalized ?? user.id);
   const anonymized =
     ownBookings.length > 0
       ? await db
           .update(bookings)
-          .set({ clientPhone: masked, clientName: "Удалённый клиент" })
+          .set({ clientPhone: masked, clientName: "Удалённый клиент", userId: null })
           .where(inArray(bookings.id, ownBookings.map((booking) => booking.id)))
           .returning({ id: bookings.id })
       : [];
 
   const removedFavorites = await db
     .delete(favorites)
-    .where(eq(favorites.clientPhone, normalized))
+    .where(normalized ? or(eq(favorites.userId, user.id), eq(favorites.clientPhone, normalized)) : eq(favorites.userId, user.id))
     .returning({ id: favorites.id });
 
   const removedNotifications = await db
     .delete(notifications)
-    .where(eq(notifications.phone, normalized))
+    .where(normalized ? or(eq(notifications.userId, user.id), eq(notifications.phone, normalized)) : eq(notifications.userId, user.id))
     .returning({ id: notifications.id });
 
   // Переписка: сообщения уходят вместе с диалогами (каскад), клиенту больше не ответить.
-  const threads = await db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(eq(conversations.clientPhone, normalized));
+  const threads = normalized
+    ? await db.select({ id: conversations.id }).from(conversations).where(eq(conversations.clientPhone, normalized))
+    : [];
   if (threads.length > 0) {
     await db.delete(messages).where(inArray(messages.conversationId, threads.map((thread) => thread.id)));
     await db.delete(conversations).where(inArray(conversations.id, threads.map((thread) => thread.id)));
@@ -136,7 +140,7 @@ export async function deleteClientAccount(phone: string, now = new Date()): Prom
 
   // Отзывы: они про мастера и уже могут быть опубликованы — оставляем текст,
   // но отвязываем от номера, чтобы личные данные не остались.
-  await db.update(reviews).set({ clientPhone: masked }).where(eq(reviews.clientPhone, normalized));
+  if (normalized) await db.update(reviews).set({ clientPhone: masked }).where(eq(reviews.clientPhone, normalized));
 
   await db.delete(sessions).where(eq(sessions.userId, user.id));
   await db.delete(users).where(eq(users.id, user.id));

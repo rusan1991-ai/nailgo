@@ -14,11 +14,13 @@ import {
 } from "../components/ui";
 import { bookingRows, formatRub, type BookingRow } from "../data";
 import { AppointmentModal } from "../components/AppointmentModal";
+import { ReschedulePanel } from "../../components/ReschedulePanel";
 import {
   cancelBooking,
   completeBooking,
   confirmBooking,
   formatTimeLabel,
+  refresh,
   useBookingsStore,
   useStoreStatus,
   weekdayForDate,
@@ -383,6 +385,16 @@ export function BookingsPage() {
               <dd className="mt-1 text-slate-700">{details.comment || "—"}</dd>
             </div>
           </dl>
+        )}
+        {details && (details.status === "pending" || details.status === "confirmed") && (
+          <ReschedulePanel
+            booking={details}
+            as="master"
+            onDone={() => {
+              setDetails(null);
+              void refresh();
+            }}
+          />
         )}
       </Modal>
     </div>

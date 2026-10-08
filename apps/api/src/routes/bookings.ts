@@ -41,6 +41,58 @@ export class BookingError extends Error {
 }
 
 /**
+ * Проверка слота: рабочий день, часы мастера и анти-овербукинг.
+ *
+ * Общая для создания записи и переноса — правила не должны расходиться.
+ * `excludeBookingId` нужен переносу: запись не должна конфликтовать сама с собой.
+ */
+export async function assertSlotFree(params: {
+  masterId: string;
+  dateISO: string;
+  startMinutes: number;
+  durationMinutes: number;
+  excludeBookingId?: string;
+}): Promise<{ startAt: Date; endAt: Date; dayStart: number; dayEnd: number }> {
+  const day = parseISODate(params.dateISO);
+  if (!day) throw new BookingError(400, "bad_date", "Некорректная дата");
+
+  const schedule = await scheduleForDay(params.masterId, day);
+  if (!schedule.working) throw new BookingError(409, "day_off", "В этот день мастер не принимает");
+
+  const dayStart = schedule.start;
+  const dayEnd = schedule.end;
+
+  if (params.startMinutes < dayStart || params.startMinutes + params.durationMinutes > dayEnd) {
+    throw new BookingError(
+      409,
+      "outside_working_hours",
+      `Мастер принимает с ${Math.floor(dayStart / 60)}:00 до ${Math.floor(dayEnd / 60)}:00`,
+    );
+  }
+
+  const startAt = atMinutes(day, params.startMinutes);
+  const endAt = atMinutes(day, params.startMinutes + params.durationMinutes);
+
+  const [conflict] = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.masterId, params.masterId),
+        ne(bookings.status, "cancelled"),
+        lt(bookings.startAt, endAt),
+        gt(bookings.endAt, startAt),
+        params.excludeBookingId ? ne(bookings.id, params.excludeBookingId) : undefined,
+      ),
+    )
+    .limit(1);
+
+  if (conflict) throw new BookingError(409, "slot_taken", "Это время уже занято, выберите другое");
+
+  return { startAt, endAt, dayStart, dayEnd };
+}
+
+/**
  * Создание записи с проверками: мастер существует, услуга активна, время внутри
  * рабочих часов и не пересекается с другой записью (анти-овербукинг).
  */
@@ -54,42 +106,12 @@ export async function createBooking(
   const [service] = await db.select().from(services).where(eq(services.id, input.serviceId)).limit(1);
   if (!service || !service.active) throw new BookingError(404, "service_not_found", "Услуга не найдена");
 
-  const day = parseISODate(input.dateISO);
-  if (!day) throw new BookingError(400, "bad_date", "Некорректная дата");
-
-  const schedule = await scheduleForDay(master.id, day);
-  if (!schedule.working) {
-    throw new BookingError(409, "day_off", "В этот день мастер не принимает");
-  }
-
-  const dayStart = schedule.start;
-  const dayEnd = schedule.end;
-
-  if (input.startMinutes < dayStart || input.startMinutes + service.durationMinutes > dayEnd) {
-    throw new BookingError(
-      409,
-      "outside_working_hours",
-      `Мастер принимает с ${Math.floor(dayStart / 60)}:00 до ${Math.floor(dayEnd / 60)}:00`,
-    );
-  }
-
-  const startAt = atMinutes(day, input.startMinutes);
-  const endAt = atMinutes(day, input.startMinutes + service.durationMinutes);
-
-  const [conflict] = await db
-    .select({ id: bookings.id })
-    .from(bookings)
-    .where(
-      and(
-        eq(bookings.masterId, master.id),
-        ne(bookings.status, "cancelled"),
-        lt(bookings.startAt, endAt),
-        gt(bookings.endAt, startAt),
-      ),
-    )
-    .limit(1);
-
-  if (conflict) throw new BookingError(409, "slot_taken", "Это время уже занято, выберите другое");
+  const { startAt, endAt } = await assertSlotFree({
+    masterId: master.id,
+    dateISO: input.dateISO,
+    startMinutes: input.startMinutes,
+    durationMinutes: service.durationMinutes,
+  });
 
   const [booking] = await db
     .insert(bookings)
@@ -111,7 +133,58 @@ export async function createBooking(
   return { row: booking!, service, payload: serializeBooking(booking!, master, service) };
 }
 
-async function withRelations(bookingId: string) {
+export const rescheduleSchema = z.object({
+  dateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата в формате YYYY-MM-DD"),
+  startMinutes: z.number().int().min(0).max(24 * 60 - 1),
+});
+
+/**
+ * Перенос записи на другое свободное окно.
+ *
+ * Правила те же, что при создании: рабочий день, часы мастера, анти-овербукинг
+ * (сама запись из проверки исключена). Длительность не меняется, статус тоже:
+ * перенос — это то же соглашение, только на другое время. Обе стороны узнают
+ * о переносе из уведомлений, а мастер видит запись в кабинете на новую дату.
+ */
+export async function rescheduleBooking(
+  booking: typeof bookings.$inferSelect,
+  input: { dateISO: string; startMinutes: number },
+  by: "client" | "master",
+): Promise<typeof bookings.$inferSelect> {
+  if (booking.status === "cancelled") {
+    throw new BookingError(409, "cancelled", "Запись отменена — перенести её нельзя");
+  }
+  if (booking.status === "completed") {
+    throw new BookingError(409, "completed", "Визит уже состоялся");
+  }
+
+  const durationMinutes = Math.round((booking.endAt.getTime() - booking.startAt.getTime()) / 60_000);
+  const { startAt, endAt } = await assertSlotFree({
+    masterId: booking.masterId,
+    dateISO: input.dateISO,
+    startMinutes: input.startMinutes,
+    durationMinutes,
+    excludeBookingId: booking.id,
+  });
+
+  const [updated] = await db
+    .update(bookings)
+    .set({ startAt, endAt })
+    .where(eq(bookings.id, booking.id))
+    .returning();
+
+  const [service] = await db.select().from(services).where(eq(services.id, booking.serviceId)).limit(1);
+  await notifyBookingEvent(
+    updated!,
+    service ?? { name: "Услуга" },
+    by === "client" ? "rescheduled_by_client" : "rescheduled_by_master",
+  );
+
+  return updated!;
+}
+
+/** Запись со связями (мастер, услуга) — общий ответ ручек работы с записью. */
+export async function withRelations(bookingId: string) {
   const [row] = await db
     .select({ booking: bookings, master: masters, service: services })
     .from(bookings)
@@ -182,6 +255,22 @@ export async function bookingRoutes(app: FastifyInstance) {
         };
       }),
     };
+  });
+
+  /** Перенос клиентом: только своя запись и только на свободное окно. */
+  app.post("/bookings/:id/reschedule", { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const me = request.currentUser!;
+    const input = rescheduleSchema.parse(request.body ?? {});
+
+    const [booking] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
+    if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
+    if (!samePhone(booking.clientPhone, me.phone) && me.role !== "admin") {
+      return reply.code(403).send({ error: "forbidden", message: "Это не ваша запись" });
+    }
+
+    await rescheduleBooking(booking, input, "client");
+    return { booking: await withRelations(id) };
   });
 
   /** Отмена клиентом: отменять можно только свои записи (проверка по токену). */

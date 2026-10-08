@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useBookings } from "../bookings/BookingContext";
 import { BookingReviewPanel } from "../components/BookingReviewPanel";
+import { ReschedulePanel } from "../components/ReschedulePanel";
 import { ClientShell } from "../components/ClientShell";
 import { Avatar } from "../components/NailUi";
 import { formatRub } from "../data/mock";
@@ -8,6 +9,7 @@ import { formatRub } from "../data/mock";
 export function AccountPage() {
   const { bookings, cancelBooking, error, reload } = useBookings();
   const [tab, setTab] = useState<"upcoming" | "completed" | "cancelled">("upcoming");
+  const [movingId, setMovingId] = useState<string | null>(null);
 
   const filtered = useMemo(() => bookings.filter((item) => item.status === tab), [bookings, tab]);
 
@@ -62,15 +64,27 @@ export function AccountPage() {
                   <div className="text-right">
                     <p className="font-semibold">{formatRub(booking.price)}</p>
                     {booking.status === "upcoming" && (
-                      <button
-                        onClick={() => void cancelBooking(booking.id)}
-                        className="mt-3 rounded-lg border border-rose-200 px-3 py-1 text-sm text-rose-500 hover:bg-rose-50"
-                      >
-                        Отменить
-                      </button>
+                      <div className="mt-3 flex flex-col items-end gap-2">
+                        <button
+                          onClick={() => setMovingId(movingId === booking.id ? null : booking.id)}
+                          data-action="reschedule-open"
+                          className="rounded-lg border border-[#f1dde6] px-3 py-1 text-sm text-slate-600 hover:bg-[#fdf2f7]"
+                        >
+                          Перенести
+                        </button>
+                        <button
+                          onClick={() => void cancelBooking(booking.id)}
+                          className="rounded-lg border border-rose-200 px-3 py-1 text-sm text-rose-500 hover:bg-rose-50"
+                        >
+                          Отменить
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
+                {movingId === booking.id && booking.status === "upcoming" && (
+                  <ReschedulePanel booking={booking} as="client" onDone={() => void reload()} />
+                )}
                 <BookingReviewPanel booking={booking} onSubmitted={reload} />
               </article>
             ))}

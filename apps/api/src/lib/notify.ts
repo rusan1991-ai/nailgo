@@ -16,6 +16,7 @@ export type NotificationType =
   | "booking_confirmed"
   | "booking_cancelled"
   | "booking_completed"
+  | "booking_rescheduled"
   | "message"
   | "review_created"
   | "review_replied"
@@ -72,7 +73,15 @@ export async function notifyClient(
 export async function notifyBookingEvent(
   booking: BookingRow,
   service: { name: string },
-  event: "created_by_client" | "created_by_master" | "confirmed" | "cancelled_by_client" | "cancelled_by_master" | "completed",
+  event:
+    | "created_by_client"
+    | "created_by_master"
+    | "confirmed"
+    | "cancelled_by_client"
+    | "cancelled_by_master"
+    | "completed"
+    | "rescheduled_by_client"
+    | "rescheduled_by_master",
 ): Promise<void> {
   const when = whenLabel(booking.startAt);
 
@@ -117,6 +126,26 @@ export async function notifyBookingEvent(
       type: "booking_completed",
       title: "Визит завершён",
       body: `${service.name} · ${when}. Спасибо, что пришли!`,
+      bookingId: booking.id,
+    });
+    return;
+  }
+
+  if (event === "rescheduled_by_client") {
+    await notifyStudio(booking.masterId, {
+      type: "booking_rescheduled",
+      title: "Клиент перенёс запись",
+      body: `${booking.clientName} · ${service.name} · новое время: ${when}`,
+      bookingId: booking.id,
+    });
+    return;
+  }
+
+  if (event === "rescheduled_by_master") {
+    await notifyClient(booking.clientPhone, {
+      type: "booking_rescheduled",
+      title: "Мастер перенёс запись",
+      body: `${service.name} · новое время: ${when}`,
       bookingId: booking.id,
     });
     return;

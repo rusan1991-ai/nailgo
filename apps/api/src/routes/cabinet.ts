@@ -7,7 +7,7 @@ import { isDev } from "../env.js";
 import { atMinutes, parseISODate, toISODate } from "../lib/time.js";
 import { serializeBooking } from "../lib/serialize.js";
 import { requireAuth, requireMaster } from "../lib/auth.js";
-import { createBooking, createBookingSchema } from "./bookings.js";
+import { createBooking, createBookingSchema, rescheduleSchema, rescheduleBooking, withRelations } from "./bookings.js";
 import { notifyBookingEvent, notifyClient } from "../lib/notify.js";
 import { recalcMasterRating } from "../lib/reviews.js";
 
@@ -36,6 +36,29 @@ async function currentMaster(slug: string | null) {
   if (!slug) return null;
   const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
   return master ?? null;
+}
+
+/**
+ * Запись для действий мастера: чужую запись нельзя ни подтвердить, ни отменить,
+ * ни перенести — даже зная её id.
+ */
+type MasterBookingResult =
+  | { booking: typeof bookings.$inferSelect }
+  | { reply: { code: number; error: string; message: string } };
+
+async function masterBooking(bookingId: string, masterSlug: string | null): Promise<MasterBookingResult> {
+  const master = await currentMaster(masterSlug);
+  if (!master) {
+    return { reply: { code: 404, error: "not_found", message: "Кабинет не найден" } };
+  }
+  const [booking] = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1);
+  if (!booking) {
+    return { reply: { code: 404, error: "not_found", message: "Запись не найдена" } };
+  }
+  if (booking.masterId !== master.id) {
+    return { reply: { code: 403, error: "forbidden", message: "Это запись другого мастера" } };
+  }
+  return { booking };
 }
 
 export async function cabinetRoutes(app: FastifyInstance) {
@@ -227,8 +250,9 @@ export async function cabinetRoutes(app: FastifyInstance) {
   /** Мастер отменяет запись. */
   app.post("/cabinet/bookings/:id/cancel", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [booking] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
-    if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
+    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
+    const { booking } = found;
 
     await db.update(bookings).set({ status: "cancelled" }).where(eq(bookings.id, id));
     await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "cancelled_by_master");
@@ -238,8 +262,9 @@ export async function cabinetRoutes(app: FastifyInstance) {
   /** Мастер подтверждает запись. */
   app.post("/cabinet/bookings/:id/confirm", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [booking] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
-    if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
+    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
+    const { booking } = found;
 
     await db.update(bookings).set({ status: "confirmed" }).where(eq(bookings.id, id));
     await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "confirmed");
@@ -249,12 +274,25 @@ export async function cabinetRoutes(app: FastifyInstance) {
   /** Мастер завершает визит (услуга оказана). */
   app.post("/cabinet/bookings/:id/complete", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const [booking] = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
-    if (!booking) return reply.code(404).send({ error: "not_found", message: "Запись не найдена" });
+    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
+    const { booking } = found;
 
     await db.update(bookings).set({ status: "completed" }).where(eq(bookings.id, id));
     await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "completed");
     return { ok: true };
+  });
+
+  /** Мастер переносит запись на свободное окно — правила те же, что у клиента. */
+  app.post("/cabinet/bookings/:id/reschedule", masterOnly, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const input = rescheduleSchema.parse(request.body ?? {});
+
+    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
+
+    await rescheduleBooking(found.booking, input, "master");
+    return { booking: await withRelations(id) };
   });
 
   /** Расписание на диапазон дат — для недельной сетки. */

@@ -10,6 +10,13 @@ import { formatDateLabel, formatTimeLabel, parseTimeLabel } from "../store/booki
 
 export type BookingItem = {
   id: string;
+  /** Нужны для переноса записи: окна считаются по мастеру и услуге. */
+  masterSlug: string;
+  serviceId: string;
+  durationMinutes: number;
+  /** «2024-05-22» и минуты от полуночи: нужны для переноса записи. */
+  dateISO: string;
+  startMinutes: number;
   date: string;
   time: string;
   master: string;
@@ -31,7 +38,9 @@ type ApiBooking = {
   id: string;
   masterSlug: string;
   masterName: string;
+  serviceId: string;
   serviceName: string;
+  durationMinutes: number;
   dateISO: string;
   startMinutes: number;
   price: number;
@@ -73,6 +82,11 @@ const BookingContext = createContext<BookingContextValue | undefined>(undefined)
 function toItem(booking: ApiBooking): BookingItem {
   return {
     id: booking.id,
+    masterSlug: booking.masterSlug,
+    serviceId: booking.serviceId,
+    durationMinutes: booking.durationMinutes,
+    dateISO: booking.dateISO,
+    startMinutes: booking.startMinutes,
     date: formatDateLabel(booking.dateISO),
     time: formatTimeLabel(booking.startMinutes),
     master: booking.masterName,

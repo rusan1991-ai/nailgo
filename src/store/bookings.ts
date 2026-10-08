@@ -284,6 +284,35 @@ export async function completeBooking(id: string): Promise<void> {
   await setStatus(id, "complete");
 }
 
+/**
+ * Перенос записи на свободное окно.
+ *
+ * Клиент переносит по своему токену, мастер — через кабинет; правила слота
+ * на сервере одни и те же. Ответ заменяет запись в списке: интерфейс сразу
+ * показывает новую дату и время.
+ */
+async function applyReschedule(
+  id: string,
+  path: string,
+  input: { dateISO: string; startMinutes: number },
+): Promise<Booking> {
+  const response = await api.post<{ booking: ApiBooking }>(path, input);
+  const booking = mapBooking(response.booking);
+  emit({ ...state, bookings: state.bookings.map((item) => (item.id === id ? booking : item)) });
+  return booking;
+}
+
+export async function rescheduleBooking(id: string, input: { dateISO: string; startMinutes: number }): Promise<Booking> {
+  return applyReschedule(id, `/bookings/${id}/reschedule`, input);
+}
+
+export async function rescheduleBookingAsMaster(
+  id: string,
+  input: { dateISO: string; startMinutes: number },
+): Promise<Booking> {
+  return applyReschedule(id, `/cabinet/bookings/${id}/reschedule`, input);
+}
+
 export function exportBookings(): string {
   return JSON.stringify(
     { exportedAt: new Date().toISOString(), source: state.status === "ready" ? "api" : "cache", bookings: state.bookings },

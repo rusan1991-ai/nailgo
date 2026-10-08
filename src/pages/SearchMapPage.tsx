@@ -89,16 +89,20 @@ export function SearchMapPage() {
                     <FavoriteButton masterSlug={master.slug} masterName={master.name} />
                   </div>
                 </div>
-                <div className="mt-2 flex gap-1 text-xs">
-                  {["17:00", "18:30", "20:00"].map((time) => (
+                <div className="mt-2 flex flex-wrap gap-1 text-xs" data-field="windows">
+                  {(master.nextWindows ?? []).map((window) => (
                     <Link
-                      key={time}
-                      to={`/booking?master=${master.slug}&slot=${encodeURIComponent(time)}`}
+                      key={`${window.dateISO}-${window.startMinutes}`}
+                      to={`/booking?master=${master.slug}${window.serviceId ? `&service=${window.serviceId}` : ""}&date=${window.dateISO}&slot=${encodeURIComponent(window.label)}`}
+                      data-window={`${master.slug}:${window.dateISO}:${window.label}`}
                       className="rounded-lg border border-[#f1dde6] px-2 py-1 hover:border-pink-300"
                     >
-                      {time}
+                      {window.label}
                     </Link>
                   ))}
+                  {(master.nextWindows ?? []).length === 0 && (
+                    <span className="text-slate-400">свободных окон нет</span>
+                  )}
                 </div>
               </motion.div>
             ))}

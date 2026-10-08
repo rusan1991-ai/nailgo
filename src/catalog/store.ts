@@ -17,6 +17,15 @@ export type Master = {
   distance: string;
   priceFrom: number;
   experience: string;
+  /** Ближайшие свободные окна мастера (считает сервер) — вместо демо-времени. */
+  nextWindows?: {
+    dateISO: string;
+    startMinutes: number;
+    label: string;
+    durationMinutes: number;
+    serviceId: string | null;
+    serviceName: string | null;
+  }[];
   address?: string;
   /** Город и регион — по ним работает выбор города и карта. */
   city?: string;
@@ -102,7 +111,9 @@ export async function refreshCatalog(): Promise<void> {
     emit({ ...state, status: state.masters.length ? state.status : "loading" });
     try {
       const [masterResponse, serviceResponse] = await Promise.all([
-        api.get<{ items: Array<Omit<Master, "reviewsCount"> & { reviewsCount?: number; reviews?: number }> }>("/masters"),
+        api.get<{ items: Array<Omit<Master, "reviewsCount"> & { reviewsCount?: number; reviews?: number }> }>(
+          "/masters?windows=1",
+        ),
         api.get<{ items: Service[] }>("/services"),
       ]);
       emit({

@@ -113,9 +113,14 @@ export async function notifyFavoritesAboutWindow(params: {
  */
 export async function windowService(
   masterId: string,
-): Promise<{ id: string; name: string; durationMinutes: number } | null> {
+): Promise<{ id: string; name: string; durationMinutes: number; price: number } | null> {
   const [service] = await db
-    .select({ id: services.id, name: services.name, durationMinutes: services.durationMinutes })
+    .select({
+      id: services.id,
+      name: services.name,
+      durationMinutes: services.durationMinutes,
+      price: services.price,
+    })
     .from(services)
     .where(and(eq(services.masterId, masterId), eq(services.active, true)))
     .orderBy(desc(services.durationMinutes))

@@ -6,7 +6,7 @@ import { AppHeader } from "../components/AppHeader";
 import { useCatalog, durationLabel } from "../catalog/store";
 import { api } from "../api/client";
 import { formatRub } from "../data/mock";
-import { demoWeek, formatDateLabel } from "../store/bookings";
+import { formatDateLabel, todayISO, upcomingDays } from "../store/bookings";
 
 type SlotResponse = {
   date: string;
@@ -24,7 +24,7 @@ export function BookingPage() {
 
   const masterSlug = params.get("master") ?? "anna-smirnova";
   const [serviceId, setServiceId] = useState(params.get("service") ?? "");
-  const [dateISO, setDateISO] = useState(params.get("date") ?? demoWeek[0].iso);
+  const [dateISO, setDateISO] = useState(params.get("date") ?? todayISO());
   const [slots, setSlots] = useState<SlotResponse["slots"]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState("");
@@ -162,7 +162,7 @@ export function BookingPage() {
 
             <p className="mt-5 text-xs uppercase tracking-[0.14em] text-slate-400">Дата</p>
             <div className="mt-2 flex flex-wrap gap-2">
-              {demoWeek.map((day) => (
+              {upcomingDays(14).map((day) => (
                 <button
                   key={day.iso}
                   onClick={() => setDateISO(day.iso)}

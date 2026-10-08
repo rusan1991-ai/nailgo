@@ -70,35 +70,53 @@ export function windowLabel(startMinutes: number): string {
 }
 
 /**
- * Ближайшее свободное окно мастера: перебираем дни вперёд.
+ * Свободные окна мастера в ближайшие дни — по возрастанию времени.
  *
- * `fromDateISO` по умолчанию — сегодня по серверным часам; `skipTodayBefore`
+ * `fromDateISO` по умолчанию — сегодня по серверным часам; `skipBeforeMinutes`
  * отсекает окна, которые уже начались (для «горящих» предложений важно,
  * чтобы не показать прошедшее время).
  */
-export async function nextFreeWindow(
+export async function freeWindows(
   masterId: string,
   durationMinutes: number,
-  options: { fromDateISO?: string; days?: number; skipTodayBeforeMinutes?: number } = {},
-): Promise<FreeWindow | null> {
+  options: { fromDateISO?: string; days?: number; skipBeforeMinutes?: number; max?: number } = {},
+): Promise<FreeWindow[]> {
   const days = options.days ?? 14;
+  const max = options.max ?? 3;
   const todayISO = options.fromDateISO ?? toISODate(new Date());
   const start = parseISODate(todayISO);
-  if (!start) return null;
+  if (!start) return [];
 
-  const skipBefore = options.skipTodayBeforeMinutes ?? 0;
+  const skipBefore = options.skipBeforeMinutes ?? 0;
+  const found: FreeWindow[] = [];
 
-  for (let offset = 0; offset < days; offset += 1) {
+  for (let offset = 0; offset < days && found.length < max; offset += 1) {
     const day = new Date(start.getTime() + offset * 24 * 60 * 60 * 1000);
     const dateISO = toISODate(day);
     const daySlots = await freeSlotsForDay(masterId, dateISO, durationMinutes);
     if (!daySlots?.working) continue;
 
-    const [first] = daySlots.slots.filter((minute) => offset > 0 || minute >= skipBefore);
-    if (first === undefined) continue;
-
-    return { dateISO, startMinutes: first, label: windowLabel(first) };
+    for (const minute of daySlots.slots) {
+      if (offset === 0 && minute < skipBefore) continue;
+      found.push({ dateISO, startMinutes: minute, label: windowLabel(minute) });
+      if (found.length >= max) break;
+    }
   }
 
-  return null;
+  return found;
+}
+
+/** Ближайшее свободное окно — частный случай списка (для избранного). */
+export async function nextFreeWindow(
+  masterId: string,
+  durationMinutes: number,
+  options: { fromDateISO?: string; days?: number; skipTodayBeforeMinutes?: number } = {},
+): Promise<FreeWindow | null> {
+  const [first] = await freeWindows(masterId, durationMinutes, {
+    fromDateISO: options.fromDateISO,
+    days: options.days,
+    skipBeforeMinutes: options.skipTodayBeforeMinutes,
+    max: 1,
+  });
+  return first ?? null;
 }

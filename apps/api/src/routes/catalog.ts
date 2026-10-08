@@ -5,14 +5,25 @@ import { db } from "../db/index.js";
 import { masters, reviews, services, workingHours, bookings } from "../db/schema.js";
 import { env } from "../env.js";
 import { scheduleForDay } from "../lib/schedule.js";
-import { parseISODate, toISODate } from "../lib/time.js";
-import { freeSlotsForDay, windowLabel } from "../lib/slots.js";
+import { minutesOfDay, parseISODate, toISODate } from "../lib/time.js";
+import { freeSlotsForDay, freeWindows, windowLabel } from "../lib/slots.js";
+import { collectWindows } from "../lib/lastMinute.js";
+import { windowService } from "../lib/favorites.js";
 
 const listQuery = z.object({
   query: z.string().trim().optional(),
   service: z.string().trim().optional(),
   /** Регион выбора на входе: «Санкт-Петербург» или «Ленинградская область». */
   region: z.string().trim().optional(),
+  /** `windows=1` — посчитать ближайшие свободные окна для карточек. */
+  windows: z.string().trim().optional(),
+});
+
+const lastMinuteQuery = z.object({
+  region: z.string().trim().optional(),
+  days: z.coerce.number().int().min(1).max(14).default(3),
+  limit: z.coerce.number().int().min(1).max(60).default(12),
+  perMaster: z.coerce.number().int().min(1).max(6).default(2),
 });
 
 const slotsQuery = z.object({
@@ -23,14 +34,12 @@ const slotsQuery = z.object({
 export async function catalogRoutes(app: FastifyInstance) {
   /** Каталог мастеров с поиском по имени, тегам и метро. */
   app.get("/masters", async (request) => {
-    const { query, service, region } = listQuery.parse(request.query ?? {});
+    const { query, service, region, windows } = listQuery.parse(request.query ?? {});
     const needle = query?.toLowerCase();
     const serviceNeedle = service?.toLowerCase();
 
     const rows = await db.select().from(masters).orderBy(desc(masters.rating));
-
-    return {
-      items: rows
+    const filtered = rows
         .filter((master) => {
           if (needle) {
             const haystack = `${master.name} ${master.tags} ${master.metro}`.toLowerCase();
@@ -39,25 +48,55 @@ export async function catalogRoutes(app: FastifyInstance) {
           if (serviceNeedle && !master.tags.toLowerCase().includes(serviceNeedle)) return false;
           if (region && region !== "all" && master.region !== region) return false;
           return true;
-        })
-        .map((master) => ({
-          slug: master.slug,
-          name: master.name,
-          tags: master.tags,
-          about: master.about,
-          metro: master.metro,
-          distance: master.distance,
-          address: master.address,
-          city: master.city,
-          region: master.region,
-          lat: master.lat,
-          lng: master.lng,
-          priceFrom: master.priceFrom,
-          experience: master.experience,
-          rating: master.rating,
-          reviewsCount: master.reviewsCount,
+        });
+
+    // Окна нужны карточкам поиска и карточке мастера: показываем настоящие
+    // свободные слоты вместо демо-времени. Считаем только по запросу, чтобы
+    // каталог для главной не платил за лишние расчёты.
+    const withWindows = windows === "1";
+    const items = [];
+    for (const master of filtered) {
+      const base = {
+        slug: master.slug,
+        name: master.name,
+        tags: master.tags,
+        about: master.about,
+        metro: master.metro,
+        distance: master.distance,
+        address: master.address,
+        city: master.city,
+        region: master.region,
+        lat: master.lat,
+        lng: master.lng,
+        priceFrom: master.priceFrom,
+        experience: master.experience,
+        rating: master.rating,
+        reviewsCount: master.reviewsCount,
+      };
+
+      if (!withWindows) {
+        items.push({ ...base, nextWindows: [] });
+        continue;
+      }
+
+      const service = await windowService(master.id);
+      const found = service
+        ? await freeWindows(master.id, service.durationMinutes, { days: 7, max: 4 })
+        : [];
+      items.push({
+        ...base,
+        nextWindows: found.map((window) => ({
+          dateISO: window.dateISO,
+          startMinutes: window.startMinutes,
+          label: window.label,
+          durationMinutes: service?.durationMinutes ?? 60,
+          serviceId: service?.id ?? null,
+          serviceName: service?.name ?? null,
         })),
-    };
+      });
+    }
+
+    return { items };
   });
 
   /**
@@ -244,6 +283,73 @@ export async function catalogRoutes(app: FastifyInstance) {
         durationMinutes: service.durationMinutes,
         price: service.price,
       })),
+    };
+  });
+
+  /**
+   * Горящие окна: ближайшие свободные окна мастеров на несколько дней вперёд.
+   *
+   * Витрина `/last-minute` берёт данные отсюда — все предложения реальные,
+   * их можно занять прямо из карточки.
+   */
+  app.get("/last-minute", async (request) => {
+    const { region, days, limit, perMaster } = lastMinuteQuery.parse(request.query ?? {});
+
+    const rows = (await db.select().from(masters))
+      .filter((master) => !region || region === "all" || master.region === region)
+      .sort((a, b) => b.rating - a.rating);
+
+    const withServices = [];
+    for (const master of rows) {
+      const service = await windowService(master.id);
+      if (service) withServices.push({ master, service });
+    }
+
+    const collected = await collectWindows({
+      masterIds: withServices.map((row) => ({ id: row.master.id, durationMinutes: row.service.durationMinutes })),
+      days,
+      perMaster,
+      limit,
+      skipBeforeMinutes: minutesOfDay(new Date()),
+    });
+
+    const byId = new Map(withServices.map((row) => [row.master.id, row]));
+    const offers = collected
+      .flatMap((group) =>
+        group.windows.map((window) => {
+          const row = byId.get(group.masterId)!;
+          return {
+            masterSlug: row.master.slug,
+            masterName: row.master.name,
+            city: row.master.city,
+            region: row.master.region,
+            metro: row.master.metro,
+            address: row.master.address,
+            distance: row.master.distance,
+            rating: row.master.rating,
+            reviewsCount: row.master.reviewsCount,
+            priceFrom: row.master.priceFrom,
+            serviceId: row.service.id,
+            serviceName: row.service.name,
+            durationMinutes: row.service.durationMinutes,
+            price: row.service.price,
+            dateISO: window.dateISO,
+            dateLabel: window.dateLabel,
+            startMinutes: window.startMinutes,
+            timeLabel: window.label,
+          };
+        }),
+      )
+      .sort((a, b) =>
+        a.dateISO === b.dateISO ? a.startMinutes - b.startMinutes : a.dateISO < b.dateISO ? -1 : 1,
+      )
+      .slice(0, limit);
+
+    return {
+      items: offers,
+      count: offers.length,
+      days,
+      today: toISODate(new Date()),
     };
   });
 

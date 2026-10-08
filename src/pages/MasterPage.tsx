@@ -5,10 +5,21 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AppHeader } from "../components/AppHeader";
 import { Avatar, NailStrip } from "../components/NailUi";
-import { formatRub, slots } from "../data/mock";
+import { formatRub } from "../data/mock";
 import { useCatalog, durationLabel } from "../catalog/store";
-import { demoWeek } from "../store/bookings";
+import { formatDateLabel } from "../store/bookings";
 import { openThread } from "../api/messages";
+
+/** «Сегодня» / «Завтра» / «13 окт» — подпись дня у окна. */
+function windowLabel(dateISO: string): string {
+  const today = new Date();
+  const iso = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  if (dateISO === iso(today)) return "Сегодня";
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  if (dateISO === iso(tomorrow)) return "Завтра";
+  return formatDateLabel(dateISO);
+}
 
 export function MasterPage() {
   const { user } = useAuth();
@@ -29,7 +40,13 @@ export function MasterPage() {
     const target = `/booking?master=${master?.slug ?? "anna-smirnova"}&${query}`;
     return user ? target : `/login?returnTo=${encodeURIComponent(target)}`;
   };
-  const bookingLink = bookingLinkFor(`service=${defaultServiceId}&date=${demoWeek[0].iso}&slot=19:00`);
+  /** Окна считает сервер вместе с каталогом: демо-времени здесь больше нет. */
+  const nextWindows = master?.nextWindows ?? [];
+  const bookingLink = nextWindows[0]
+    ? bookingLinkFor(
+        `service=${nextWindows[0].serviceId ?? defaultServiceId}&date=${nextWindows[0].dateISO}&slot=${encodeURIComponent(nextWindows[0].label)}`,
+      )
+    : bookingLinkFor(`service=${defaultServiceId}`);
 
   // Каталог приезжает из API — пока его нет, показываем заглушку вместо падения.
   if (!master) {
@@ -91,7 +108,11 @@ export function MasterPage() {
                   </div>
                   <p className="font-semibold">{formatRub(service.price)}</p>
                   <Link
-                    to={bookingLinkFor(`service=${service.id}&date=${demoWeek[0].iso}`)}
+                    to={bookingLinkFor(
+                      nextWindows[0]
+                        ? `service=${service.id}&date=${nextWindows[0].dateISO}&slot=${encodeURIComponent(nextWindows[0].label)}`
+                        : `service=${service.id}`,
+                    )}
                     className="rounded-lg border border-pink-200 px-3 py-1 text-sm text-pink-600 hover:bg-pink-50"
                   >
                     Записаться
@@ -107,29 +128,28 @@ export function MasterPage() {
             className="rounded-2xl border border-[#f1dce6] bg-white p-4 shadow-sm"
           >
             <p className="text-lg font-semibold">Свободные окна</p>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-              {demoWeek.slice(0, 2).map((day, idx) => (
+            {nextWindows.length === 0 && (
+              <p className="mt-3 text-sm text-slate-500">
+                Пока нет свободных окон — загляните позже или напишите мастеру.
+              </p>
+            )}
+            <div className="mt-3 space-y-2" data-field="next-windows">
+              {nextWindows.map((window, idx) => (
                 <Link
-                  key={day.iso}
-                  to={bookingLinkFor(`service=${defaultServiceId}&date=${day.iso}`)}
-                  className={`rounded-lg border px-3 py-2 text-center ${
-                    idx === 0 ? "border-pink-500 bg-pink-50 text-pink-600" : "border-[#f1dde6]"
+                  key={`${window.dateISO}-${window.startMinutes}`}
+                  to={bookingLinkFor(
+                    `service=${window.serviceId ?? defaultServiceId}&date=${window.dateISO}&slot=${encodeURIComponent(window.label)}`,
+                  )}
+                  data-window={`${window.dateISO}:${window.label}`}
+                  className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${
+                    idx === 0 ? "border-pink-500 bg-pink-50 text-pink-600" : "border-[#f1dde6] hover:border-pink-300"
                   }`}
                 >
-                  {idx === 0 ? "Сегодня" : "Завтра"}, {day.label}
-                </Link>
-              ))}
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {slots.map((slot, idx) => (
-                <Link
-                  key={slot}
-                  to={bookingLinkFor(`service=${defaultServiceId}&date=${demoWeek[0].iso}&slot=${slot}`)}
-                  className={`rounded-lg border px-3 py-2 text-center text-sm font-medium ${
-                    idx === 1 ? "border-pink-500 bg-pink-500 text-white" : "border-[#f1dde6]"
-                  }`}
-                >
-                  {slot}
+                  <span className="font-medium">{window.label}</span>
+                  <span className="text-slate-500">
+                    {windowLabel(window.dateISO)}
+                    {window.serviceName ? ` · ${window.serviceName}` : ""}
+                  </span>
                 </Link>
               ))}
             </div>

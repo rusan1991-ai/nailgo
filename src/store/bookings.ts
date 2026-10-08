@@ -69,6 +69,30 @@ export const demoWeek = [
 ];
 
 export const demoWeekStartISO = "2024-05-20";
+
+/**
+ * Настоящие ближайшие дни для записи клиента.
+ *
+ * Демо-неделя (20–26 мая 2024) остаётся для кабинета: на ней лежат демо-данные.
+ * Карточка записи должна показывать живые даты, иначе клиент выбирает прошлое.
+ */
+export function upcomingDays(count = 14, from = new Date()): { iso: string; label: string; weekday: string }[] {
+  const weekdays = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+  const months = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+
+  return Array.from({ length: count }, (_, offset) => {
+    const day = new Date(from.getFullYear(), from.getMonth(), from.getDate() + offset);
+    const iso = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+    const label =
+      offset === 0 ? "Сегодня" : offset === 1 ? "Завтра" : `${day.getDate()} ${months[day.getMonth()]}`;
+    return { iso, label, weekday: weekdays[day.getDay()] ?? "" };
+  });
+}
+
+/** Сегодняшняя дата в ISO — стартовое значение формы записи. */
+export function todayISO(from = new Date()): string {
+  return upcomingDays(1, from)[0].iso;
+}
 export const cabinetOwnerSlug = "anna-smirnova";
 
 /* ------------------------------- утилиты -------------------------------- */

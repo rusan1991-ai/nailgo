@@ -22,8 +22,14 @@ export function isMaster(user: AuthUser | null): boolean {
   return user?.role === "master" || user?.role === "admin";
 }
 
-/** Кем человек вошёл: выбор на экране входа, нужен для регистрации. */
-export type LoginRole = "client" | "master";
+/**
+ * Кем человек входит или регистрируется: выбор на экране.
+ * `admin` — только вход в отдельной форме админки, регистрации нет.
+ */
+export type LoginRole = "client" | "master" | "admin";
+
+/** Что делает экран: вход в существующий аккаунт или создание нового. */
+export type AuthMode = "login" | "register";
 
 /**
  * Куда ведём после входа: у каждой роли свой кабинет.
@@ -62,7 +68,16 @@ type AuthContextValue = {
   pending: boolean;
   error: string | null;
   requestCode: (phone: string) => Promise<RequestCodeResult>;
-  verifyCode: (input: { phone: string; code: string; name?: string; role?: LoginRole }) => Promise<AuthUser>;
+  verifyCode: (input: {
+    phone: string;
+    code: string;
+    name?: string;
+    role?: LoginRole;
+    /** `login` — вход (номер должен существовать), `register` — создание аккаунта. */
+    mode?: AuthMode;
+  }) => Promise<AuthUser>;
+  /** Обновить данные пользователя в сессии (например, после правки имени). */
+  updateUser: (patch: Partial<AuthUser>) => void;
   signOut: () => void;
 };
 
@@ -180,7 +195,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setPending(false);
         }
       },
-      verifyCode: async ({ phone, code, name, role }) => {
+      verifyCode: async ({ phone, code, name, role, mode = "login" }) => {
         setPending(true);
         setError(null);
         try {
@@ -189,6 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             code,
             name,
             role,
+            mode,
           });
           // Храним оба токена: access — для запросов, refresh — чтобы продлить сессию.
           persist({
@@ -204,6 +220,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } finally {
           setPending(false);
         }
+      },
+      // Имя меняется в настройках — обновляем и сессию, и localStorage,
+      // иначе шапка и профиль показывали бы старое имя до перезахода.
+      updateUser: (patch) => {
+        const current = readSession();
+        if (!current) return;
+        persist({ ...current, user: { ...current.user, ...patch } });
       },
       signOut: () => {
         // Просим сервер забыть refresh-токен: после выхода продлить сессию

@@ -7,7 +7,7 @@
  * в приложении. Ограничение: не чаще одного такого уведомления на клиента
  * за `WINDOW_COOLDOWN_HOURS`, иначе отмены сыпали бы спамом.
  */
-import { and, desc, eq, gt, ne } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { bookings, favorites, masters, notifications, services } from "../db/schema.js";
 import { notifyClient } from "./notify.js";
@@ -65,7 +65,8 @@ export async function notifyFavoritesAboutWindow(params: {
   for (const phone of phones) {
     if (actor && phone === actor) continue;
 
-    // Занятому клиенту предлагать нечего: у него уже есть действующая запись к мастеру.
+    // Занятому клиенту предлагать нечего: у него уже есть предстоящий визит
+    // к этому мастеру. Прошедшие и завершённые визиты предложение не отменяют.
     const [alreadyBooked] = await db
       .select({ id: bookings.id })
       .from(bookings)
@@ -73,7 +74,8 @@ export async function notifyFavoritesAboutWindow(params: {
         and(
           eq(bookings.masterId, params.masterId),
           eq(bookings.clientPhone, phone),
-          ne(bookings.status, "cancelled"),
+          inArray(bookings.status, ["pending", "confirmed"]),
+          gte(bookings.startAt, new Date()),
         ),
       )
       .limit(1);

@@ -47,7 +47,7 @@ export function AdminLayout() {
               type="button"
               onClick={() => {
                 signOut();
-                navigate("/login", { replace: true });
+                navigate("/admin/login", { replace: true });
               }}
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-slate-600 hover:bg-slate-50"
             >

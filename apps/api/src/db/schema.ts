@@ -18,6 +18,15 @@ export const users = pgTable("users", {
   phone: text("phone").notNull().unique(),
   name: text("name").notNull(),
   role: text("role").notNull().default("client"), // client | master | admin
+  /**
+   * Настройки уведомлений клиента.
+   *
+   * `notifyBookings` — события записи (создание, подтверждение, отмена, отзывы),
+   * `notifyNews` — предложения вроде «у избранного мастера освободилось окно».
+   * Выключенный переключатель действительно замолкает: проверка стоит в notifyClient.
+   */
+  notifyBookings: boolean("notify_bookings").notNull().default(true),
+  notifyNews: boolean("notify_news").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

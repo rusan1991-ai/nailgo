@@ -55,7 +55,7 @@ export function AppHeader() {
           onClick={onAuthClick}
           className="rounded-xl border border-pink-200 px-5 py-2 text-sm font-medium text-pink-600 transition hover:bg-pink-50"
         >
-          {user ? "Выйти" : "Войти / Регистрация"}
+          {user ? "Выйти" : "Войти"}
         </button>
       </div>
     </header>

@@ -7,7 +7,7 @@
  */
 import { eq } from "drizzle-orm";
 import { db, schema } from "../db/index.js";
-import { masters, notifications } from "../db/schema.js";
+import { masters, notifications, users } from "../db/schema.js";
 import { formatMinutes, toISODate } from "./time.js";
 import { normalizePhone } from "./phone.js";
 
@@ -54,14 +54,29 @@ export async function notifyStudio(
   });
 }
 
-/** Уведомление клиенту: адресат — телефон из записи. */
+/**
+ * Уведомление клиенту: адресат — телефон из записи.
+ *
+ * Перед вставкой спрашиваем настройки клиента: «Акции и новости» выключают
+ * предложения вроде освободившегося окна, «Уведомления о записи» — события
+ * визита. Так переключатели в настройках действительно что-то меняют.
+ */
 export async function notifyClient(
   phone: string,
   input: { type: NotificationType; title: string; body: string; bookingId?: string },
 ): Promise<void> {
+  const normalized = normalizePhone(phone);
+  const [user] = await db.select().from(users).where(eq(users.phone, normalized)).limit(1);
+
+  if (user) {
+    const isBookingEvent = input.type !== "favorite_slot";
+    if (isBookingEvent && !user.notifyBookings) return;
+    if (!isBookingEvent && !user.notifyNews) return;
+  }
+
   await db.insert(notifications).values({
     audience: "client",
-    phone: normalizePhone(phone),
+    phone: normalized,
     type: input.type,
     title: input.title,
     body: input.body,

@@ -11,6 +11,8 @@ import { HomePage } from "./pages/HomePage";
 import { JournalPage } from "./pages/JournalPage";
 import { LastMinutePage } from "./pages/LastMinutePage";
 import { LoginPage } from "./pages/LoginPage";
+import { RegisterPage } from "./pages/RegisterPage";
+import { AdminLoginPage } from "./pages/AdminLoginPage";
 import { MasterPage } from "./pages/MasterPage";
 import { MessagesClientPage } from "./pages/MessagesClientPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
@@ -62,7 +64,9 @@ function RequireAuth({
 
   if (!user) {
     const returnTo = `${location.pathname}${location.search}`;
-    return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
+    // Админские разделы ведут на свою форму входа, остальное — на общий вход.
+    const target = adminOnly ? "/admin/login" : "/login";
+    return <Navigate to={`${target}?returnTo=${encodeURIComponent(returnTo)}`} replace />;
   }
 
   if (adminOnly && user.role !== "admin") {
@@ -132,6 +136,9 @@ export default function App() {
             <Route path="/last-minute/:city" element={<LastMinutePage />} />
             <Route path="/journal" element={<JournalPage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            {/* Отдельный вход администратора: на сайте на него нет ссылок. */}
+            <Route path="/admin/login" element={<AdminLoginPage />} />
             <Route path="/master/:slug" element={<MasterPage />} />
             <Route
               path="/booking"

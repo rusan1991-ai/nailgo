@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext";
 import { useBookings } from "../bookings/BookingContext";
 import { BookingReviewPanel } from "../components/BookingReviewPanel";
 import { ReschedulePanel } from "../components/ReschedulePanel";
@@ -8,6 +10,7 @@ import { formatRub } from "../data/mock";
 
 export function AccountPage() {
   const { bookings, cancelBooking, error, reload } = useBookings();
+  const { user } = useAuth();
   const [tab, setTab] = useState<"upcoming" | "completed" | "cancelled">("upcoming");
   const [movingId, setMovingId] = useState<string | null>(null);
 
@@ -94,11 +97,21 @@ export function AccountPage() {
         <aside className="rounded-2xl border border-[#f1dde6] p-4">
           <div className="flex items-center gap-3">
             <Avatar className="h-14 w-14" />
-            <div>
-              <p className="font-semibold">Мария Петрова</p>
-              <p className="text-sm text-slate-500">maria@example.com</p>
+            <div className="min-w-0">
+              <p className="truncate font-semibold" data-field="client-name">
+                {user?.name ?? "Гость"}
+              </p>
+              <p className="truncate text-sm text-slate-500" data-field="client-phone">
+                {user?.phone ?? "нет входа"}
+              </p>
             </div>
           </div>
+          <Link
+            to="/settings"
+            className="mt-3 inline-block rounded-lg border border-[#f1dde6] px-3 py-1.5 text-sm text-slate-600 hover:border-pink-300"
+          >
+            Изменить имя и настройки
+          </Link>
           <div className="mt-4 space-y-2 text-sm text-slate-600">
             <p>Записей: {bookings.length}</p>
             <p>Завершённых визитов: {bookings.filter((item) => item.status === "completed").length}</p>

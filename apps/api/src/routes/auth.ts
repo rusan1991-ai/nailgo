@@ -132,14 +132,24 @@ export async function authRoutes(app: FastifyInstance) {
 
   /** Проверка кода: при первом входе создаём пользователя, выдаём токены. */
   app.post("/auth/verify-otp", async (request, reply) => {
-    const { phone, code, name, role: requestedRole } = z
+    const { phone, code, name, role: requestedRole, mode } = z
       .object({
         phone: phoneSchema,
         code: z.string().trim().regex(/^\d{4}$/, "Код из 4 цифр"),
         name: z.string().trim().min(2).max(80).optional(),
-        // Кем человек входит: выбор на экране входа. Для нового номера это роль
-        // регистрации, для существующего — только пожелание (свою роль не теряет).
-        role: z.enum(["client", "master"]).optional(),
+        /**
+         * Кем человек входит или регистрируется: на экранах входа и регистрации
+         * это отдельный выбор («клиент» или «мастер»). `admin` — только вход
+         * в админку: регистрации администраторов нет.
+         */
+        role: z.enum(["client", "master", "admin"]).optional(),
+        /**
+         * Что делает клиент: `login` — вход в свой кабинет, `register` — создание
+         * аккаунта, `auto` — прежнее поведение (нет аккаунта — создать).
+         * Разделение нужно, чтобы формы не подменяли друг друга: вход по
+         * незарегистрированному номеру не должен молча регистрировать.
+         */
+        mode: z.enum(["login", "register", "auto"]).default("auto"),
       })
       .parse(request.body ?? {});
 
@@ -159,23 +169,68 @@ export async function authRoutes(app: FastifyInstance) {
     await db.update(otpCodes).set({ consumed: true }).where(eq(otpCodes.id, otp.id));
 
     const [existing] = await db.select().from(users).where(eq(users.phone, phone)).limit(1);
+
+    // Регистрация: админов не создаём, занятый номер не перезаписываем.
+    if (mode === "register") {
+      if (requestedRole === "admin") {
+        return reply
+          .code(400)
+          .send({ error: "admin_registration_disabled", message: "Регистрация администраторов недоступна" });
+      }
+      if (existing) {
+        return reply
+          .code(409)
+          .send({ error: "already_registered", message: "Этот номер уже зарегистрирован — войдите в аккаунт" });
+      }
+    }
+
+    // Вход: номер должен быть зарегистрирован, а роль — совпадать с выбранным
+    // кабинетом. Иначе человека ждал бы чужой кабинет или пустой экран.
+    if (mode === "login") {
+      if (!existing) {
+        return reply
+          .code(404)
+          .send({ error: "not_registered", message: "Номер не зарегистрирован — создайте аккаунт" });
+      }
+      if (requestedRole === "admin" && existing.role !== "admin") {
+        return reply.code(403).send({ error: "forbidden", message: "Нет доступа к админке" });
+      }
+      if (requestedRole === "master" && existing.role === "client") {
+        return reply.code(403).send({
+          error: "role_mismatch",
+          message: "Это клиентский аккаунт. Войдите как клиент или зарегистрируйте кабинет мастера",
+        });
+      }
+      if (requestedRole === "client" && existing.role === "master") {
+        return reply.code(403).send({
+          error: "role_mismatch",
+          message: "Это аккаунт мастера. Войдите через кабинет мастера",
+        });
+      }
+    }
+
     let user = existing
-      ? (await db.update(users).set({ name: name ?? existing.name }).where(eq(users.id, existing.id)).returning())[0]!
+      ? (await db
+          .update(users)
+          .set({ name: mode === "login" ? (name ?? existing.name) : (name ?? existing.name) })
+          .where(eq(users.id, existing.id))
+          .returning())[0]!
       : (
           await db
             .insert(users)
             .values({
               phone,
               name: name ?? (requestedRole === "master" ? "Мастер NailGo" : "Клиент NailGo"),
-              role: requestedRole ?? "client",
+              role: requestedRole === "admin" ? "client" : (requestedRole ?? "client"),
             })
             .returning()
         )[0]!;
 
-    // Клиент, который выбрал «я мастер», получает кабинет: роль поднимаем,
-    // профиль мастера создаём. Понижать роль мастера клиентским входом нельзя —
-    // иначе кабинет с записями и услугами остался бы без владельца.
-    if (requestedRole === "master" && user.role === "client") {
+    // Прежний контракт (`mode: auto`, без разделения экранов): клиент, выбравший
+    // «я мастер», получает кабинет. При явном входе роль не меняется — иначе
+    // человек незаметно для себя стал бы мастером. Понижать роль мастера нельзя
+    // в любом случае: у кабинета есть записи и услуги.
+    if (mode === "auto" && requestedRole === "master" && user.role === "client") {
       user = (await db.update(users).set({ role: "master" }).where(eq(users.id, user.id)).returning())[0]!;
     }
     if (user.role === "master") {

@@ -71,6 +71,13 @@
       "when": 1791441709410,
       "tag": "0009_stale_gorgon",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791442973754,
+      "tag": "0010_real_solo",
+      "breakpoints": true
     }
   ]
 }

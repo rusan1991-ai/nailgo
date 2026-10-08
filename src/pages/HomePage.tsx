@@ -1,3 +1,4 @@
+import { FavoriteButton } from "../components/FavoriteButton";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
@@ -114,6 +115,7 @@ export function HomePage() {
                         <span className="font-medium text-yellow-500">★ {master.rating}</span> ({master.reviewsCount} отзывов)
                       </p>
                     </div>
+                    <FavoriteButton masterSlug={master.slug} masterName={master.name} />
                   </div>
                   <div className="mt-3 flex items-center justify-between">
                     <NailStrip />

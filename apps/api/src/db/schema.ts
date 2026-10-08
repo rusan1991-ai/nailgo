@@ -222,6 +222,27 @@ export const notifications = pgTable(
   ],
 );
 
+/**
+ * Избранное: клиент отмечает мастера, чтобы записаться позже и получить
+ * уведомление, когда у него освободится окно. Одна пара «клиент — мастер»
+ * (телефон из сессии клиента), повторное добавление не создаёт дубль.
+ */
+export const favorites = pgTable(
+  "favorites",
+  {
+    id: id(),
+    clientPhone: text("client_phone").notNull(),
+    masterId: text("master_id")
+      .notNull()
+      .references(() => masters.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("favorites_client_master").on(table.clientPhone, table.masterId),
+    index("favorites_master").on(table.masterId),
+  ],
+);
+
 export const otpCodes = pgTable(
   "otp_codes",
   {
@@ -235,6 +256,7 @@ export const otpCodes = pgTable(
   (table) => [index("otp_phone").on(table.phone)],
 );
 
+export type Favorite = typeof favorites.$inferSelect;
 export type Master = typeof masters.$inferSelect;
 export type Service = typeof services.$inferSelect;
 export type Booking = typeof bookings.$inferSelect;

@@ -5,10 +5,11 @@ import { db } from "../db/index.js";
 import { bookings, masters, reviews, services } from "../db/schema.js";
 import { requireAuth } from "../lib/auth.js";
 import { notifyBookingEvent } from "../lib/notify.js";
+import { notifyFavoritesAboutWindow } from "../lib/favorites.js";
 import { env } from "../env.js";
 import { scheduleForDay } from "../lib/schedule.js";
 import { normalizePhone, samePhone } from "../lib/phone.js";
-import { atMinutes, parseISODate, weekdayIndex } from "../lib/time.js";
+import { atMinutes, minutesOfDay, parseISODate, toISODate, weekdayIndex } from "../lib/time.js";
 import { serializeBooking } from "../lib/serialize.js";
 
 export const createBookingSchema = z.object({
@@ -182,6 +183,18 @@ export async function rescheduleBooking(
     by === "client" ? "rescheduled_by_client" : "rescheduled_by_master",
   );
 
+  // Старое время освободилось — у избранных клиентов появился шанс записаться.
+  // Того, кто перенёс, не уведомляем: он про своё окно знает.
+  const freedISO = toISODate(booking.startAt);
+  if (freedISO !== input.dateISO || minutesOfDay(booking.startAt) !== input.startMinutes) {
+    await notifyFavoritesAboutWindow({
+      masterId: booking.masterId,
+      dateISO: freedISO,
+      startMinutes: minutesOfDay(booking.startAt),
+      excludePhone: booking.clientPhone,
+    });
+  }
+
   return updated!;
 }
 
@@ -290,6 +303,15 @@ export async function bookingRoutes(app: FastifyInstance) {
     await db.update(bookings).set({ status: "cancelled" }).where(eq(bookings.id, id));
     const [service] = await db.select().from(services).where(eq(services.id, booking.serviceId)).limit(1);
     await notifyBookingEvent(booking, service ?? { name: "Услуга" }, "cancelled_by_client");
+
+    // Освободившееся окно предлагаем тем, кто добавил мастера в избранное.
+    await notifyFavoritesAboutWindow({
+      masterId: booking.masterId,
+      dateISO: toISODate(booking.startAt),
+      startMinutes: minutesOfDay(booking.startAt),
+      excludePhone: booking.clientPhone,
+    });
+
     return { booking: await withRelations(id) };
   });
 }

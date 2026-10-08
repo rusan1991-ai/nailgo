@@ -21,7 +21,9 @@ export type NotificationType =
   | "review_created"
   | "review_replied"
   | "review_published"
-  | "review_hidden";
+  | "review_hidden"
+  /** У избранного мастера освободилось окно. */
+  | "favorite_slot";
 
 type BookingRow = typeof schema.bookings.$inferSelect;
 

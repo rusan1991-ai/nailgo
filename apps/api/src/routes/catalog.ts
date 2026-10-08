@@ -5,7 +5,8 @@ import { db } from "../db/index.js";
 import { masters, reviews, services, workingHours, bookings } from "../db/schema.js";
 import { env } from "../env.js";
 import { scheduleForDay } from "../lib/schedule.js";
-import { atMinutes, freeSlots, minutesOfDay, parseISODate, toISODate, weekdayIndex } from "../lib/time.js";
+import { parseISODate, toISODate } from "../lib/time.js";
+import { freeSlotsForDay, windowLabel } from "../lib/slots.js";
 
 const listQuery = z.object({
   query: z.string().trim().optional(),
@@ -282,47 +283,29 @@ export async function catalogRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: "service_not_found", message: "Услуга не найдена у этого мастера" });
     }
 
-    // Выходной день: окон нет вовсе.
-    const schedule = await scheduleForDay(master.id, day);
-    const working = { start: schedule.start, end: schedule.end };
+    // Расчёт окон общий с избранным и горящими окнами: правила не разъезжаются.
+    const daySlots = await freeSlotsForDay(master.id, date, service.durationMinutes);
+    if (!daySlots) return reply.code(400).send({ error: "bad_request", message: "Некорректная дата" });
 
-    if (!schedule.working) {
+    if (!daySlots.working) {
       return {
         date,
         masterSlug: master.slug,
         serviceId: service.id,
         durationMinutes: service.durationMinutes,
-        workingHours: working,
+        workingHours: { start: 0, end: 0 },
         dayOff: true,
         slots: [],
       };
     }
-
-    const booked = await db
-      .select({ startAt: bookings.startAt, endAt: bookings.endAt, status: bookings.status })
-      .from(bookings)
-      .where(eq(bookings.masterId, master.id));
-
-    const dayStart = atMinutes(day, 0);
-    const dayEnd = atMinutes(day, 24 * 60);
-
-    const busy = booked
-      .filter(
-        (item) =>
-          item.status !== "cancelled" && item.startAt >= dayStart && item.startAt < dayEnd,
-      )
-      .map((item) => ({ start: minutesOfDay(item.startAt), end: minutesOfDay(item.endAt) }));
 
     return {
       date,
       masterSlug: master.slug,
       serviceId: service.id,
       durationMinutes: service.durationMinutes,
-      workingHours: working,
-      slots: freeSlots(working, busy, service.durationMinutes).map((start) => ({
-        startMinute: start,
-        label: `${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}`,
-      })),
+      workingHours: { start: daySlots.start, end: daySlots.end },
+      slots: daySlots.slots.map((start) => ({ startMinute: start, label: windowLabel(start) })),
     };
   });
 }

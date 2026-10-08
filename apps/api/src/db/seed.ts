@@ -9,7 +9,20 @@ import { eq } from "drizzle-orm";
 import { normalizePhone } from "../lib/phone.js";
 import { recalcMasterRating } from "../lib/reviews.js";
 import { db } from "./index.js";
-import { bookings, conversations, masters, messages, otpCodes, reviews, services, sessions, users, workingHours } from "./schema.js";
+import {
+  bookings,
+  conversations,
+  favorites,
+  masters,
+  messages,
+  notifications,
+  otpCodes,
+  reviews,
+  services,
+  sessions,
+  users,
+  workingHours,
+} from "./schema.js";
 
 const mastersSeed = [
   {
@@ -218,6 +231,11 @@ const threadsSeed: { slug: string; clientPhone: string; clientName: string; mess
 export async function seed() {
   await db.delete(messages);
   await db.delete(conversations);
+  // Лента уведомлений и избранное — тоже демо-состояние: сброс должен давать
+  // предсказуемый старт (иначе антиспам «не чаще раза в 6 часов» находил бы
+  // уведомления прошлых прогонов).
+  await db.delete(notifications);
+  await db.delete(favorites);
   await db.delete(bookings);
   await db.delete(reviews);
   await db.delete(workingHours);

@@ -9,6 +9,7 @@ import { authRoutes } from "./routes/auth.js";
 import { BookingError, bookingRoutes } from "./routes/bookings.js";
 import { cabinetRoutes } from "./routes/cabinet.js";
 import { catalogRoutes } from "./routes/catalog.js";
+import { favoriteRoutes } from "./routes/favorites.js";
 import { messageRoutes } from "./routes/messages.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { reviewRoutes } from "./routes/reviews.js";
@@ -71,6 +72,7 @@ export async function buildServer() {
       await instance.register(messageRoutes);
       await instance.register(reviewRoutes);
       await instance.register(serviceRoutes);
+      await instance.register(favoriteRoutes);
     },
     { prefix: "/api" },
   );

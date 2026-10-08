@@ -4,11 +4,13 @@ import { z } from "zod";
 import { db } from "../db/index.js";
 import { bookings, masters, reviews, services, users, workingHours } from "../db/schema.js";
 import { isDev } from "../env.js";
-import { atMinutes, parseISODate, toISODate } from "../lib/time.js";
+import { atMinutes, minutesOfDay, parseISODate, toISODate, weekdayIndex } from "../lib/time.js";
 import { serializeBooking } from "../lib/serialize.js";
 import { requireAuth, requireMaster } from "../lib/auth.js";
 import { createBooking, createBookingSchema, rescheduleSchema, rescheduleBooking, withRelations } from "./bookings.js";
-import { notifyBookingEvent, notifyClient } from "../lib/notify.js";
+import { notifyBookingEvent, notifyClient, notifyStudio } from "../lib/notify.js";
+import { notifyFavoritesAboutWindow, windowService } from "../lib/favorites.js";
+import { freeSlotsForDay } from "../lib/slots.js";
 
 const listQuery = z.object({
   status: z.enum(["all", "pending", "confirmed", "completed", "cancelled"]).optional(),
@@ -26,6 +28,39 @@ async function serviceOf(serviceId: string) {
 
 /** Кабинет мастера: доступен только владельцу кабинета (роль master). */
 const masterOnly = { preHandler: [requireAuth, requireMaster] };
+
+/**
+ * Мастер открыл рабочие дни — у каждого ищем ближайшее свободное окно и
+ * сообщаем избранным клиентам. Возвращает число отправленных уведомлений.
+ */
+async function notifyOpenedDays(
+  masterId: string,
+  opened: { weekday: number; startMinute: number; endMinute: number }[],
+): Promise<number> {
+  if (opened.length === 0) return 0;
+  const service = await windowService(masterId);
+  if (!service) return 0;
+
+  let sent = 0;
+  for (const day of opened) {
+    const dateISO = nextDateForWeekday(day.weekday);
+    const daySlots = await freeSlotsForDay(masterId, dateISO, service.durationMinutes);
+    const [first] = daySlots?.slots ?? [];
+    if (first === undefined) continue;
+    sent += await notifyFavoritesAboutWindow({ masterId, dateISO, startMinutes: first });
+  }
+  return sent;
+}
+
+/** Ближайшая дата с нужным днём недели (0 — воскресенье), включая сегодня. */
+function nextDateForWeekday(weekday: number): string {
+  const today = new Date();
+  for (let offset = 0; offset < 7; offset += 1) {
+    const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset);
+    if (weekdayIndex(day) === weekday) return toISODate(day);
+  }
+  return toISODate(today);
+}
 
 /** Короткие названия месяцев для подписей графиков динамики. */
 const monthShort = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
@@ -188,6 +223,8 @@ export async function cabinetRoutes(app: FastifyInstance) {
       }
     }
 
+    const before = await db.select().from(workingHours).where(eq(workingHours.masterId, master.id));
+
     await db.delete(workingHours).where(eq(workingHours.masterId, master.id));
     const enabled = items.filter((item) => item.enabled);
     if (enabled.length > 0) {
@@ -201,7 +238,21 @@ export async function cabinetRoutes(app: FastifyInstance) {
       );
     }
 
-    return { ok: true, days: enabled.length };
+    // Мастер открыл день или расширил смену — у избранных клиентов появилось окно.
+    const opened = enabled.filter((item) => {
+      const was = before.find((row) => row.weekday === item.weekday);
+      return !was || was.startMinute > item.startMinute || was.endMinute < item.endMinute;
+    });
+    const notified = await notifyOpenedDays(master.id, opened);
+    if (notified > 0) {
+      await notifyStudio(master.id, {
+        type: "favorite_slot",
+        title: "Избранные клиенты получили окно",
+        body: `Мы сообщили ${notified} клиент${notified === 1 ? "у" : "ам"} из избранного, что открылась запись.`,
+      });
+    }
+
+    return { ok: true, days: enabled.length, notified };
   });
 
   /** Записи мастера с фильтрами — источник данных для таблицы «Записи». */
@@ -260,6 +311,14 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
     await db.update(bookings).set({ status: "cancelled" }).where(eq(bookings.id, id));
     await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "cancelled_by_master");
+
+    // Окно освободилось: предлагаем его избранным клиентам (кроме самого клиента).
+    await notifyFavoritesAboutWindow({
+      masterId: booking.masterId,
+      dateISO: toISODate(booking.startAt),
+      startMinutes: minutesOfDay(booking.startAt),
+      excludePhone: booking.clientPhone,
+    });
     return { ok: true };
   });
 

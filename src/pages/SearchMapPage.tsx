@@ -1,3 +1,4 @@
+import { FavoriteButton } from "../components/FavoriteButton";
 import { motion } from "framer-motion";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -81,9 +82,12 @@ export function SearchMapPage() {
                       {master.metro}, {master.distance}
                     </p>
                   </div>
-                  <p className="text-sm font-semibold">
-                    {master.priceFrom > 0 ? `от ${formatRub(master.priceFrom)}` : "цена по запросу"}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold">
+                      {master.priceFrom > 0 ? `от ${formatRub(master.priceFrom)}` : "цена по запросу"}
+                    </p>
+                    <FavoriteButton masterSlug={master.slug} masterName={master.name} />
+                  </div>
                 </div>
                 <div className="mt-2 flex gap-1 text-xs">
                   {["17:00", "18:30", "20:00"].map((time) => (

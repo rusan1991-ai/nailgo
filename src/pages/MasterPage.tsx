@@ -1,3 +1,4 @@
+import { FavoriteButton } from "../components/FavoriteButton";
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -55,13 +56,16 @@ export function MasterPage() {
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
             <div className="flex items-start gap-4">
               <Avatar className="h-24 w-24" />
-              <div>
+              <div className="min-w-0 flex-1">
                 <h1 className="text-4xl font-semibold">{master.name}</h1>
                 <p className="mt-1 text-slate-500">{master.tags}</p>
                 <p className="mt-2 text-slate-600">
                   <span className="font-medium text-yellow-500">★ {master.rating}</span> ({master.reviewsCount} отзывов)
                 </p>
                 <p className="text-sm text-slate-500">{master.metro}</p>
+                <div className="mt-3 max-w-[220px]">
+                  <FavoriteButton masterSlug={master.slug} masterName={master.name} variant="wide" />
+                </div>
               </div>
             </div>
 

@@ -69,6 +69,66 @@ assert("у клиента нет кабинета мастера", newClient.dat
 const clientCabinet = await apiAs({ accessToken: newClient.data.accessToken }, "/cabinet/profile");
 assert("клиенту кабинет мастера закрыт", clientCabinet.status === 403, `status=${clientCabinet.status}`);
 
+/* --- Сквозная проверка прайса нового мастера без услуг --- */
+const emptyMasterSlug = newMaster.data.user.masterSlug;
+const clientSession = { accessToken: newClient.data.accessToken };
+const globalServiceCatalog = await apiAs(clientSession, "/services");
+const emptyCatalogBySlug = await apiAs(
+  clientSession,
+  `/services?masterSlug=${encodeURIComponent(emptyMasterSlug)}`,
+);
+const emptyCatalogById = await apiAs(
+  clientSession,
+  `/services?masterId=${encodeURIComponent(cabinet.data.profile.id)}`,
+);
+const emptyStorefrontCatalog = await apiAs(
+  clientSession,
+  `/masters/${encodeURIComponent(emptyMasterSlug)}/services`,
+);
+assert(
+  "общий каталог содержит услуги других мастеров для проверки изоляции",
+  globalServiceCatalog.status === 200 && globalServiceCatalog.data.items.length > 0,
+  `status=${globalServiceCatalog.status}, услуг=${globalServiceCatalog.data?.items?.length ?? "—"}`,
+);
+assert(
+  "прайс нового мастера пуст при выборке по masterSlug",
+  emptyCatalogBySlug.status === 200 && Array.isArray(emptyCatalogBySlug.data.items) && emptyCatalogBySlug.data.items.length === 0,
+  `status=${emptyCatalogBySlug.status}, услуг=${emptyCatalogBySlug.data?.items?.length ?? "—"}`,
+);
+assert(
+  "прайс нового мастера пуст при выборке по masterId",
+  emptyCatalogById.status === 200 && Array.isArray(emptyCatalogById.data.items) && emptyCatalogById.data.items.length === 0,
+  `status=${emptyCatalogById.status}, услуг=${emptyCatalogById.data?.items?.length ?? "—"}`,
+);
+assert(
+  "API витрины мастера возвращает пустой массив клиенту",
+  emptyStorefrontCatalog.status === 200 && Array.isArray(emptyStorefrontCatalog.data.items) && emptyStorefrontCatalog.data.items.length === 0,
+  `status=${emptyStorefrontCatalog.status}, услуг=${emptyStorefrontCatalog.data?.items?.length ?? "—"}`,
+);
+
+const emptyMasterStorefront = makeDom(`/master/${encodeURIComponent(emptyMasterSlug)}`, { session: newClient.data });
+await wait(1800);
+const emptyStorefrontText = rootText(emptyMasterStorefront.dom);
+const masterServiceRows = emptyMasterStorefront.dom.window.document.querySelectorAll("[data-master-service]");
+assert(
+  "клиентская витрина нового мастера показывает текст о пустом прайсе",
+  emptyStorefrontText.includes("Мастер еще не добавил список услуг 🌸"),
+  emptyStorefrontText.slice(0, 180),
+);
+assert(
+  "на пустой витрине нет карточек услуг из общего каталога",
+  masterServiceRows.length === 0,
+  `карточек услуг=${masterServiceRows.length}`,
+);
+
+const emptyMasterBooking = makeDom(`/booking?master=${encodeURIComponent(emptyMasterSlug)}`, { session: newClient.data });
+await wait(1500);
+assert(
+  "страница записи нового мастера тоже не подставляет общий прайс",
+  rootText(emptyMasterBooking.dom).includes("Мастер еще не добавил список услуг 🌸"),
+  rootText(emptyMasterBooking.dom).slice(0, 180),
+);
+
 /* --- API: повторная регистрация и чужие роли --- */
 const duplicate = await register(CLIENT_PHONE, "client", "Ольга Новая");
 assert(

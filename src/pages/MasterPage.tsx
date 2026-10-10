@@ -1,5 +1,5 @@
 import { FavoriteButton } from "../components/FavoriteButton";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
@@ -10,6 +10,7 @@ import { useCatalog, durationLabel } from "../catalog/store";
 import { formatDateLabel } from "../store/bookings";
 import { openThread } from "../api/messages";
 import { useMasterCard } from "../api/masterCard";
+import { useMasterServices } from "../api/masterServices";
 
 /** «Сегодня» / «Завтра» / «13 окт» — подпись дня у окна. */
 function windowLabel(dateISO: string): string {
@@ -34,38 +35,47 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
   const [messageError, setMessageError] = useState<string | null>(null);
   const params = useParams();
   const slug = slugOverride ?? params.slug;
-  const { masters, services } = useCatalog();
-  const master = masters.find((item) => item.slug === slug) ?? masters[0];
-  /** Полная карточка с фото: каталог отдаёт её отдельной ручкой. */
+  const { masters, status: catalogStatus } = useCatalog();
+  const master = masters.find((item) => item.slug === slug);
+  /** Полная карточка и прайс запрашиваются в контексте выбранного мастера. */
   const { data: card } = useMasterCard(slug);
-
-  /** У мастера свой прайс: показываем и предлагаем к записи только его услуги. */
-  const ownServices = useMemo(() => {
-    const own = services.filter((service) => !service.masterSlug || service.masterSlug === slug);
-    return own.length > 0 ? own : services;
-  }, [services, slug]);
-  const defaultServiceId = ownServices[0]?.id ?? "s1";
+  const {
+    data: masterServicesData,
+    loading: servicesLoading,
+    error: servicesError,
+  } = useMasterServices(slug);
+  const ownServices = masterServicesData?.items ?? [];
+  const defaultServiceId = ownServices[0]?.id;
 
   const bookingLinkFor = (query: string) => {
-    const target = `/booking?master=${master?.slug ?? "anna-smirnova"}&${query}`;
+    const target = `/booking?master=${encodeURIComponent(master?.slug ?? slug ?? "")}${query ? `&${query}` : ""}`;
     return user ? target : `/login?returnTo=${encodeURIComponent(target)}`;
   };
   /** Окна считает сервер вместе с каталогом: демо-времени здесь больше нет. */
   const nextWindows = master?.nextWindows ?? [];
-  const bookingLink = nextWindows[0]
-    ? bookingLinkFor(
-        `service=${nextWindows[0].serviceId ?? defaultServiceId}&date=${nextWindows[0].dateISO}&slot=${encodeURIComponent(nextWindows[0].label)}`,
-      )
-    : bookingLinkFor(`service=${defaultServiceId}`);
+  const firstWindow = nextWindows[0];
+  const firstWindowServiceId = firstWindow?.serviceId ?? defaultServiceId;
+  const firstWindowQuery = firstWindow
+    ? `${firstWindowServiceId ? `service=${encodeURIComponent(firstWindowServiceId)}&` : ""}date=${firstWindow.dateISO}&slot=${encodeURIComponent(firstWindow.label)}`
+    : defaultServiceId
+      ? `service=${encodeURIComponent(defaultServiceId)}`
+      : "";
+  const bookingLink = bookingLinkFor(firstWindowQuery);
 
-  // Каталог приезжает из API — пока его нет, показываем заглушку вместо падения.
+  // Не подменяем неизвестного мастера первой карточкой из каталога: витрина
+  // должна оставаться строго привязанной к slug из адреса.
   if (!master) {
+    const masterLoading = catalogStatus === "idle" || catalogStatus === "loading";
     return (
       <main className="grid min-h-screen place-items-center bg-[#fff7fa] p-6 text-center text-slate-500">
         <div>
           <p className="text-sm uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
-          <h1 className="mt-3 text-2xl font-semibold text-slate-900">Загружаем карточку мастера…</h1>
-          <p className="mt-2 text-sm">Если API недоступен, вернитесь на главную и попробуйте позже.</p>
+          <h1 className="mt-3 text-2xl font-semibold text-slate-900">
+            {masterLoading ? "Загружаем карточку мастера…" : "Мастер не найден"}
+          </h1>
+          <p className="mt-2 text-sm">
+            {masterLoading ? "Если API недоступен, вернитесь на главную и попробуйте позже." : "Проверьте ссылку или найдите мастера в каталоге."}
+          </p>
           <Link to="/" className="mt-5 inline-block text-sm text-pink-600 hover:text-pink-700">
             На главную
           </Link>
@@ -129,9 +139,13 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
               </nav>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 space-y-3" data-section="master-services">
               {ownServices.map((service) => (
-                <div key={service.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-xl border border-[#f3e3ea] p-3">
+                <div
+                  key={service.id}
+                  data-master-service={service.id}
+                  className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-xl border border-[#f3e3ea] p-3"
+                >
                   <div>
                     <p className="font-medium">{service.name}</p>
                     <p className="text-sm text-slate-500">{durationLabel(service.durationMinutes)}</p>
@@ -149,6 +163,15 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
                   </Link>
                 </div>
               ))}
+              {ownServices.length === 0 && (
+                <p data-state="empty-master-services" className="rounded-xl bg-[#fff8fb] px-4 py-5 text-center text-sm text-slate-500">
+                  {servicesLoading
+                    ? "Загружаем услуги…"
+                    : servicesError
+                      ? "Не удалось загрузить прайс мастера. Попробуйте позже."
+                      : "Мастер еще не добавил список услуг 🌸"}
+                </p>
+              )}
             </div>
           </motion.div>
 
@@ -164,24 +187,26 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
               </p>
             )}
             <div className="mt-3 space-y-2" data-field="next-windows">
-              {nextWindows.map((window, idx) => (
-                <Link
-                  key={`${window.dateISO}-${window.startMinutes}`}
-                  to={bookingLinkFor(
-                    `service=${window.serviceId ?? defaultServiceId}&date=${window.dateISO}&slot=${encodeURIComponent(window.label)}`,
-                  )}
-                  data-window={`${window.dateISO}:${window.label}`}
-                  className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${
-                    idx === 0 ? "border-pink-500 bg-pink-50 text-pink-600" : "border-[#f1dde6] hover:border-pink-300"
-                  }`}
-                >
-                  <span className="font-medium">{window.label}</span>
-                  <span className="text-slate-500">
-                    {windowLabel(window.dateISO)}
-                    {window.serviceName ? ` · ${window.serviceName}` : ""}
-                  </span>
-                </Link>
-              ))}
+              {nextWindows.map((window, idx) => {
+                const windowServiceId = window.serviceId ?? defaultServiceId;
+                const query = `${windowServiceId ? `service=${encodeURIComponent(windowServiceId)}&` : ""}date=${window.dateISO}&slot=${encodeURIComponent(window.label)}`;
+                return (
+                  <Link
+                    key={`${window.dateISO}-${window.startMinutes}`}
+                    to={bookingLinkFor(query)}
+                    data-window={`${window.dateISO}:${window.label}`}
+                    className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${
+                      idx === 0 ? "border-pink-500 bg-pink-50 text-pink-600" : "border-[#f1dde6] hover:border-pink-300"
+                    }`}
+                  >
+                    <span className="font-medium">{window.label}</span>
+                    <span className="text-slate-500">
+                      {windowLabel(window.dateISO)}
+                      {window.serviceName ? ` · ${window.serviceName}` : ""}
+                    </span>
+                  </Link>
+                );
+              })}
             </div>
             <Link
               to={bookingLink}

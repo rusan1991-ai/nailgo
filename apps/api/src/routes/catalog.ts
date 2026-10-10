@@ -76,6 +76,18 @@ const slotsQuery = z.object({
   serviceId: z.string().optional(),
 });
 
+const servicesQuery = z
+  .object({
+    /** Совместимость со старыми ссылками на прайс мастера. */
+    master: z.string().trim().min(1).optional(),
+    masterSlug: z.string().trim().min(1).optional(),
+    masterId: z.string().trim().min(1).optional(),
+  })
+  .refine(
+    ({ master, masterSlug, masterId }) => [master, masterSlug, masterId].filter(Boolean).length <= 1,
+    "Укажите только один идентификатор мастера",
+  );
+
 export async function catalogRoutes(app: FastifyInstance) {
   /** Каталог мастеров с поиском по имени, тегам и метро. */
   app.get("/masters", async (request) => {
@@ -344,19 +356,24 @@ export async function catalogRoutes(app: FastifyInstance) {
 
   /**
    * Витрина услуг: только активные (скрытые мастером не видны).
-   * `?master=slug` — прайс конкретного мастера: так страница записи
-   * показывает услуги того, к кому записываются.
+   * `?masterSlug=slug` или `?masterId=id` ограничивает прайс выбранным мастером;
+   * `?master=slug` остаётся совместимым с прежними клиентами. Без фильтра
+   * возвращается общий каталог, но персональные витрины его не используют.
    */
   app.get("/services", async (request) => {
-    const { master: masterSlug } = z
-      .object({ master: z.string().trim().optional() })
-      .parse(request.query ?? {});
+    const { master: legacyMasterSlug, masterSlug, masterId } = servicesQuery.parse(request.query ?? {});
+    const selectedMasterSlug = masterSlug ?? legacyMasterSlug;
+    const masterFilter = masterId
+      ? eq(services.masterId, masterId)
+      : selectedMasterSlug
+        ? eq(masters.slug, selectedMasterSlug)
+        : undefined;
 
     const rows = await db
       .select({ service: services, master: masters })
       .from(services)
       .innerJoin(masters, eq(services.masterId, masters.id))
-      .where(masterSlug ? and(eq(services.active, true), eq(masters.slug, masterSlug)) : eq(services.active, true))
+      .where(masterFilter ? and(eq(services.active, true), masterFilter) : eq(services.active, true))
       .orderBy(asc(services.price));
 
     return {

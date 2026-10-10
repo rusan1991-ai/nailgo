@@ -12,6 +12,7 @@ import { useCatalog, durationLabel } from "../catalog/store";
 import { LocationPicker, type PickedPlace } from "../components/LocationPicker";
 import { SmartSearchPanel } from "../components/SmartSearchPanel";
 import { useMasterSearch, type MasterSearchItem, type MasterSort } from "../api/search";
+import { useMasterServices } from "../api/masterServices";
 import { demoWeek } from "../store/bookings";
 
 const filters = [
@@ -25,7 +26,13 @@ const filters = [
 
 export function HomePage() {
   const { user } = useAuth();
-  const { masters, services } = useCatalog();
+  const { masters } = useCatalog();
+  const {
+    data: annaServicesData,
+    loading: annaServicesLoading,
+    error: annaServicesError,
+  } = useMasterServices("anna-smirnova");
+  const annaServices = annaServicesData?.items ?? [];
   const { region, chosen } = useCity();
   /**
    * Выбранное место живёт в адресе (?metro=… или ?district=…): так ссылку на
@@ -72,9 +79,8 @@ export function HomePage() {
     if (next) params.set(next.kind === "metro" ? "metro" : "district", next.slug);
     setSearchParams(params, { replace: true });
   };
-  /** Блок «услуги студии» показывает прайс мастера, к которому ведёт запись. */
-  const spotlightServices = services.filter((service) => service.masterSlug === "anna-smirnova");
-  const showcase = spotlightServices.length > 0 ? spotlightServices : services;
+  /** Блок «услуги студии» показывает только прайс Анны из scoped endpoint. */
+  const showcase = annaServices;
   const regionInfo = DEFAULT_REGIONS.find((item) => item.region === region) ?? DEFAULT_REGIONS[0];
   /** Мастера выбранного города: карта показывает именно их. */
   const regionalMasters = masters.filter((master) => !master.region || master.region === region);
@@ -96,15 +102,20 @@ export function HomePage() {
     smartActive && smart.data ? smart.data.items : (placeMasters as MasterSearchItem[]);
   const listedCount = listedMasters.length;
 
-  const defaultServiceId = services[1]?.id ?? services[0]?.id ?? "s1";
-  const bookingTarget = `/booking?master=anna-smirnova&service=${defaultServiceId}&date=${demoWeek[0].iso}&slot=19:00`;
-  const bookingLink = user ? bookingTarget : `/login?returnTo=${encodeURIComponent(bookingTarget)}`;
-
-  /** Ссылка на запись конкретной услуги — с учётом авторизации. */
-  const serviceLink = (serviceId: string) => {
-    const target = `/booking?master=anna-smirnova&service=${serviceId}&date=${demoWeek[0].iso}`;
+  const defaultServiceId = annaServices[1]?.id ?? annaServices[0]?.id;
+  const bookingLinkForAnna = (options: { serviceId?: string; date?: string; slot?: string } = {}) => {
+    const params = new URLSearchParams({ master: "anna-smirnova" });
+    if (options.serviceId) params.set("service", options.serviceId);
+    if (options.date) params.set("date", options.date);
+    if (options.slot) params.set("slot", options.slot);
+    const target = `/booking?${params.toString()}`;
     return user ? target : `/login?returnTo=${encodeURIComponent(target)}`;
   };
+  const bookingLink = bookingLinkForAnna({ serviceId: defaultServiceId, date: demoWeek[0].iso, slot: "19:00" });
+
+  /** Ссылка на запись конкретной услуги — с учётом авторизации. */
+  const serviceLink = (serviceId: string) =>
+    bookingLinkForAnna({ serviceId, date: demoWeek[0].iso });
 
   return (
     <main className="min-h-screen bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
@@ -267,9 +278,9 @@ export function HomePage() {
               <NailStrip />
             </div>
 
-            <div className="mt-5 space-y-3 text-sm">
+            <div className="mt-5 space-y-3 text-sm" data-section="master-services">
               {showcase.slice(0, 6).map((service) => (
-                <div key={service.id} className="flex items-center justify-between rounded-xl border border-[#f3e3ea] px-3 py-2">
+                <div key={service.id} data-master-service={service.id} className="flex items-center justify-between rounded-xl border border-[#f3e3ea] px-3 py-2">
                   <div>
                     <p className="font-medium">{service.name}</p>
                     <p className="text-slate-500">{durationLabel(service.durationMinutes)}</p>
@@ -285,6 +296,15 @@ export function HomePage() {
                   </div>
                 </div>
               ))}
+              {showcase.length === 0 && (
+                <p data-state="empty-master-services" className="rounded-xl bg-[#fff8fb] px-4 py-5 text-center text-slate-500">
+                  {annaServicesLoading
+                    ? "Загружаем услуги…"
+                    : annaServicesError
+                      ? "Не удалось загрузить прайс мастера. Попробуйте позже."
+                      : "Мастер еще не добавил список услуг 🌸"}
+                </p>
+              )}
             </div>
 
             <div className="mt-6">
@@ -294,11 +314,7 @@ export function HomePage() {
                   {demoWeek.map((day, idx) => (
                     <Link
                       key={day.iso}
-                      to={
-                        user
-                          ? `/booking?master=anna-smirnova&service=${defaultServiceId}&date=${day.iso}`
-                          : `/login?returnTo=${encodeURIComponent(`/booking?master=anna-smirnova&service=${defaultServiceId}&date=${day.iso}`)}`
-                      }
+                      to={bookingLinkForAnna({ serviceId: defaultServiceId, date: day.iso })}
                       className={`rounded-xl border px-2 py-2 text-center text-xs ${
                         idx === 0 ? "border-pink-500 bg-pink-50 text-pink-600" : "border-[#f1dde6]"
                       }`}
@@ -312,11 +328,7 @@ export function HomePage() {
                   {slots.map((time, idx) => (
                     <Link
                       key={time}
-                      to={
-                        user
-                          ? `/booking?master=anna-smirnova&service=${defaultServiceId}&date=${demoWeek[0].iso}&slot=${time}`
-                          : `/login?returnTo=${encodeURIComponent(`/booking?master=anna-smirnova&service=${defaultServiceId}&date=${demoWeek[0].iso}&slot=${time}`)}`
-                      }
+                      to={bookingLinkForAnna({ serviceId: defaultServiceId, date: demoWeek[0].iso, slot: time })}
                       className={`rounded-xl border px-3 py-2 text-center text-sm font-medium ${
                         idx === 1 ? "border-pink-500 bg-pink-500 text-white" : "border-[#f2dce6]"
                       }`}

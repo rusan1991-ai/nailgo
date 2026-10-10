@@ -7,6 +7,7 @@ import { useCatalog, durationLabel } from "../catalog/store";
 import { api } from "../api/client";
 import { formatRub } from "../data/mock";
 import { formatDateLabel, todayISO, upcomingDays } from "../store/bookings";
+import { useMasterServices } from "../api/masterServices";
 
 type SlotResponse = {
   date: string;
@@ -20,9 +21,14 @@ export function BookingPage() {
   const [params] = useSearchParams();
   const { user } = useAuth();
   const { createBooking } = useBookings();
-  const { masters, services, status: catalogStatus } = useCatalog();
+  const { masters } = useCatalog();
 
   const masterSlug = params.get("master") ?? "anna-smirnova";
+  const {
+    data: masterServicesData,
+    loading: servicesLoading,
+    error: servicesError,
+  } = useMasterServices(masterSlug);
   const [serviceId, setServiceId] = useState(params.get("service") ?? "");
   const [dateISO, setDateISO] = useState(params.get("date") ?? todayISO());
   const [slots, setSlots] = useState<SlotResponse["slots"]>([]);
@@ -38,19 +44,12 @@ export function BookingPage() {
   const [waitingPayment, setWaitingPayment] = useState<{ bookingId: string; amount: number } | null>(null);
 
   const master = useMemo(
-    () => masters.find((item) => item.slug === masterSlug) ?? masters[0],
+    () => masters.find((item) => item.slug === masterSlug),
     [masterSlug, masters],
   );
 
-  /**
-   * Услуги выбранного мастера: у каждого свой прайс. Если по ссылке пришла
-   * услуга другого мастера (старая ссылка), показываем первую из его прайса —
-   * записаться на чужую услугу всё равно нельзя, сервер отклонит.
-   */
-  const masterServices = useMemo(() => {
-    const own = services.filter((item) => !item.masterSlug || item.masterSlug === masterSlug);
-    return own.length > 0 ? own : services;
-  }, [services, masterSlug]);
+  /** Прайс всегда загружается в scope выбранного мастера; общий каталог здесь не используется. */
+  const masterServices = masterServicesData?.items ?? [];
 
   const service = useMemo(
     () => masterServices.find((item) => item.id === serviceId) ?? masterServices[0],
@@ -157,8 +156,12 @@ export function BookingPage() {
                   </p>
                 </>
               ) : (
-                <p className="text-sm text-slate-400">
-                  {catalogStatus === "loading" ? "Загружаем услуги..." : "Услуги не найдены"}
+                <p className="text-sm text-slate-400" data-state="empty-master-services">
+                  {servicesLoading
+                    ? "Загружаем услуги…"
+                    : servicesError
+                      ? "Не удалось загрузить прайс мастера. Попробуйте позже."
+                      : "Мастер еще не добавил список услуг 🌸"}
                 </p>
               )}
             </div>

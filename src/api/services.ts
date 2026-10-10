@@ -21,6 +21,8 @@ export type CabinetService = {
 
 export type CabinetServices = {
   items: CabinetService[];
+  /** Личные категории мастера, включая категории без добавленных услуг. */
+  categories: string[];
   total: number;
   activeCount: number;
 };
@@ -37,6 +39,11 @@ export type ServiceInput = {
 /** Прайс кабинета: скрытые услуги тоже видны — их можно вернуть. */
 export function useCabinetServices(): Resource<CabinetServices> {
   return useApiResource<CabinetServices>("/cabinet/services");
+}
+
+export async function createServiceCategory(name: string): Promise<string> {
+  const response = await api.post<{ category: { id: string; name: string } }>("/cabinet/service-categories", { name });
+  return response.category.name;
 }
 
 export async function createService(input: ServiceInput): Promise<CabinetService> {

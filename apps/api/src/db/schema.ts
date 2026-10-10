@@ -185,6 +185,20 @@ export const services = pgTable(
   (table) => [index("services_master").on(table.masterId)],
 );
 
+/** Категории услуг принадлежат мастеру и могут существовать до первой услуги. */
+export const serviceCategories = pgTable(
+  "service_categories",
+  {
+    id: id(),
+    masterId: text("master_id")
+      .notNull()
+      .references(() => masters.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("service_categories_master_name").on(table.masterId, table.name)],
+);
+
 export const workingHours = pgTable(
   "working_hours",
   {

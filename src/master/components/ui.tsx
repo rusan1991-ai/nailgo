@@ -103,11 +103,13 @@ export function GhostButton({
   className,
   active,
   dataAction,
+  disabled,
 }: {
   children: ReactNode;
   onClick?: () => void;
   className?: string;
   active?: boolean;
+  disabled?: boolean;
   /** Стабильный селектор для проверок: `data-action` на кнопке. */
   dataAction?: string;
 }) {
@@ -116,8 +118,9 @@ export function GhostButton({
       type="button"
       onClick={onClick}
       data-action={dataAction}
+      disabled={disabled}
       className={cn(
-        "inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm transition",
+        "inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-50",
         active
           ? "border-[#e11d48] bg-rose-50 text-[#e11d48]"
           : "border-slate-200 text-slate-600 hover:bg-slate-50",

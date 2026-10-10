@@ -134,6 +134,13 @@
       "when": 1791630000000,
       "tag": "0018_canonical_master_location",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791667234932,
+      "tag": "0019_master_service_categories",
+      "breakpoints": true
     }
   ]
 }

@@ -30,6 +30,7 @@ import {
   otpCodes,
   reviews,
   services,
+  serviceCategories,
   sessions,
   users,
   workingHours,
@@ -313,6 +314,13 @@ export async function seed() {
   await syncLocations();
 
   const masterRows = await db.insert(masters).values(mastersSeed).returning();
+  // У мастеров категории создаются независимо от услуг — новая категория может
+  // быть подготовлена в кабинете до добавления первого прайсового пункта.
+  const seededCategories = [...new Set(servicesSeed.map((service) => service.category))];
+  await db
+    .insert(serviceCategories)
+    .values(masterRows.flatMap((master) => seededCategories.map((name) => ({ masterId: master.id, name }))))
+    .onConflictDoNothing();
   // Обратная совместимость сидов: сразу сохраняем canonical location_id.
   await syncLocations();
 

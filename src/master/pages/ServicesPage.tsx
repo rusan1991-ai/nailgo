@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Pencil, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import {
   Card,
@@ -13,6 +13,7 @@ import {
 import { formatRub } from "../data";
 import {
   createService,
+  createServiceCategory,
   deleteService,
   durationLabel,
   updateService,
@@ -28,8 +29,6 @@ const categoryTone: Record<string, string> = {
   Дизайн: "from-sky-200 to-blue-300",
   Дополнительно: "from-amber-200 to-orange-300",
 };
-
-const CATEGORIES = ["Маникюр", "Покрытие", "Наращивание", "Дизайн", "Дополнительно"];
 
 function ServiceThumb({ category }: { category: string }) {
   return (
@@ -57,7 +56,7 @@ type Draft = {
   active: boolean;
 };
 
-const emptyDraft: Draft = { name: "", category: CATEGORIES[0], duration: "60", price: "1500", prepayment: "0", active: true };
+const emptyDraft: Draft = { name: "", category: "", duration: "60", price: "1500", prepayment: "0", active: true };
 
 function draftOf(service: CabinetService): Draft {
   return {
@@ -83,8 +82,10 @@ export function ServicesPage() {
   const [page, setPage] = useState(1);
   const [editor, setEditor] = useState<{ mode: "create" } | { mode: "edit"; service: CabinetService } | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
-  const [categoryCustomMode, setCategoryCustomMode] = useState(false);
-  const [categoryDraft, setCategoryDraft] = useState("");
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [categoryName, setCategoryName] = useState("");
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [inUse, setInUse] = useState<CabinetService | null>(null);
@@ -98,25 +99,45 @@ export function ServicesPage() {
     [services, query],
   );
 
-  /** Категории считаем по прайсу: они у каждого мастера свои. */
+  /** Категории — собственные записи мастера; сервисы добавляем для старых данных. */
+  const categoryOptions = useMemo(
+    () =>
+      [...new Set(data?.categories ?? services.map((service) => service.category))].sort((a, b) => a.localeCompare(b, "ru")),
+    [data?.categories, services],
+  );
   const categories = useMemo(() => {
-    const map = new Map<string, { count: number; active: number; lead: string }>();
+    const counts = new Map<string, { count: number; active: number; lead: string }>();
     for (const service of services) {
-      const entry = map.get(service.category) ?? { count: 0, active: 0, lead: "" };
+      const entry = counts.get(service.category) ?? { count: 0, active: 0, lead: "" };
       entry.count += 1;
       if (service.active) entry.active += 1;
       entry.lead = entry.lead || durationLabel(service.durationMinutes);
-      map.set(service.category, entry);
+      counts.set(service.category, entry);
     }
-    return [...map.entries()].map(([name, value]) => ({ name, ...value }));
-  }, [services]);
+    return categoryOptions.map((name) => ({
+      name,
+      ...(counts.get(name) ?? { count: 0, active: 0, lead: "" }),
+    }));
+  }, [categoryOptions, services]);
 
-  useEffect(() => {
-    if (!editor) return;
-    setDraft(editor.mode === "edit" ? draftOf(editor.service) : emptyDraft);
-    setCategoryCustomMode(false);
-    setCategoryDraft("");
-  }, [editor]);
+  const openCreateService = () => {
+    setActionError(null);
+    setTab("services");
+    setDraft({ ...emptyDraft });
+    setEditor({ mode: "create" });
+  };
+
+  const openEditService = (service: CabinetService) => {
+    setActionError(null);
+    setDraft(draftOf(service));
+    setEditor({ mode: "edit", service });
+  };
+
+  const openCreateCategory = () => {
+    setCategoryName("");
+    setCategoryError(null);
+    setCategoryModalOpen(true);
+  };
 
   const run = async (action: () => Promise<void>, message: string) => {
     setBusy(true);
@@ -133,10 +154,31 @@ export function ServicesPage() {
     }
   };
 
+  const saveCategory = async () => {
+    const name = categoryName.trim();
+    if (name.length < 2) {
+      setCategoryError("Введите название категории (минимум 2 символа)");
+      return;
+    }
+    setCategorySaving(true);
+    setCategoryError(null);
+    try {
+      await createServiceCategory(name);
+      setCategoryModalOpen(false);
+      setCategoryName("");
+      setTab("categories");
+      reload();
+    } catch (caught) {
+      setCategoryError(caught instanceof ApiError ? caught.message : "Не удалось создать категорию");
+    } finally {
+      setCategorySaving(false);
+    }
+  };
+
   const save = async () => {
-    const category = (categoryCustomMode ? categoryDraft : draft.category).trim();
+    const category = draft.category.trim();
     if (!category) {
-      setActionError("Выберите существующую категорию или введите новую");
+      setActionError(categoryOptions.length > 0 ? "Выберите категорию" : "Сначала добавьте категорию");
       return;
     }
     const payload = {
@@ -188,10 +230,25 @@ export function ServicesPage() {
             </span>
           )}
         </div>
-        <PrimaryButton onClick={() => setEditor({ mode: "create" })} disabled={!live || busy}>
-          <Plus className="h-4 w-4" />
-          Добавить услугу
-        </PrimaryButton>
+        <div className="flex flex-wrap items-center gap-2">
+          <GhostButton
+            onClick={openCreateCategory}
+            disabled={!live || busy || categorySaving}
+            dataAction="add-category"
+            className="border border-pink-200 bg-white text-pink-700 hover:bg-pink-50"
+          >
+            <Plus className="h-4 w-4" />
+            Добавить категорию
+          </GhostButton>
+          <PrimaryButton
+            onClick={openCreateService}
+            disabled={!live || busy || categorySaving || categoryOptions.length === 0}
+            title={categoryOptions.length === 0 ? "Сначала добавьте категорию" : undefined}
+          >
+            <Plus className="h-4 w-4" />
+            Добавить услугу
+          </PrimaryButton>
+        </div>
       </div>
 
       <p className="mb-4 rounded-xl bg-[#fdf2f7] px-4 py-3 text-sm text-slate-600">
@@ -286,7 +343,7 @@ export function ServicesPage() {
                           <button
                             type="button"
                             disabled={!live || busy}
-                            onClick={() => setEditor({ mode: "edit", service: row })}
+                            onClick={() => openEditService(row)}
                             data-action="edit-service"
                             className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-white disabled:opacity-50"
                           >
@@ -320,7 +377,7 @@ export function ServicesPage() {
                     ? "В прайсе пока нет услуг — добавьте первую, и клиенты смогут записаться."
                     : "По поиску ничего не нашлось"}
                 {!loading && services.length === 0 && (
-                  <PrimaryButton onClick={() => setEditor({ mode: "create" })} disabled={!live}>
+                  <PrimaryButton onClick={openCreateService} disabled={!live || categoryOptions.length === 0}>
                     <Plus className="h-4 w-4" />
                     Добавить услугу
                   </PrimaryButton>
@@ -354,7 +411,7 @@ export function ServicesPage() {
           {categories.length === 0 && (
             <Card>
               <p className="py-6 text-center text-sm text-slate-400">
-                {loading ? "Загружаем категории…" : "Категории появятся вместе с первой услугой"}
+                {loading ? "Загружаем категории…" : "Категорий пока нет — добавьте первую кнопкой выше"}
               </p>
             </Card>
           )}
@@ -371,7 +428,7 @@ export function ServicesPage() {
             <>
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || !draft.category.trim()}
                 onClick={() => void save()}
                 data-action="save-service"
                 className="rounded-xl bg-[#e11d48] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#be123c] disabled:opacity-60"
@@ -403,37 +460,21 @@ export function ServicesPage() {
             <label className="block text-sm text-slate-600">
               Категория
               <select
-                value={categoryCustomMode ? "__new_category__" : draft.category}
-                onChange={(event) => {
-                  if (event.target.value === "__new_category__") {
-                    setCategoryCustomMode(true);
-                    setCategoryDraft("");
-                  } else {
-                    setCategoryCustomMode(false);
-                    setDraft({ ...draft, category: event.target.value });
-                  }
-                }}
+                value={draft.category}
+                onChange={(event) => setDraft({ ...draft, category: event.target.value })}
                 data-field="service-category"
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-pink-400"
+                disabled={categoryOptions.length === 0}
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-pink-400 disabled:bg-slate-50 disabled:text-slate-400"
               >
-                {[...new Set([...CATEGORIES, ...services.map((service) => service.category)])].map((category) => (
+                <option value="" disabled>
+                  {categoryOptions.length > 0 ? "Выберите категорию" : "Сначала добавьте категорию"}
+                </option>
+                {categoryOptions.map((category) => (
                   <option key={category} value={category}>
                     {category}
                   </option>
                 ))}
-                <option value="__new_category__">+ Новая категория</option>
               </select>
-              {categoryCustomMode && (
-                <input
-                  autoFocus
-                  value={categoryDraft}
-                  onChange={(event) => setCategoryDraft(event.target.value)}
-                  maxLength={60}
-                  placeholder="Название новой категории"
-                  data-field="service-new-category"
-                  className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-pink-400"
-                />
-              )}
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="block text-sm text-slate-600">
@@ -481,6 +522,56 @@ export function ServicesPage() {
             </label>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={categoryModalOpen}
+        onClose={() => {
+          if (!categorySaving) setCategoryModalOpen(false);
+        }}
+        title="Добавить категорию"
+        subtitle="Новая категория появится в списке при создании услуги"
+        width="max-w-md"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => void saveCategory()}
+              disabled={categorySaving || categoryName.trim().length < 2}
+              data-action="save-category"
+              className="rounded-xl bg-[#e11d48] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#be123c] disabled:opacity-60"
+            >
+              {categorySaving ? "Сохраняем…" : "Создать категорию"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCategoryModalOpen(false)}
+              disabled={categorySaving}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+            >
+              Отмена
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3" data-category-form>
+          <label className="block text-sm text-slate-600">
+            Название категории
+            <input
+              autoFocus
+              value={categoryName}
+              onChange={(event) => {
+                setCategoryName(event.target.value);
+                setCategoryError(null);
+              }}
+              maxLength={60}
+              placeholder="Например, Педикюр"
+              data-field="category-name"
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-pink-400"
+            />
+          </label>
+          {categoryError && <p role="alert" className="text-sm text-rose-600">{categoryError}</p>}
+        </div>
       </Modal>
 
       <Modal

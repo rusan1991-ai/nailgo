@@ -10,7 +10,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, asc, eq, ne } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { bookings, masters, services } from "../db/schema.js";
+import { bookings, masters, serviceCategories, services } from "../db/schema.js";
 import { requireAuth, requireMaster } from "../lib/auth.js";
 
 const masterOnly = { preHandler: [requireAuth, requireMaster] };
@@ -39,6 +39,9 @@ const serviceInput = z.object({
 });
 
 const servicePatch = serviceInput.partial();
+const serviceCategoryInput = z.object({
+  name: z.string().trim().min(2, "Название категории слишком короткое").max(60, "Максимум 60 символов"),
+});
 
 /** Услуги текущего мастера: владелец берётся из проверенной сессии. */
 async function currentMaster(userId: string | null) {
@@ -74,7 +77,17 @@ export async function serviceRoutes(app: FastifyInstance) {
       bookingsByService.set(row.serviceId, (bookingsByService.get(row.serviceId) ?? 0) + 1);
     }
 
+    const savedCategories = await db
+      .select({ name: serviceCategories.name })
+      .from(serviceCategories)
+      .where(eq(serviceCategories.masterId, master.id));
+    // Категории существующих услуг включаем для обратной совместимости с теми,
+    // кто обновляет приложение после создания собственного прайса.
+    const categories = [...new Set([...savedCategories.map((item) => item.name), ...rows.map((item) => item.category)])]
+      .sort((a, b) => a.localeCompare(b, "ru"));
+
     return {
+      categories,
       items: rows.map((service) => ({
         id: service.id,
         name: service.name,
@@ -88,6 +101,36 @@ export async function serviceRoutes(app: FastifyInstance) {
       total: rows.length,
       activeCount: rows.filter((service) => service.active).length,
     };
+  });
+
+  /** Новая категория существует независимо от услуги и доступна только её мастеру. */
+  app.post("/cabinet/service-categories", masterOnly, async (request, reply) => {
+    const master = await currentMaster(request.currentUser?.id ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const { name } = serviceCategoryInput.parse(request.body ?? {});
+    const [savedCategories, existingServices] = await Promise.all([
+      db.select({ name: serviceCategories.name }).from(serviceCategories).where(eq(serviceCategories.masterId, master.id)),
+      db.select({ name: services.category }).from(services).where(eq(services.masterId, master.id)),
+    ]);
+    const normalizedName = name.toLocaleLowerCase("ru-RU");
+    const alreadyExists = [...savedCategories, ...existingServices].some(
+      (item) => item.name.trim().toLocaleLowerCase("ru-RU") === normalizedName,
+    );
+    if (alreadyExists) {
+      return reply.code(409).send({ error: "category_exists", message: "Такая категория уже существует" });
+    }
+
+    const [category] = await db
+      .insert(serviceCategories)
+      .values({ masterId: master.id, name })
+      .onConflictDoNothing()
+      .returning({ id: serviceCategories.id, name: serviceCategories.name });
+    if (!category) {
+      return reply.code(409).send({ error: "category_exists", message: "Такая категория уже существует" });
+    }
+
+    return reply.code(201).send({ category });
   });
 
   /** Новая услуга: цена и длительность сразу влияют на запись и окна. */

@@ -156,6 +156,31 @@ assert(
   JSON.stringify(categoriesAfterCreate.data.categories),
 );
 assert("после сохранения открыт список категорий", rootText(page.dom).includes("Педикюр"));
+let createdCategory = categoriesAfterCreate.data.categoryItems.find((category) => category.name === "Педикюр");
+assert("категория возвращается с ID для управления", Boolean(createdCategory?.id), createdCategory?.id);
+
+const rivalPhone = `+7993${String(Date.now()).slice(-6)}`;
+const rivalOtp = await api("/auth/request-otp", { method: "POST", body: { phone: rivalPhone } });
+const rivalRegistration = await api("/auth/verify-otp", {
+  method: "POST",
+  body: {
+    phone: rivalPhone,
+    code: rivalOtp.data.devCode,
+    mode: "register",
+    role: "master",
+    name: "Другой мастер",
+  },
+});
+const rivalMaster = { accessToken: rivalRegistration.data.accessToken };
+assert("для проверки scope зарегистрирован второй мастер", rivalRegistration.status === 200 && rivalRegistration.data.user?.role === "master");
+const foreignCategoryUpdate = await apiAs(rivalMaster, `/cabinet/services/categories/${createdCategory?.id}`, {
+  method: "PUT",
+  body: { name: "Чужая правка" },
+});
+const foreignCategoryDelete = await apiAs(rivalMaster, `/cabinet/services/categories/${createdCategory?.id}`, { method: "DELETE" });
+assert("другой мастер не может переименовать категорию", foreignCategoryUpdate.status === 403, `status=${foreignCategoryUpdate.status}`);
+assert("другой мастер не может удалить категорию", foreignCategoryDelete.status === 403, `status=${foreignCategoryDelete.status}`);
+
 const duplicateCategory = await apiAs(master, "/cabinet/service-categories", {
   method: "POST",
   body: { name: " педикюр " },
@@ -194,13 +219,85 @@ assert(
   uiCreated ? `${uiCreated.category} / ${uiCreated.price} ₽ / ${uiCreated.durationMinutes} мин` : "не найдена",
 );
 
-// Редактирование использует тот же простой список без создания на лету.
+// Категорию с активной услугой удалить нельзя: показываем серверное предупреждение.
+const categoriesTabButton = [...page.dom.window.document.querySelectorAll("button")].find(
+  (button) => button.textContent?.trim() === "Категории",
+);
+categoriesTabButton?.dispatchEvent(new page.dom.window.MouseEvent("click", { bubbles: true }));
+await wait(150);
+const categoryDeleteButton = page.dom.window.document.querySelector(
+  `[data-action='delete-category'][data-category-id='${createdCategory?.id}']`,
+);
+assert("у категории есть микро-кнопка удаления", Boolean(categoryDeleteButton));
+categoryDeleteButton?.dispatchEvent(new page.dom.window.MouseEvent("click", { bubbles: true }));
+await wait(100);
+page.dom.window.document.querySelector("[data-action='confirm-delete-category']")?.dispatchEvent(
+  new page.dom.window.MouseEvent("click", { bubbles: true }),
+);
+await wait(700);
+const categoryUseWarning = page.dom.window.document.querySelector("[data-category-delete-error]");
+assert(
+  "категорию с активной услугой нельзя удалить и показано предупреждение",
+  categoryUseWarning?.textContent === "Нельзя удалить категорию, пока в ней есть услуги. Пожалуйста, удалите или перенесите услуги в другие разделы",
+  categoryUseWarning?.textContent ?? "предупреждение не найдено",
+);
+page.dom.window.document.querySelector("[data-action='cancel-delete-category']")?.dispatchEvent(
+  new page.dom.window.MouseEvent("click", { bubbles: true }),
+);
+await wait(100);
+
+// Редактирование категории заранее подставляет текущее имя и обновляет связанные услуги.
+const categoryEditButton = page.dom.window.document.querySelector(
+  `[data-action='edit-category'][data-category-id='${createdCategory?.id}']`,
+);
+assert("у категории есть микро-кнопка редактирования", Boolean(categoryEditButton));
+categoryEditButton?.dispatchEvent(new page.dom.window.MouseEvent("click", { bubbles: true }));
+await wait(100);
+const categoryEditInput = page.dom.window.document.querySelector("[data-field='category-name']");
+assert("форма редактирования категории подставляет текущее имя", categoryEditInput?.value === "Педикюр", categoryEditInput?.value);
+setField(page.dom, "Например, Педикюр", "Педикюр исправленный");
+click(page.dom, "Сохранить категорию");
+await wait(900);
+const categoriesAfterRename = await apiAs(master, "/cabinet/services");
+const renamedCategory = categoriesAfterRename.data.categoryItems.find((category) => category.id === createdCategory?.id);
+const renamedService = categoriesAfterRename.data.items.find((item) => item.id === uiCreated?.id);
+assert(
+  "переименование категории сохраняется в кабинете мастера",
+  renamedCategory?.name === "Педикюр исправленный" && renamedService?.category === "Педикюр исправленный",
+  `категория=${renamedCategory?.name}; услуга=${renamedService?.category}`,
+);
+const publicServicesAfterRename = await api("/services?master=anna-smirnova");
+const publicServiceAfterRename = publicServicesAfterRename.data.items.find((item) => item.id === uiCreated?.id);
+assert(
+  "новое название категории сразу попадает в публичный прайс API",
+  publicServiceAfterRename?.category === "Педикюр исправленный",
+  publicServiceAfterRename?.category,
+);
+
+const storefrontAfterRename = makeDom("/master/anna-smirnova", { session: null });
+await wait(1500);
+const storefrontCategory = storefrontAfterRename.dom.window.document.querySelector(
+  `[data-master-service='${uiCreated?.id}'] [data-service-category]`,
+);
+assert(
+  "клиентская витрина отображает новое название категории",
+  storefrontCategory?.textContent === "Педикюр исправленный",
+  storefrontCategory?.textContent ?? "категория не найдена",
+);
+storefrontAfterRename.dom.window.close();
+const servicesTabButton = [...page.dom.window.document.querySelectorAll("button")].find(
+  (button) => button.textContent?.trim() === "Услуги",
+);
+servicesTabButton?.dispatchEvent(new page.dom.window.MouseEvent("click", { bubbles: true }));
+await wait(150);
+
+// Редактирование услуги использует существующие категории без создания на лету.
 const createdRow = page.dom.window.document.querySelector(`[data-service-row='${uiCreated?.id}']`);
 createdRow?.querySelector("[data-action='edit-service']")?.dispatchEvent(new page.dom.window.MouseEvent("click", { bubbles: true }));
 await wait(120);
 const editCategorySelect = page.dom.window.document.querySelector("[data-field='service-category']");
 const editCategoryValues = [...(editCategorySelect?.querySelectorAll("option") ?? [])].map((option) => option.value);
-assert("редактирование сохраняет выбор существующей категории", editCategorySelect?.value === "Педикюр");
+assert("редактирование сохраняет выбор существующей категории", editCategorySelect?.value === "Педикюр исправленный");
 assert("в редактировании тоже нет создания категории на лету", !editCategoryValues.includes("__new_category__") && !page.dom.window.document.querySelector("[data-field='service-new-category']"));
 click(page.dom, "Отмена");
 await wait(100);
@@ -230,6 +327,35 @@ assert(
 assert(
   "услуга с записями не удалена",
   (await apiAs(master, "/cabinet/services")).data.items.some((item) => item.id === "anna-smirnova-s2"),
+);
+click(page.dom, "Оставить как есть");
+await wait(100);
+
+// Пустую категорию можно удалить из интерфейса после подтверждения.
+click(page.dom, "Добавить категорию");
+await wait(100);
+setField(page.dom, "Например, Педикюр", "Пустая категория для удаления");
+click(page.dom, "Создать категорию");
+await wait(900);
+const categoriesWithEmpty = await apiAs(master, "/cabinet/services");
+const emptyCategory = categoriesWithEmpty.data.categoryItems.find((category) => category.name === "Пустая категория для удаления");
+assert("пустая категория создана перед удалением", Boolean(emptyCategory?.id), emptyCategory?.id);
+const emptyCategoryDeleteButton = page.dom.window.document.querySelector(
+  `[data-action='delete-category'][data-category-id='${emptyCategory?.id}']`,
+);
+assert("у пустой категории есть кнопка удаления", Boolean(emptyCategoryDeleteButton));
+emptyCategoryDeleteButton?.dispatchEvent(new page.dom.window.MouseEvent("click", { bubbles: true }));
+await wait(100);
+page.dom.window.document.querySelector("[data-action='confirm-delete-category']")?.dispatchEvent(
+  new page.dom.window.MouseEvent("click", { bubbles: true }),
+);
+await wait(900);
+const categoriesAfterDelete = await apiAs(master, "/cabinet/services");
+assert(
+  "пустую категорию можно удалить без остатка",
+  !categoriesAfterDelete.data.categoryItems.some((category) => category.id === emptyCategory?.id) &&
+    !categoriesAfterDelete.data.categories.includes("Пустая категория для удаления"),
+  JSON.stringify(categoriesAfterDelete.data.categories),
 );
 
 page.dom.window.close();

@@ -15,10 +15,13 @@ import {
   createService,
   createServiceCategory,
   deleteService,
+  deleteServiceCategory,
   durationLabel,
   updateService,
+  updateServiceCategory,
   useCabinetServices,
   type CabinetService,
+  type CabinetServiceCategory,
 } from "../../api/services";
 import { ApiError } from "../../api/client";
 
@@ -56,6 +59,8 @@ type Draft = {
   active: boolean;
 };
 
+type CategoryEditor = { mode: "create" } | { mode: "edit"; category: CabinetServiceCategory };
+
 const emptyDraft: Draft = { name: "", category: "", duration: "60", price: "1500", prepayment: "0", active: true };
 
 function draftOf(service: CabinetService): Draft {
@@ -82,10 +87,13 @@ export function ServicesPage() {
   const [page, setPage] = useState(1);
   const [editor, setEditor] = useState<{ mode: "create" } | { mode: "edit"; service: CabinetService } | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
-  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [categoryEditor, setCategoryEditor] = useState<CategoryEditor | null>(null);
   const [categoryName, setCategoryName] = useState("");
   const [categorySaving, setCategorySaving] = useState(false);
   const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [categoryDeleteTarget, setCategoryDeleteTarget] = useState<CabinetServiceCategory | null>(null);
+  const [categoryDeleting, setCategoryDeleting] = useState(false);
+  const [categoryDeleteError, setCategoryDeleteError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [inUse, setInUse] = useState<CabinetService | null>(null);
@@ -93,6 +101,7 @@ export function ServicesPage() {
   const { data, loading, error, reload } = useCabinetServices();
   const services = useMemo(() => data?.items ?? [], [data]);
   const live = Boolean(data);
+  const categoryModalOpen = categoryEditor !== null;
 
   const visible = useMemo(
     () => (query ? services.filter((row) => row.name.toLowerCase().includes(query.trim().toLowerCase())) : services),
@@ -107,6 +116,7 @@ export function ServicesPage() {
   );
   const categories = useMemo(() => {
     const counts = new Map<string, { count: number; active: number; lead: string }>();
+    const idsByName = new Map((data?.categoryItems ?? []).map((category) => [category.name, category.id] as const));
     for (const service of services) {
       const entry = counts.get(service.category) ?? { count: 0, active: 0, lead: "" };
       entry.count += 1;
@@ -115,10 +125,11 @@ export function ServicesPage() {
       counts.set(service.category, entry);
     }
     return categoryOptions.map((name) => ({
+      id: idsByName.get(name) ?? null,
       name,
       ...(counts.get(name) ?? { count: 0, active: 0, lead: "" }),
     }));
-  }, [categoryOptions, services]);
+  }, [categoryOptions, data?.categoryItems, services]);
 
   const openCreateService = () => {
     setActionError(null);
@@ -136,7 +147,18 @@ export function ServicesPage() {
   const openCreateCategory = () => {
     setCategoryName("");
     setCategoryError(null);
-    setCategoryModalOpen(true);
+    setCategoryEditor({ mode: "create" });
+  };
+
+  const openEditCategory = (category: CabinetServiceCategory) => {
+    setCategoryName(category.name);
+    setCategoryError(null);
+    setCategoryEditor({ mode: "edit", category });
+  };
+
+  const openDeleteCategory = (category: CabinetServiceCategory) => {
+    setCategoryDeleteTarget(category);
+    setCategoryDeleteError(null);
   };
 
   const run = async (action: () => Promise<void>, message: string) => {
@@ -163,15 +185,40 @@ export function ServicesPage() {
     setCategorySaving(true);
     setCategoryError(null);
     try {
-      await createServiceCategory(name);
-      setCategoryModalOpen(false);
+      if (categoryEditor?.mode === "edit") {
+        await updateServiceCategory(categoryEditor.category.id, name);
+      } else {
+        await createServiceCategory(name);
+      }
+      setCategoryEditor(null);
       setCategoryName("");
       setTab("categories");
       reload();
     } catch (caught) {
-      setCategoryError(caught instanceof ApiError ? caught.message : "Не удалось создать категорию");
+      setCategoryError(
+        caught instanceof ApiError
+          ? caught.message
+          : categoryEditor?.mode === "edit"
+            ? "Не удалось изменить категорию"
+            : "Не удалось создать категорию",
+      );
     } finally {
       setCategorySaving(false);
+    }
+  };
+
+  const removeCategory = async () => {
+    if (!categoryDeleteTarget) return;
+    setCategoryDeleting(true);
+    setCategoryDeleteError(null);
+    try {
+      await deleteServiceCategory(categoryDeleteTarget.id);
+      setCategoryDeleteTarget(null);
+      reload();
+    } catch (caught) {
+      setCategoryDeleteError(caught instanceof ApiError ? caught.message : "Не удалось удалить категорию");
+    } finally {
+      setCategoryDeleting(false);
     }
   };
 
@@ -396,15 +443,41 @@ export function ServicesPage() {
       ) : (
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {categories.map((category) => (
-            <Card key={category.name}>
-              <div className="flex items-start justify-between">
-                <div>
+            <Card key={category.id ?? category.name} data-category-row={category.id ?? ""}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
                   <p className="font-medium text-slate-800">{category.name}</p>
                   <p className="mt-1 text-sm text-slate-500">
                     Активных услуг: {category.active} из {category.count}
                   </p>
                 </div>
-                <Chip tone="gray">{category.count} услуг</Chip>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Chip tone="gray">{category.count} услуг</Chip>
+                  <button
+                    type="button"
+                    disabled={!live || busy || categorySaving || categoryDeleting || !category.id}
+                    onClick={() => category.id && openEditCategory({ id: category.id, name: category.name })}
+                    data-action="edit-category"
+                    data-category-id={category.id ?? ""}
+                    aria-label={`Редактировать категорию ${category.name}`}
+                    title="Редактировать категорию"
+                    className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-white hover:text-slate-700 disabled:opacity-50"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!live || busy || categorySaving || categoryDeleting || !category.id}
+                    onClick={() => category.id && openDeleteCategory({ id: category.id, name: category.name })}
+                    data-action="delete-category"
+                    data-category-id={category.id ?? ""}
+                    aria-label={`Удалить категорию ${category.name}`}
+                    title="Удалить категорию"
+                    className="grid h-8 w-8 place-items-center rounded-lg border border-rose-200 text-rose-400 transition hover:bg-rose-50 disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </Card>
           ))}
@@ -527,10 +600,14 @@ export function ServicesPage() {
       <Modal
         open={categoryModalOpen}
         onClose={() => {
-          if (!categorySaving) setCategoryModalOpen(false);
+          if (!categorySaving) setCategoryEditor(null);
         }}
-        title="Добавить категорию"
-        subtitle="Новая категория появится в списке при создании услуги"
+        title={categoryEditor?.mode === "edit" ? "Редактировать категорию" : "Добавить категорию"}
+        subtitle={
+          categoryEditor?.mode === "edit"
+            ? "Новое название обновится у услуг этой категории"
+            : "Новая категория появится в списке при создании услуги"
+        }
         width="max-w-md"
         footer={
           <>
@@ -541,11 +618,11 @@ export function ServicesPage() {
               data-action="save-category"
               className="rounded-xl bg-[#e11d48] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#be123c] disabled:opacity-60"
             >
-              {categorySaving ? "Сохраняем…" : "Создать категорию"}
+              {categorySaving ? "Сохраняем…" : categoryEditor?.mode === "edit" ? "Сохранить категорию" : "Создать категорию"}
             </button>
             <button
               type="button"
-              onClick={() => setCategoryModalOpen(false)}
+              onClick={() => setCategoryEditor(null)}
               disabled={categorySaving}
               className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-60"
             >
@@ -571,6 +648,49 @@ export function ServicesPage() {
             />
           </label>
           {categoryError && <p role="alert" className="text-sm text-rose-600">{categoryError}</p>}
+        </div>
+      </Modal>
+
+      <Modal
+        open={categoryDeleteTarget !== null}
+        onClose={() => {
+          if (!categoryDeleting) {
+            setCategoryDeleteTarget(null);
+            setCategoryDeleteError(null);
+          }
+        }}
+        title="Удалить категорию?"
+        subtitle={categoryDeleteTarget?.name}
+        width="max-w-md"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => void removeCategory()}
+              disabled={categoryDeleting}
+              data-action="confirm-delete-category"
+              className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-700 disabled:opacity-60"
+            >
+              {categoryDeleting ? "Удаляем…" : "Удалить категорию"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCategoryDeleteTarget(null);
+                setCategoryDeleteError(null);
+              }}
+              disabled={categoryDeleting}
+              data-action="cancel-delete-category"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+            >
+              Отмена
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-2 text-sm text-slate-600">
+          <p>Удалить можно только пустую категорию. Сначала перенесите или удалите связанные услуги.</p>
+          {categoryDeleteError && <p role="alert" data-category-delete-error className="rounded-lg bg-rose-50 px-3 py-2 text-rose-700">{categoryDeleteError}</p>}
         </div>
       </Modal>
 

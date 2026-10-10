@@ -43,6 +43,13 @@ const serviceCategoryInput = z.object({
   name: z.string().trim().min(2, "Название категории слишком короткое").max(60, "Максимум 60 символов"),
 });
 
+const categoryInUseMessage =
+  "Нельзя удалить категорию, пока в ней есть услуги. Пожалуйста, удалите или перенесите услуги в другие разделы";
+
+function normalizeCategoryName(name: string): string {
+  return name.trim().toLocaleLowerCase("ru-RU");
+}
+
 /** Услуги текущего мастера: владелец берётся из проверенной сессии. */
 async function currentMaster(userId: string | null) {
   if (!userId) return null;
@@ -77,17 +84,19 @@ export async function serviceRoutes(app: FastifyInstance) {
       bookingsByService.set(row.serviceId, (bookingsByService.get(row.serviceId) ?? 0) + 1);
     }
 
-    const savedCategories = await db
-      .select({ name: serviceCategories.name })
+    const categoryItems = await db
+      .select({ id: serviceCategories.id, name: serviceCategories.name })
       .from(serviceCategories)
-      .where(eq(serviceCategories.masterId, master.id));
+      .where(eq(serviceCategories.masterId, master.id))
+      .orderBy(asc(serviceCategories.name));
     // Категории существующих услуг включаем для обратной совместимости с теми,
     // кто обновляет приложение после создания собственного прайса.
-    const categories = [...new Set([...savedCategories.map((item) => item.name), ...rows.map((item) => item.category)])]
+    const categories = [...new Set([...categoryItems.map((item) => item.name), ...rows.map((item) => item.category)])]
       .sort((a, b) => a.localeCompare(b, "ru"));
 
     return {
       categories,
+      categoryItems,
       items: rows.map((service) => ({
         id: service.id,
         name: service.name,
@@ -131,6 +140,96 @@ export async function serviceRoutes(app: FastifyInstance) {
     }
 
     return reply.code(201).send({ category });
+  });
+
+  /**
+   * Переименование категории. Категория и значения у услуг меняются вместе:
+   * клиентский прайс сразу получает новое название.
+   */
+  app.put("/cabinet/services/categories/:id", masterOnly, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const master = await currentMaster(request.currentUser?.id ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const [category] = await db.select().from(serviceCategories).where(eq(serviceCategories.id, id)).limit(1);
+    if (!category) return reply.code(404).send({ error: "not_found", message: "Категория не найдена" });
+    if (category.masterId !== master.id) {
+      return reply.code(403).send({ error: "forbidden", message: "Это категория другого мастера" });
+    }
+
+    const { name } = serviceCategoryInput.parse(request.body ?? {});
+    const normalizedName = normalizeCategoryName(name);
+    const currentNormalizedName = normalizeCategoryName(category.name);
+    const [savedCategories, existingServices] = await Promise.all([
+      db.select({ id: serviceCategories.id, name: serviceCategories.name })
+        .from(serviceCategories)
+        .where(eq(serviceCategories.masterId, master.id)),
+      db.select({ category: services.category })
+        .from(services)
+        .where(eq(services.masterId, master.id)),
+    ]);
+    const duplicateCategory = savedCategories.some(
+      (item) => item.id !== category.id && normalizeCategoryName(item.name) === normalizedName,
+    );
+    const duplicateServiceCategory = existingServices.some(
+      (item) =>
+        normalizeCategoryName(item.category) === normalizedName &&
+        normalizeCategoryName(item.category) !== currentNormalizedName,
+    );
+    if (duplicateCategory || duplicateServiceCategory) {
+      return reply.code(409).send({ error: "category_exists", message: "Такая категория уже существует" });
+    }
+
+    const updatedCategory = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(serviceCategories)
+        .set({ name })
+        .where(and(eq(serviceCategories.id, category.id), eq(serviceCategories.masterId, master.id)))
+        .returning({ id: serviceCategories.id, name: serviceCategories.name });
+      if (!updated) return null;
+
+      await tx
+        .update(services)
+        .set({ category: name })
+        .where(and(eq(services.masterId, master.id), eq(services.category, category.name)));
+      return updated;
+    });
+    if (!updatedCategory) return reply.code(404).send({ error: "not_found", message: "Категория не найдена" });
+
+    return { category: updatedCategory };
+  });
+
+  /**
+   * Удалять можно только пустую категорию. Скрытые услуги тоже остаются в
+   * кабинете и ссылаются на неё, поэтому проверяем все услуги мастера.
+   */
+  app.delete("/cabinet/services/categories/:id", masterOnly, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const master = await currentMaster(request.currentUser?.id ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const [category] = await db.select().from(serviceCategories).where(eq(serviceCategories.id, id)).limit(1);
+    if (!category) return reply.code(404).send({ error: "not_found", message: "Категория не найдена" });
+    if (category.masterId !== master.id) {
+      return reply.code(403).send({ error: "forbidden", message: "Это категория другого мастера" });
+    }
+
+    const [attachedService] = await db
+      .select({ id: services.id })
+      .from(services)
+      .where(and(eq(services.masterId, master.id), eq(services.category, category.name)))
+      .limit(1);
+    if (attachedService) {
+      return reply.code(409).send({ error: "category_in_use", message: categoryInUseMessage });
+    }
+
+    const [deleted] = await db
+      .delete(serviceCategories)
+      .where(and(eq(serviceCategories.id, category.id), eq(serviceCategories.masterId, master.id)))
+      .returning({ id: serviceCategories.id });
+    if (!deleted) return reply.code(404).send({ error: "not_found", message: "Категория не найдена" });
+
+    return { ok: true, id: deleted.id };
   });
 
   /** Новая услуга: цена и длительность сразу влияют на запись и окна. */

@@ -148,6 +148,7 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
                 >
                   <div>
                     <p className="font-medium">{service.name}</p>
+                    <p data-service-category={service.category} className="text-xs text-pink-600">{service.category}</p>
                     <p className="text-sm text-slate-500">{durationLabel(service.durationMinutes)}</p>
                   </div>
                   <p className="font-semibold">{formatRub(service.price)}</p>

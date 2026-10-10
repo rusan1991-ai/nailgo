@@ -19,10 +19,17 @@ export type CabinetService = {
   bookingsCount: number;
 };
 
+export type CabinetServiceCategory = {
+  id: string;
+  name: string;
+};
+
 export type CabinetServices = {
   items: CabinetService[];
   /** Личные категории мастера, включая категории без добавленных услуг. */
   categories: string[];
+  /** ID нужны для безопасного редактирования и удаления категории владельцем. */
+  categoryItems: CabinetServiceCategory[];
   total: number;
   activeCount: number;
 };
@@ -41,9 +48,21 @@ export function useCabinetServices(): Resource<CabinetServices> {
   return useApiResource<CabinetServices>("/cabinet/services");
 }
 
-export async function createServiceCategory(name: string): Promise<string> {
-  const response = await api.post<{ category: { id: string; name: string } }>("/cabinet/service-categories", { name });
-  return response.category.name;
+export async function createServiceCategory(name: string): Promise<CabinetServiceCategory> {
+  const response = await api.post<{ category: CabinetServiceCategory }>("/cabinet/service-categories", { name });
+  return response.category;
+}
+
+export async function updateServiceCategory(id: string, name: string): Promise<CabinetServiceCategory> {
+  const response = await api.put<{ category: CabinetServiceCategory }>(
+    `/cabinet/services/categories/${encodeURIComponent(id)}`,
+    { name },
+  );
+  return response.category;
+}
+
+export async function deleteServiceCategory(id: string): Promise<void> {
+  await api.delete(`/cabinet/services/categories/${encodeURIComponent(id)}`);
 }
 
 export async function createService(input: ServiceInput): Promise<CabinetService> {

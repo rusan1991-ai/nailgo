@@ -24,6 +24,9 @@ export type Database = PgliteDatabase<typeof schema>;
 const databaseUrl = process.env.DATABASE_URL ?? "pglite://./.pglite";
 
 const isPostgres = databaseUrl.startsWith("postgres://") || databaseUrl.startsWith("postgresql://");
+const BOOTSTRAP_ADVISORY_LOCK_ID = 0x4e3247; // «N2G»: сериализует bootstrap между backend-инстансами.
+let postgresPool: Pool | null = null;
+let bootstrapLockPool: Pool | null = null;
 
 /** Локальная база: поднимаем PGlite и его драйвер drizzle. */
 async function createLocalDb(): Promise<{ db: Database; close: () => Promise<void> }> {
@@ -45,11 +48,14 @@ async function createLocalDb(): Promise<{ db: Database; close: () => Promise<voi
 /** Сервер: обычный Postgres. Пул ограничен переменной PG_POOL_MAX (по умолчанию 10). */
 function createPostgresDb(): Database {
   const poolMax = Number.parseInt(process.env.PG_POOL_MAX ?? "", 10);
-  const pool = new Pool({
+  postgresPool = new Pool({
     connectionString: databaseUrl,
     ...(Number.isFinite(poolMax) && poolMax > 0 ? { max: poolMax } : {}),
   });
-  return drizzlePg(pool, { schema }) as unknown as Database;
+  // Отдельное соединение для advisory lock: bootstrap продолжает выполнять
+  // Drizzle-запросы через основной пул даже при PG_POOL_MAX=1.
+  bootstrapLockPool = new Pool({ connectionString: databaseUrl, max: 1 });
+  return drizzlePg(postgresPool, { schema }) as unknown as Database;
 }
 
 const local = isPostgres ? null : await createLocalDb();
@@ -67,8 +73,27 @@ export async function runMigrations(): Promise<void> {
   await migratePglite(db as never, { migrationsFolder });
 }
 
+/** Выполнить единичную инициализацию под advisory lock PostgreSQL. */
+export async function withBootstrapLock<T>(operation: () => Promise<T>): Promise<T> {
+  if (!bootstrapLockPool) return operation(); // локальный PGlite обычно однопроцессный.
+
+  const client = await bootstrapLockPool.connect();
+  let locked = false;
+  try {
+    await client.query("SELECT pg_advisory_lock($1)", [BOOTSTRAP_ADVISORY_LOCK_ID]);
+    locked = true;
+    return await operation();
+  } finally {
+    try {
+      if (locked) await client.query("SELECT pg_advisory_unlock($1)", [BOOTSTRAP_ADVISORY_LOCK_ID]);
+    } finally {
+      client.release();
+    }
+  }
+}
+
 export async function closeDb(): Promise<void> {
-  await local?.close();
+  await Promise.all([local?.close(), postgresPool?.end(), bootstrapLockPool?.end()]);
 }
 
 export async function pingDb(): Promise<boolean> {

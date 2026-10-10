@@ -121,6 +121,15 @@ async function start() {
   const app = await buildServer();
   try {
     await runMigrations();
+    if (env.autoSeedOnEmpty) {
+      const { seedOnEmptyDatabase } = await import("./db/seed.js");
+      const bootstrap = await seedOnEmptyDatabase();
+      if (bootstrap.seeded) {
+        app.log.info({ counts: bootstrap.counts }, "Начальные демо-данные добавлены в пустую базу");
+      } else {
+        app.log.info("База не пустая: начальные демо-сиды пропущены");
+      }
+    }
     /**
      * Справочник мест — константа в коде, но живёт в базе (фильтры витрины и
      * привязка мастеров идут по slug). Синхронизируем при старте: на чистой

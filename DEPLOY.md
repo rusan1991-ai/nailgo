@@ -1,173 +1,271 @@
-# Прод-деплой Nail 2 Go (NailToGo)
+# Production deployment on Ubuntu
 
-Стек на VPS: **Caddy со статикой сайта**, **API (Fastify + Drizzle)** и **Postgres 17**.
-Всё поднимается одним `docker compose -f docker-compose.prod.yml`.
+The recommended production stack is defined in the root `docker-compose.yml`:
 
-## Что входит
-
-| Файл | Назначение |
+| Service/file | Purpose |
 | --- | --- |
-| `Dockerfile.web` | сборка фронтенда (Vite) и отдача статики через Caddy |
-| `apps/api/Dockerfile` | сборка API и запуск `dist/server.js` |
-| `docker-compose.prod.yml` | сервисы `web`, `api`, `postgres` |
-| `infrastructure/caddy/Caddyfile.web` | домен, статика, прокси `/api` → API |
-| `infrastructure/caddy/Caddyfile` | вариант с отдельным доменом `api.<домен>` |
-| `.env.production.example` | шаблон окружения |
-| `scripts/install.sh`, `update.sh`, `backup.sh`, `restore.sh` | установка, обновление, бэкап, восстановление |
+| `postgres` | PostgreSQL 17; its data is kept in the named `postgres_data` volume |
+| `nailgo-backend` | Fastify API on port 4000 inside the Compose network; Drizzle migrations run at startup |
+| `nailgo-frontend` | Vite production bundle served by Nginx on host ports 80 and 443; `/api` is proxied to the backend |
+| `Dockerfile.frontend` | Multi-stage Vite build and small Nginx runtime image |
+| `apps/api/Dockerfile` | Multi-stage TypeScript build and non-root Node.js runtime |
+| `infrastructure/nginx/` | HTTP bootstrap config, HTTPS config and certificate-aware entrypoint |
+| `.env.production.example` | Complete production environment template |
 
-Сервисов `admin`, `worker` и `redis` в compose нет: кода, который бы их использовал,
-в репозитории пока нет. Они появятся вместе с реализацией (админка, фоновые задачи, кеш).
+The API is available on `127.0.0.1:4000` for host-local diagnostics, but is **not published on a public interface**. Clients use the same-origin URL `https://nail2go.ru/api`, and Nginx reaches the API at `nailgo-backend:4000`. PostgreSQL is private to the Compose network.
 
-## 1. Подготовка сервера
+## 1. Requirements and DNS
 
-- Ubuntu 24.04 LTS, Docker Engine + плагин `docker compose`
-- A-запись домена (например, `nailmarket.ru`) на IP сервера — Caddy сам получит
-  сертификат Let's Encrypt, нужны открытые порты 80 и 443
-
-## 2. Окружение
+Use a clean Ubuntu 22.04 or 24.04 LTS server with a public static IP. Before starting, add an `A` record for `nail2go.ru` pointing to the server. Remove a stale `AAAA` record unless IPv6 is correctly configured too. Open inbound TCP ports 80 and 443 in the cloud firewall and on Ubuntu:
 
 ```bash
-cp .env.production.example .env
-nano .env
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw enable
 ```
 
-Обязательно замените все `change_me_*`. Секреты токенов удобно генерировать так:
+Keep the SSH rule before enabling UFW so you do not lock yourself out. The API binds to `0.0.0.0` **inside its container**; the host only publishes Nginx ports 80/443.
+
+## 2. Install Docker Engine, Compose and Certbot
+
+Install Docker from its official Ubuntu repository and Certbot for the initial Let's Encrypt certificate:
 
 ```bash
-openssl rand -hex 32   # для JWT_ACCESS_SECRET и JWT_REFRESH_SECRET
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl git openssl certbot
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+. /etc/os-release
+DOCKER_UBUNTU_CODENAME="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${DOCKER_UBUNTU_CODENAME} stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io \
+  docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker compose version
 ```
 
-Вход и уведомления (подробности — в комментариях `.env.production.example`):
-
-- **Платных SMS у площадки нет.** Телефонный код (`OTP_DELIVERY`) — инструмент стенда:
-  `log` пишет код в лог API, `response` отдаёт его в ответе (только локальная разработка).
-  В проде `/api/auth/request-otp` отвечает `503 phone_login_disabled` и отправляет человека
-  к бесплатным способам входа.
-- `APP_DOMAIN` / `API_DOMAIN` — домены Caddy для сайта и API (в примере `nail2go.ru` и
-  `api.nail2go.ru`); `PUBLIC_WEB_URL` и `OAUTH_REDIRECT_BASE` — публичные адреса сайта и API.
-  Второй должен совпадать с редиректом, зарегистрированным у провайдера:
-  `<OAUTH_REDIRECT_BASE>/api/auth/oauth/<провайдер>/callback` (`yandex`, `vk`).
-- `YANDEX_CLIENT_ID`/`SECRET`, `VK_CLIENT_ID`/`SECRET` — OAuth-приложения. Пустой ключ
-  означает «провайдер не подключён»: кнопка на входе рисуется выключенной,
-  `/auth/oauth/<провайдер>/start` отвечает `503`.
-- `TELEGRAM_BOT_TOKEN` + `TELEGRAM_BOT_USERNAME` + `TELEGRAM_WEBHOOK_SECRET`, `MAX_BOT_TOKEN`
-  + `MAX_BOT_NAME` + `MAX_WEBHOOK_SECRET` — боты для входа по диплинку и бесплатных
-  напоминаний. Вебхуки: `POST /api/messengers/telegram/webhook` (секрет в заголовке
-  `x-telegram-bot-api-secret-token`) и `POST /api/messengers/max/webhook`
-  (заголовок `x-max-bot-api-secret` или поле `secret`). Max требует домен
-  `platform-api2.max.ru` и TLS-цепочку Минцифры: в контейнер положите
-  `russian_trusted_root_ca.crt` и задайте `NODE_EXTRA_CA_CERTS`.
-- `DELIVERY_TRANSPORT` — как уходят уведомления: `auto` (по каналу: Telegram → Max → журнал
-  системы), `log` (только журнал), `webhook` (POST на `DELIVERY_WEBHOOK_URL`).
-  Транспорт и адрес можно поменять на ходу в админке, `/admin/deliveries`.
-- `MEDIA_DIR`, `MEDIA_MAX_BYTES`, `MEDIA_WEB_WIDTH`, `MEDIA_THUMB_WIDTH` — хранилище фото
-  мастеров: путь на диске (том `media_data`), лимит загрузки (5 МБ) и ширины вариантов
-  `web` и `thumb`, которые считает sharp. Без постоянного тома фото исчезнут при пересборке.
-- `PAYMENT_PROVIDER` — как принимаем предоплату: `manual` (деньги принимает мастер,
-  факт отмечается в кабинете) или `webhook` (`PAYMENT_WEBHOOK_URL` — платёжный шлюз,
-  он возвращает ссылку на оплату и сообщает об оплате вебхуком
-  `POST /api/payments/webhook`; если шлюз присылает секрет, задайте
-  `PAYMENT_WEBHOOK_SECRET`). `PAYMENT_RETURN_URL` и `PAYMENT_PUBLIC_API_URL` —
-  адрес сайта для возврата клиента и публичный адрес API для callback.
-
-## 3. Первый запуск
+## 3. Get the project and prepare `.env.production`
 
 ```bash
-chmod +x scripts/*.sh
-./scripts/install.sh
+sudo git clone --branch main https://github.com/rusan1991-ai/nailgo.git /opt/nailgo
+sudo chown -R "$USER":"$USER" /opt/nailgo
+cd /opt/nailgo
+cp .env.production.example .env.production
+nano .env.production
 ```
 
-Миграции API накатывает сам при старте (`runMigrations()` в `apps/api/src/server.ts`),
-отдельного шага с `db:deploy` не нужно. Повторный запуск безопасен.
+Below is the complete example for `nail2go.ru`. Replace every `CHANGE_ME` value. Generate secrets with `openssl rand -hex 32`. Use the **same** generated hex password in `POSTGRES_PASSWORD` and `DATABASE_URL`; hex characters are URL-safe and do not need percent-encoding. Do not commit the real `.env.production` file.
 
-## 4. Проверка
+```dotenv
+APP_DOMAIN=nail2go.ru
+HOST=0.0.0.0
+NODE_ENV=production
+LOG_LEVEL=info
+TZ=Europe/Moscow
+
+POSTGRES_DB=nailgo
+POSTGRES_USER=nailgo
+POSTGRES_PASSWORD=CHANGE_ME_POSTGRES_HEX
+DATABASE_URL=postgresql://nailgo:CHANGE_ME_POSTGRES_HEX@postgres:5432/nailgo
+PG_POOL_MAX=10
+
+AUTO_SEED_ON_EMPTY=true
+LETSENCRYPT_DIR=/etc/letsencrypt
+CERTBOT_WEBROOT=./certbot/www
+
+JWT_ACCESS_SECRET=CHANGE_ME_ACCESS_HEX
+JWT_REFRESH_SECRET=CHANGE_ME_REFRESH_HEX
+JWT_ACCESS_TTL_SECONDS=900
+JWT_REFRESH_TTL_SECONDS=2592000
+OTP_PEPPER=CHANGE_ME_OTP_PEPPER_HEX
+
+DEV_OTP_ENABLED=false
+OTP_DELIVERY=log
+OTP_TTL_SECONDS=300
+OTP_REQUEST_LIMIT_PER_PHONE=5
+OTP_REQUEST_LIMIT_PER_IP=30
+OTP_VERIFY_LIMIT=5
+OTP_WINDOW_SECONDS=900
+
+PLATFORM_TIMEZONE=Europe/Moscow
+SLOT_STEP_MINUTES=30
+DEFAULT_DAY_START_MINUTE=600
+DEFAULT_DAY_END_MINUTE=1200
+BOOKING_MIN_LEAD_MINUTES=60
+BOOKING_CONFIRM_DEADLINE_MINUTES=120
+BOOKING_AUTOCOMPLETE_HOURS=24
+CANCEL_FREE_HOURS=6
+LATE_CANCEL_LIMIT=3
+NO_SHOW_LIMIT=2
+SCHEDULER_INTERVAL_SECONDS=60
+
+DELIVERY_TRANSPORT=auto
+DELIVERY_WEBHOOK_URL=
+DELIVERY_INTERVAL_SECONDS=30
+DELIVERY_MAX_ATTEMPTS=3
+
+PUBLIC_WEB_URL=https://nail2go.ru
+OAUTH_REDIRECT_BASE=https://nail2go.ru
+YANDEX_CLIENT_ID=
+YANDEX_CLIENT_SECRET=
+YANDEX_AUTH_URL=https://oauth.yandex.ru
+YANDEX_API_URL=https://login.yandex.ru
+VK_CLIENT_ID=
+VK_CLIENT_SECRET=
+VK_AUTH_URL=https://id.vk.com
+VK_API_VERSION=5.199
+
+TELEGRAM_API_URL=https://api.telegram.org
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_BOT_USERNAME=
+TELEGRAM_WEBHOOK_SECRET=CHANGE_ME_TELEGRAM_HEX
+MAX_API_URL=https://platform-api2.max.ru
+MAX_BOT_TOKEN=
+MAX_BOT_NAME=
+MAX_WEBHOOK_SECRET=CHANGE_ME_MAX_HEX
+MAX_APP_URL=https://max.ru
+BOT_LOGIN_TTL_MINUTES=10
+MAGIC_LINK_TTL_MINUTES=10080
+
+MEDIA_DIR=/data/media
+MEDIA_MAX_BYTES=5242880
+MEDIA_WEB_WIDTH=1200
+MEDIA_THUMB_WIDTH=320
+
+PAYMENT_PROVIDER=manual
+PAYMENT_WEBHOOK_URL=
+PAYMENT_WEBHOOK_SECRET=CHANGE_ME_PAYMENT_HEX
+PAYMENT_RETURN_URL=https://nail2go.ru
+PAYMENT_PUBLIC_API_URL=https://nail2go.ru
+
+VITE_API_URL=/api
+VITE_YANDEX_MAPS_KEY=
+```
+
+Important settings:
+
+- `APP_DOMAIN` is the plain hostname, without `https://`; `HOST=0.0.0.0` makes the API listen on all container interfaces.
+- `DATABASE_URL` must use `postgresql://...@postgres:5432/...`. The API selects the full `pg`/node-postgres driver for both `postgres://` and `postgresql://`; it does not use PGlite in production.
+- `PUBLIC_WEB_URL`, `OAUTH_REDIRECT_BASE`, and payment URLs use the public site origin because Nginx proxies `/api` on the same hostname. Register OAuth callbacks as `https://nail2go.ru/api/auth/oauth/yandex/callback` and/or `https://nail2go.ru/api/auth/oauth/vk/callback` with the relevant providers.
+- `DEV_OTP_ENABLED=false` keeps development phone-code login disabled. Configure OAuth and/or bots before inviting real users. Telegram/Max values can stay blank until those integrations are configured.
+- `VITE_API_URL=/api` keeps browser requests same-origin so Nginx can proxy them; `VITE_YANDEX_MAPS_KEY` is a public browser key embedded during the frontend image build, not an API secret.
+- `AUTO_SEED_ON_EMPTY=true` enables the requested first-start demo bootstrap. Set it to `false` before the very first start if this deployment must begin without demo accounts and bookings.
+
+## 4. First start and TLS certificate
+
+The Nginx image starts in HTTP bootstrap mode if no certificate exists yet. This serves the site and ACME challenge files on port 80, so Certbot can issue the certificate without stopping the stack.
 
 ```bash
-curl -fsS http://127.0.0.1:4000/api/health
-# {"ok":true,"service":"nailgo-api","storage":"postgres","masters":…,"bookings":…}
+mkdir -p certbot/www/.well-known/acme-challenge
 
-docker compose --env-file .env -f docker-compose.prod.yml ps
-curl -fsS -o /dev/null -w '%{http_code}\n' https://ваш-домен/
+docker compose --env-file .env.production up -d --build
+docker compose --env-file .env.production ps
 ```
 
-`storage: postgres` в ответе подтверждает, что API работает с серверной базой,
-а не с локальной PGlite.
-
-## 5. Демо-данные (только для стенда)
+After DNS points to this machine, request the certificate on the host:
 
 ```bash
-docker compose --env-file .env -f docker-compose.prod.yml \
-  run --rm api node -e "import('./dist/db/seed.js').then((m) => m.seed())"
+sudo certbot certonly --webroot \
+  --webroot-path /opt/nailgo/certbot/www \
+  --email admin@nail2go.ru --agree-tos --no-eff-email \
+  -d nail2go.ru
 ```
 
-На боевой базе сиды не запускайте: они перезапишут записи и отзывы демо-набором.
-
-## 6. Обновление
+The frontend container mounts `/etc/letsencrypt` and the Certbot webroot read-only. Restart Nginx to load the newly issued certificate and switch to HTTPS:
 
 ```bash
-./scripts/update.sh
+cd /opt/nailgo
+docker compose --env-file .env.production restart nailgo-frontend
 ```
 
-Скрипт делает бэкап, пересобирает образы `web` и `api`, поднимает стек заново.
-Миграции применяются при старте API.
-
-## 7. Бэкап и восстановление
+Add an automatic Nginx reload after successful renewals:
 
 ```bash
-./scripts/backup.sh                                  # backups/postgres_YYYYMMDD_HHMMSS.sql
-./scripts/restore.sh backups/postgres_20240101_120000.sql
+sudo tee /etc/letsencrypt/renewal-hooks/deploy/reload-nailgo-nginx.sh >/dev/null <<'EOF'
+#!/bin/sh
+cd /opt/nailgo
+docker compose --env-file .env.production restart nailgo-frontend
+EOF
+sudo chmod 0755 /etc/letsencrypt/renewal-hooks/deploy/reload-nailgo-nginx.sh
+sudo certbot renew --dry-run
 ```
 
-Данные Postgres, фото мастеров и сертификаты Caddy живут в томах `postgres_data`,
-`media_data`, `caddy_data`, `caddy_config` — они переживают пересборку контейнеров.
-Фото мастеров (`MEDIA_DIR=/data/media`) в резервную копию базы не входят: их копируют
-отдельно тем же `scripts/backup.sh` (том целиком) или средствами сервера.
+Certbot's systemd timer handles later renewals; the deploy hook restarts Nginx only when a certificate is renewed.
 
-## Проверка прод-пути без Docker
+## 5. Bootstrap, migrations and verification
 
-Docker в песочнице разработки недоступен, поэтому сборка и серверный драйвер
-проверяются локально:
+On first API start the service:
+
+1. waits for PostgreSQL health;
+2. applies the checked-in Drizzle migrations through Drizzle ORM's PostgreSQL migrator;
+3. when `AUTO_SEED_ON_EMPTY=true`, takes a PostgreSQL advisory lock and checks all business tables;
+4. if and only if they are empty, runs the existing demo seed once (location directory, demo masters/services and demo administrator); otherwise skips it without deleting or changing records;
+5. synchronizes the location directory and starts listening on port 4000.
+
+The destructive `seed()` routine is **not** run on every restart. The bootstrap only calls it against an empty application database; a persistent marker and existing rows prevent a later restart from resetting demo or customer data. Do not run `npm run db:seed` against a live database.
+
+Check the stack and the public health endpoint:
 
 ```bash
-cd apps/api
-npm run build                       # tsc → dist
-npm run db:bridge                   # Postgres по проводу (PGlite) на 127.0.0.1:5432
-
-# во втором терминале
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres PG_POOL_MAX=1 \
-  node dist/server.js
-curl -fsS http://127.0.0.1:4000/api/health   # storage: postgres
+cd /opt/nailgo
+docker compose --env-file .env.production ps
+docker compose --env-file .env.production logs --tail=100 nailgo-backend
+curl -fsS https://nail2go.ru/api/health
 ```
 
-`PG_POOL_MAX=1` нужен только для этого моста: он закрывает idle-соединения,
-и обычный пул получил бы `ECONNRESET`. Настоящему Postgres ограничение не требуется.
+Expected health response includes `"storage":"postgres"`. With the default bootstrap enabled, the first empty database also reports seeded masters and bookings. PostgreSQL data survives backend, frontend and database-container recreation in the `postgres_data` volume.
 
-## Безопасность
+## 6. Updates, backups and restore
 
-- Порт Postgres наружу не публикуется: база доступна только внутри docker-сети.
-- `OTP_DELIVERY=log` — режим закрытого стенда: код входа виден в логах, не давайте
-  к ним доступ посторонним.
-- `DELIVERY_TRANSPORT=log` — то же для всех сообщений клиентам: на закрытом стенде они
-  не уходят наружу, а пишутся в журнал системы.
-- Вебхуки ботов защищены секретами (`TELEGRAM_WEBHOOK_SECRET`, `MAX_WEBHOOK_SECRET`):
-  без них подтвердить вход по одноразовой ссылке смог бы любой, кто её подсмотрел.
-  Секреты задавайте своими длинными значениями.
-- Токены входа через бота одноразовые (`auth_flows`, по умолчанию живут
-  `BOT_LOGIN_TTL_MINUTES=10`): повторный запрос статуса отвечает `409`, просроченные
-  потоки удаляются при следующем входе.
-- Вебхук шлюза (`POST /api/payments/webhook`) принимает оплату по номеру операции.
-  В проде задайте `PAYMENT_WEBHOOK_SECRET`: без него ручка открыта всем, кто знает номер.
-- Прод-образ API собирается без PGlite: при `DATABASE_URL=postgres://` локальный
-  WASM-драйвер не загружается и из образа удалён.
-- `OTP_PEPPER` на проде обязателен: коды входа лежат в базе хешем с перцем, но если
-  перец пустой, он берётся из `JWT_ACCESS_SECRET` — это допустимо, а вот совсем без
-  секретов прод поднимать нельзя (тогда сработает dev-значение из кода).
-- Лимиты кода входа в проде жёсткие (`OTP_REQUEST_LIMIT_PER_PHONE=5`,
-  `OTP_REQUEST_LIMIT_PER_IP=30`, `OTP_VERIFY_LIMIT=5` за `OTP_WINDOW_SECONDS=900`)
-  и меняются в админке; там же снимается окно, если живой клиент упёрся в лимит.
-- Планировщик записей включается `SCHEDULER_INTERVAL_SECONDS` (60 — раз в минуту,
-  0 — выключен). Он отменяет неподтверждённые заявки и закрывает незакрытые визиты;
-  прогон можно сделать вручную: `POST /api/admin/scheduler/run`.
-- Часовой пояс площадки — `PLATFORM_TIMEZONE`; пояс каждого мастера хранится в
-  `masters.timezone` и выбирается в кабинете. Время в SMS и уведомлениях считается
-  по поясу мастера, поэтому клиенты видят то же время, что и в расписании.
+Update application code and recreate only changed images; Compose keeps named volumes:
+
+```bash
+cd /opt/nailgo
+git pull --ff-only origin main
+docker compose --env-file .env.production up -d --build --remove-orphans
+```
+
+Create and restore a SQL dump:
+
+```bash
+mkdir -p backups
+set -a; . ./.env.production; set +a
+docker compose --env-file .env.production exec -T postgres \
+  pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" \
+  > "backups/postgres_$(date +%Y%m%d_%H%M%S).sql"
+
+# Restore into the configured database (this overwrites conflicting rows):
+cat backups/postgres_YYYYMMDD_HHMMSS.sql \
+  | docker compose --env-file .env.production exec -T postgres \
+      psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+```
+
+Persistent data locations:
+
+- `postgres_data` — PostgreSQL rows, including migrations and user data.
+- `media_data` — uploaded master photos; back this volume up separately from `pg_dump`.
+- `/etc/letsencrypt` on the host — Let's Encrypt certificates.
+- `certbot/www` in the project directory — ACME challenge webroot (not application data).
+
+## 7. Local checks before deploying
+
+With Node.js 22 installed, run the API type check/build, frontend production build, and the empty-database bootstrap test:
+
+```bash
+cd apps/api && npm ci && npm run build && npm run db:bootstrap-check
+cd ../..
+npm ci && npm run build
+```
+
+The bootstrap test uses an isolated temporary PGlite database and removes it when finished. Docker builds should be run on a machine with Docker Engine and the Compose plugin:
+
+```bash
+docker compose --env-file .env.production config
+docker compose --env-file .env.production build
+```

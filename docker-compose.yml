@@ -1,0 +1,148 @@
+# Production stack: PostgreSQL, Fastify API and Nginx-served Vite bundle.
+# Run with the production environment file:
+#   docker compose --env-file .env.production up -d --build
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.production}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
+      TZ: ${TZ:-Europe/Moscow}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  nailgo-backend:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: ${HOST:-0.0.0.0}
+      PORT: "4000"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-Europe/Moscow}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.production}
+      PG_POOL_MAX: ${PG_POOL_MAX:-10}
+      # Runs only if all business tables are empty; never replays the destructive dev seed on restart.
+      AUTO_SEED_ON_EMPTY: ${AUTO_SEED_ON_EMPTY:-true}
+
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?Set JWT_ACCESS_SECRET in .env.production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Set JWT_REFRESH_SECRET in .env.production}
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-2592000}
+
+      DEV_OTP_ENABLED: ${DEV_OTP_ENABLED:-false}
+      OTP_DELIVERY: ${OTP_DELIVERY:-log}
+      OTP_TTL_SECONDS: ${OTP_TTL_SECONDS:-300}
+      OTP_PEPPER: ${OTP_PEPPER:-}
+      OTP_REQUEST_LIMIT_PER_PHONE: ${OTP_REQUEST_LIMIT_PER_PHONE:-5}
+      OTP_REQUEST_LIMIT_PER_IP: ${OTP_REQUEST_LIMIT_PER_IP:-30}
+      OTP_VERIFY_LIMIT: ${OTP_VERIFY_LIMIT:-5}
+      OTP_WINDOW_SECONDS: ${OTP_WINDOW_SECONDS:-900}
+
+      DELIVERY_TRANSPORT: ${DELIVERY_TRANSPORT:-auto}
+      DELIVERY_WEBHOOK_URL: ${DELIVERY_WEBHOOK_URL:-}
+      DELIVERY_INTERVAL_SECONDS: ${DELIVERY_INTERVAL_SECONDS:-30}
+      DELIVERY_MAX_ATTEMPTS: ${DELIVERY_MAX_ATTEMPTS:-3}
+
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-manual}
+      PAYMENT_WEBHOOK_URL: ${PAYMENT_WEBHOOK_URL:-}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-}
+      PAYMENT_RETURN_URL: ${PAYMENT_RETURN_URL:-https://nail2go.ru}
+      PAYMENT_PUBLIC_API_URL: ${PAYMENT_PUBLIC_API_URL:-https://nail2go.ru}
+
+      PLATFORM_TIMEZONE: ${PLATFORM_TIMEZONE:-Europe/Moscow}
+      SLOT_STEP_MINUTES: ${SLOT_STEP_MINUTES:-30}
+      DEFAULT_DAY_START_MINUTE: ${DEFAULT_DAY_START_MINUTE:-600}
+      DEFAULT_DAY_END_MINUTE: ${DEFAULT_DAY_END_MINUTE:-1200}
+      BOOKING_MIN_LEAD_MINUTES: ${BOOKING_MIN_LEAD_MINUTES:-60}
+      BOOKING_CONFIRM_DEADLINE_MINUTES: ${BOOKING_CONFIRM_DEADLINE_MINUTES:-120}
+      BOOKING_AUTOCOMPLETE_HOURS: ${BOOKING_AUTOCOMPLETE_HOURS:-24}
+      CANCEL_FREE_HOURS: ${CANCEL_FREE_HOURS:-6}
+      LATE_CANCEL_LIMIT: ${LATE_CANCEL_LIMIT:-3}
+      NO_SHOW_LIMIT: ${NO_SHOW_LIMIT:-2}
+      SCHEDULER_INTERVAL_SECONDS: ${SCHEDULER_INTERVAL_SECONDS:-60}
+
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:?Set PUBLIC_WEB_URL in .env.production}
+      OAUTH_REDIRECT_BASE: ${OAUTH_REDIRECT_BASE:?Set OAUTH_REDIRECT_BASE in .env.production}
+      YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
+      YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
+      YANDEX_AUTH_URL: ${YANDEX_AUTH_URL:-https://oauth.yandex.ru}
+      YANDEX_API_URL: ${YANDEX_API_URL:-https://login.yandex.ru}
+      VK_CLIENT_ID: ${VK_CLIENT_ID:-}
+      VK_CLIENT_SECRET: ${VK_CLIENT_SECRET:-}
+      VK_AUTH_URL: ${VK_AUTH_URL:-https://id.vk.com}
+      VK_API_VERSION: ${VK_API_VERSION:-5.199}
+
+      TELEGRAM_API_URL: ${TELEGRAM_API_URL:-https://api.telegram.org}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      MAX_API_URL: ${MAX_API_URL:-https://platform-api2.max.ru}
+      MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
+      MAX_BOT_NAME: ${MAX_BOT_NAME:-}
+      MAX_WEBHOOK_SECRET: ${MAX_WEBHOOK_SECRET:-}
+      MAX_APP_URL: ${MAX_APP_URL:-https://max.ru}
+      BOT_LOGIN_TTL_MINUTES: ${BOT_LOGIN_TTL_MINUTES:-10}
+      MAGIC_LINK_TTL_MINUTES: ${MAGIC_LINK_TTL_MINUTES:-10080}
+
+      MEDIA_DIR: ${MEDIA_DIR:-/data/media}
+      MEDIA_MAX_BYTES: ${MEDIA_MAX_BYTES:-5242880}
+      MEDIA_WEB_WIDTH: ${MEDIA_WEB_WIDTH:-1200}
+      MEDIA_THUMB_WIDTH: ${MEDIA_THUMB_WIDTH:-320}
+    volumes:
+      - media_data:${MEDIA_DIR:-/data/media}
+    # Local host diagnostics are available on 127.0.0.1:4000, but not exposed publicly.
+    ports:
+      - "127.0.0.1:4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  nailgo-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_YANDEX_MAPS_KEY: ${VITE_YANDEX_MAPS_KEY:-}
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN in .env.production}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "${LETSENCRYPT_DIR:-/etc/letsencrypt}:/etc/letsencrypt:ro"
+      - "${CERTBOT_WEBROOT:-./certbot/www}:/var/www/certbot:ro"
+    depends_on:
+      nailgo-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/nginx-health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  # PostgreSQL data persists through container recreation and image upgrades.
+  postgres_data:
+  # Master profile/portfolio uploads are outside the database and need their own volume.
+  media_data:

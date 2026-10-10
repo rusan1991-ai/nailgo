@@ -18,6 +18,7 @@ npm run e2e                                # сквозной сценарий �
 npm run master-crm                         # база клиентов, ручная запись, перерывы
 npm run client-cabinet                     # вкладки записей, отмена за 6 часов, отзывы
 npm run smart-notifications                # авторегистрация, magic-link, loader и шаринг
+npm run deployment                          # Compose/Docker contract + isolated bootstrap test
 ```
 
 Маршруты кабинета `/pro` закрыты ролевым гейтом, поэтому `routes.mjs` и
@@ -42,3 +43,11 @@ JWT и повторное использование ссылки, автома�
 пастельно-розовый экран загрузки `/login?magic=…`, переход в конкретную карточку записи,
 WhatsApp / Telegram share-link, копирование текста для Max и сохранение предпочитаемого
 мессенджера в профиле клиента.
+
+## Docker production stack
+
+`npm run deployment` проверяет состав `docker-compose.yml`, постоянный volume PostgreSQL,
+порты/прокси Nginx, production env и связку миграций с bootstrap-кодом. Затем API запускает
+`db:bootstrap-check` на временной изолированной PGlite-базе: справочник не мешает первому
+наполнению, demo seed срабатывает один раз, а пользовательское изменение переживает повторный
+вызов bootstrap.

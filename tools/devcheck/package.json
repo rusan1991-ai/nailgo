@@ -33,9 +33,13 @@
     "short-links": "node short-links.mjs",
     "master-crm": "node master-crm.mjs",
     "client-cabinet": "node client-cabinet.mjs",
-    "smart-notifications": "node smart-notifications.mjs"
+    "smart-notifications": "node smart-notifications.mjs",
+    "deployment": "node deployment.mjs && npm --prefix ../../apps/api run db:bootstrap-check"
   },
   "dependencies": {
     "jsdom": "^30.1.2"
+  },
+  "devDependencies": {
+    "yaml": "^2.9.1"
   }
 }

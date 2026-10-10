@@ -1,4 +1,5 @@
-# Прод-стек Nail 2 Go: сайт (Caddy + статика), API (Fastify) и Postgres.
+# LEGACY Caddy stack retained for existing installations.
+# New deployments should use the Nginx-based root docker-compose.yml (see DEPLOY.md).
 #
 # Запуск:
 #   cp .env.production.example .env   # заполнить секреты

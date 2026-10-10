@@ -258,6 +258,7 @@ npm run short-links               # короткие ссылки мастера
 npm run master-crm                # база клиентов, ручная запись и технические перерывы
 npm run client-cabinet            # записи клиента: вкладки, отмена за 6 часов, отзыв
 npm run smart-notifications       # авторегистрация, magic-вход, лоадер и шаринг сообщений
+npm run deployment                # Docker Compose contract и изолированная проверка bootstrap
 ```
 
 ## Переменные окружения
@@ -273,7 +274,8 @@ npm run smart-notifications       # авторегистрация, magic-вхо
 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — разбор архитектурных вопросов (БД, время,
 статусы, доступы, деньги) и план доработок, [DEPLOY.md](./DEPLOY.md) — развёртывание.
 
-Прод собирается как три контейнера — сайт (`Dockerfile.web`: сборка Vite + Caddy),
-API (`apps/api/Dockerfile`) и Postgres; серверный образ работает на драйвере `pg`,
-локальный WASM-драйвер PGlite в него не попадает. Миграции API накатывает при старте,
-так что отдельного шага с миграциями в деплое нет. Подробности — в [DEPLOY.md](./DEPLOY.md).
+Прод собирается как три контейнера из корневого `docker-compose.yml` — сайт
+(`Dockerfile.frontend`: Vite + Nginx), API (`apps/api/Dockerfile`) и PostgreSQL 17.
+Сборки многоэтапные, API использует PostgreSQL-драйвер `pg`, а миграции накатывает при
+старте. Nginx проксирует `/api`, отдаёт HTTPS после выпуска Let's Encrypt сертификата;
+данные БД и медиа лежат в постоянных volumes. Подробности — в [DEPLOY.md](./DEPLOY.md).

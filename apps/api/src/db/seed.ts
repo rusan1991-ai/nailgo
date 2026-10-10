@@ -15,23 +15,32 @@ import { addDaysISO, atMinutes, todayISO, weekdayOfISODate } from "../lib/time.j
 import { normalizePhone } from "../lib/phone.js";
 import { recalcMasterRating } from "../lib/reviews.js";
 import { prepaymentFor } from "../lib/payments.js";
-import { db } from "./index.js";
+import { db, withBootstrapLock } from "./index.js";
 import { syncLocations } from "./locations-sync.js";
 import {
+  authFlows,
+  bookingEvents,
   bookings,
   conversations,
   deliveries,
   favorites,
+  identities,
   locations,
-  payments,
+  magicLinks,
+  masterClients,
+  masterMedia,
   masters,
   messages,
   notifications,
   otpCodes,
+  payments,
+  rateLimitHits,
   reviews,
   services,
   serviceCategories,
   sessions,
+  settings,
+  timeBlocks,
   users,
   workingHours,
 } from "./schema.js";
@@ -520,4 +529,61 @@ export async function seed() {
     conversations: threadsSeed.length,
     messages: messageCount,
   };
+}
+
+/**
+ * Однократный bootstrap для нового production-стека.
+ *
+ * `seed()` выше — полный демо-сброс и остаётся только для явных dev-команд.
+ * Этот wrapper сериализует запуск между PostgreSQL-инстансами и вызывает
+ * destructive seed только если в бизнес-таблицах нет ни одной строки.
+ * Справочник `locations` намеренно не проверяем: его безопасная синхронизация
+ * может выполниться перед bootstrap и сама по себе не делает базу занятой.
+ */
+export async function seedOnEmptyDatabase(): Promise<
+  | { seeded: true; counts: Awaited<ReturnType<typeof seed>> }
+  | { seeded: false; reason: "database-not-empty" }
+> {
+  return withBootstrapLock(async () => {
+    const existingRows = await Promise.all([
+      db.select({ id: users.id }).from(users).limit(1),
+      db.select({ id: sessions.id }).from(sessions).limit(1),
+      db.select({ id: masters.id }).from(masters).limit(1),
+      db.select({ id: services.id }).from(services).limit(1),
+      db.select({ id: serviceCategories.id }).from(serviceCategories).limit(1),
+      db.select({ id: workingHours.id }).from(workingHours).limit(1),
+      db.select({ id: bookings.id }).from(bookings).limit(1),
+      db.select({ id: bookingEvents.id }).from(bookingEvents).limit(1),
+      db.select({ id: reviews.id }).from(reviews).limit(1),
+      db.select({ id: conversations.id }).from(conversations).limit(1),
+      db.select({ id: messages.id }).from(messages).limit(1),
+      db.select({ id: notifications.id }).from(notifications).limit(1),
+      db.select({ id: favorites.id }).from(favorites).limit(1),
+      db.select({ key: settings.key }).from(settings).limit(1),
+      db.select({ id: deliveries.id }).from(deliveries).limit(1),
+      db.select({ id: payments.id }).from(payments).limit(1),
+      db.select({ id: identities.id }).from(identities).limit(1),
+      db.select({ id: authFlows.id }).from(authFlows).limit(1),
+      db.select({ id: masterMedia.id }).from(masterMedia).limit(1),
+      db.select({ id: otpCodes.id }).from(otpCodes).limit(1),
+      db.select({ id: rateLimitHits.id }).from(rateLimitHits).limit(1),
+      db.select({ id: masterClients.id }).from(masterClients).limit(1),
+      db.select({ id: timeBlocks.id }).from(timeBlocks).limit(1),
+      db.select({ id: magicLinks.id }).from(magicLinks).limit(1),
+    ]);
+
+    if (existingRows.some((rows) => rows.length > 0)) {
+      return { seeded: false, reason: "database-not-empty" };
+    }
+
+    const counts = await seed();
+    // Маркер нужен и для аудита; повторный вызов всё равно остановит проверка
+    // таблиц выше, даже если запись маркера не успела сохраниться.
+    await db
+      .insert(settings)
+      .values({ key: "system.demo_bootstrap.v1", value: new Date().toISOString() })
+      .onConflictDoNothing();
+
+    return { seeded: true, counts };
+  });
 }

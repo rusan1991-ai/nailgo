@@ -1,0 +1,31 @@
+# Frontend production image: Vite build -> static bundle -> Nginx.
+# Build from repository root with docker compose build.
+
+FROM node:22-alpine AS build
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY tsconfig.json vite.config.ts index.html ./
+COPY src ./src
+
+# Browser API calls stay same-origin behind Nginx; public map key is embedded by Vite.
+ARG VITE_API_URL=/api
+ARG VITE_YANDEX_MAPS_KEY=
+ENV VITE_API_URL=${VITE_API_URL} \
+    VITE_YANDEX_MAPS_KEY=${VITE_YANDEX_MAPS_KEY}
+RUN npm run build
+
+FROM nginx:stable-alpine AS runtime
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY infrastructure/nginx/bootstrap.conf.template /etc/nginx/templates/bootstrap.conf.template
+COPY infrastructure/nginx/tls.conf.template /etc/nginx/templates/tls.conf.template
+COPY infrastructure/nginx/start-nginx.sh /usr/local/bin/start-nginx.sh
+RUN chmod 755 /usr/local/bin/start-nginx.sh
+
+EXPOSE 80 443
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1/nginx-health || exit 1
+
+ENTRYPOINT ["/usr/local/bin/start-nginx.sh"]

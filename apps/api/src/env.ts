@@ -17,6 +17,8 @@ export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: num(process.env.PORT, 4000),
   host: process.env.HOST ?? "127.0.0.1",
+  /** Безопасная демо-инициализация только при пустой базе; по умолчанию выключена. */
+  autoSeedOnEmpty: process.env.AUTO_SEED_ON_EMPTY === "true",
 
   jwtAccessSecret: process.env.JWT_ACCESS_SECRET ?? "dev_access_secret_change_me",
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET ?? "dev_refresh_secret_change_me",

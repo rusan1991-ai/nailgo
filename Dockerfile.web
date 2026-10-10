@@ -1,4 +1,5 @@
-# Прод-образ сайта: собираем фронтенд и отдаём его Caddy.
+# LEGACY Caddy image retained for docker-compose.prod.yml compatibility.
+# New deployments use Dockerfile.frontend with Nginx.
 #
 # Сборка Vite кладёт всё приложение в один dist/index.html
 # (vite-plugin-singlefile), поэтому контейнеру достаточно статики и прокси

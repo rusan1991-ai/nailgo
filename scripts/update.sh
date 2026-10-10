@@ -1,23 +1,18 @@
 #!/usr/bin/env bash
-# Обновление прод-стека: бэкап → пересборка → рестарт.
-# Миграции применяет API при старте.
+# Back up, rebuild and restart the production stack. Migrations run at API startup.
 set -euo pipefail
 
-COMPOSE_FILE="docker-compose.prod.yml"
-ENV_FILE=".env"
-
-if [ ! -f "${ENV_FILE}" ]; then
-  echo "${ENV_FILE} не найден"
+ENV_FILE=".env.production"
+if [ ! -f "$ENV_FILE" ]; then
+  echo "$ENV_FILE not found"
   exit 1
 fi
 
 ./scripts/backup.sh
 
-echo "Собираем новые образы"
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build web api
+echo "Building new backend and frontend images"
+docker compose --env-file "$ENV_FILE" build nailgo-backend nailgo-frontend
 
-echo "Поднимаем стек"
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --remove-orphans
-
-echo "Готово"
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps
+echo "Applying the update"
+docker compose --env-file "$ENV_FILE" up -d --remove-orphans
+docker compose --env-file "$ENV_FILE" ps

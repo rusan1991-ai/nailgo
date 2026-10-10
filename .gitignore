@@ -9,6 +9,7 @@ coverage
 !.env.production.example
 
 backups
+certbot/
 
 *.log
 .DS_Store

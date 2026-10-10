@@ -237,7 +237,7 @@ weekday повторяется каждую неделю.
 `apps/api/src/lib/time.ts`. При этом тексты сообщений берут **UTC**:
 `whenLabel` в `lib/notify.ts` и `whenText` в `lib/delivery/reminders.ts` используют
 `getUTCHours`, а `toISODate` рядом — локальную дату. В sandbox `TZ=UTC`, в прод-стеке
-`TZ: Europe/Moscow` (`docker-compose.prod.yml`) — то есть в проде время визита в SMS
+`TZ: Europe/Moscow` (`docker-compose.yml`) — то есть в проде время визита в SMS
 разойдётся с интерфейсом на 3 часа. Плюс у мастера нет поля таймзоны: вся площадка
 живёт в одном поясе, а «сегодня» и «горящие окна» зависят от часов сервера.
 

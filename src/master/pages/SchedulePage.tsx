@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock, Coffee, Plus, Settings2, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock, Coffee, Plus, Settings2, Trash2, UserX, X } from "lucide-react";
 import {
   Card,
   Checkbox,
@@ -16,17 +16,22 @@ import {
   dayEndHour,
   dayStartHour,
   formatMinutes,
-  masterProfile,
   serviceKindMeta,
-  weekAppointments,
-  weekDays,
   type Appointment,
+  todayISOValue,
+  type AppointmentStatus,
 } from "../data";
 import { useCabinetAppointments } from "../appointments";
-import { useCatalog } from "../../catalog/store";
-import { minutesToLabel, useCabinetHours } from "../../api/profile";
-import { parseTimeLabel } from "../../store/bookings";
-import { cabinetOwnerSlug, demoWeek, formatDateLabel } from "../../store/bookings";
+import { minutesToLabel, useCabinetHours, useCabinetProfile } from "../../api/profile";
+import {
+  cancelBooking,
+  completeBooking,
+  confirmBooking,
+  noShowBooking,
+  parseTimeLabel,
+  useBookingsStore,
+} from "../../store/bookings";
+import { formatDateLabel } from "../../store/bookings";
 import { createTimeBlock, deleteTimeBlock, useTimeBlocks, type TimeBlock } from "../../api/cabinet";
 import { cn } from "../../utils/cn";
 
@@ -37,75 +42,111 @@ const MONTH_NAMES = [
   "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
 ];
 
-/** Сегодняшнее число и месяц — сетка кабинета идёт по живым дням. */
-const TODAY_DATE = new Date().getDate();
-/** 0 = понедельник … 6 = воскресенье — индекс сегодняшнего дня в сетке. */
-const TODAY_INDEX = (new Date().getDay() + 6) % 7;
-const DAYS_IN_MONTH = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
-const TODAY_MONTH_LABEL = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"][
-  new Date().getMonth()
-]!;
+const TODAY_ISO = todayISOValue;
+
+function dateFromISO(iso: string): Date {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(year!, month! - 1, day!);
+}
+
+function isoFromDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function addDays(iso: string, amount: number): string {
+  const date = dateFromISO(iso);
+  date.setDate(date.getDate() + amount);
+  return isoFromDate(date);
+}
+
+function mondayForISO(iso: string): string {
+  const date = dateFromISO(iso);
+  date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+  return isoFromDate(date);
+}
+
+type CalendarDay = { short: string; date: number; iso: string; today: boolean };
+
+function buildWeek(weekStartISO: string): CalendarDay[] {
+  return Array.from({ length: 7 }, (_, index) => {
+    const iso = addDays(weekStartISO, index);
+    const date = dateFromISO(iso);
+    return { short: dayNames[index]!, date: date.getDate(), iso, today: iso === TODAY_ISO };
+  });
+}
 
 /* ------------------------------ мини-календарь ------------------------------ */
 
-function MiniCalendar({ selected, onSelect }: { selected: number; onSelect: (day: number) => void }) {
-  // Сетка строится по текущему месяцу: пустые клетки до первого числа и
-  // «хвост» соседнего месяца — как в обычном календаре.
-  const now = new Date();
-  const firstWeekday = (new Date(now.getFullYear(), now.getMonth(), 1).getDay() + 6) % 7;
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const cells: { day: number; muted?: boolean }[] = [
-    ...Array.from({ length: firstWeekday }, (_, index) => ({
-      day: new Date(now.getFullYear(), now.getMonth(), -firstWeekday + index + 1).getDate(),
-      muted: true,
-    })),
-    ...Array.from({ length: daysInMonth }, (_, index) => ({ day: index + 1 })),
-  ];
-  while (cells.length % 7 !== 0) cells.push({ day: cells.length - firstWeekday - daysInMonth + 1, muted: true });
+function MiniCalendar({
+  selected,
+  onSelect,
+  currentWeek,
+}: {
+  selected: string;
+  onSelect: (iso: string) => void;
+  currentWeek: string[];
+}) {
+  const selectedDate = dateFromISO(selected);
+  const [shownMonth, setShownMonth] = useState(() => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+
+  useEffect(() => {
+    const date = dateFromISO(selected);
+    setShownMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+  }, [selected]);
+
+  const year = shownMonth.getFullYear();
+  const month = shownMonth.getMonth();
+  const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
+  const cells = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(year, month, index - firstWeekday + 1);
+    return { iso: isoFromDate(date), day: date.getDate(), inMonth: date.getMonth() === month };
+  });
 
   return (
     <Card>
       <div className="mb-3 flex items-center justify-between">
-        <button className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-50">
+        <button
+          type="button"
+          aria-label="Предыдущий месяц"
+          onClick={() => setShownMonth(new Date(year, month - 1, 1))}
+          className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-50"
+        >
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <p className="text-sm font-medium text-slate-700">
-          {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}
-        </p>
-        <button className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-50">
+        <p className="text-sm font-medium text-slate-700">{MONTH_NAMES[month]} {year}</p>
+        <button
+          type="button"
+          aria-label="Следующий месяц"
+          onClick={() => setShownMonth(new Date(year, month + 1, 1))}
+          className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-50"
+        >
           <ChevronRight className="h-4 w-4" />
         </button>
       </div>
 
       <div className="grid grid-cols-7 gap-y-1 text-center text-[11px] text-slate-400">
-        {dayNames.map((day) => (
-          <span key={day}>{day}</span>
-        ))}
+        {dayNames.map((day) => <span key={day}>{day}</span>)}
       </div>
 
       <div className="mt-1 grid grid-cols-7 gap-y-1 text-center text-xs">
-        {cells.map((cell, index) => {
-          if (cell.muted) {
-            return (
-              <span key={`m-${index}`} className="py-1.5 text-slate-300">
-                {cell.day}
-              </span>
-            );
-          }
-          const isSelected = cell.day === selected;
-          const inWeek = cell.day >= 20 && cell.day <= 26;
+        {cells.map((cell) => {
+          const isSelected = cell.iso === selected;
+          const inWeek = currentWeek.includes(cell.iso);
           return (
             <button
-              key={cell.day}
+              key={cell.iso}
               type="button"
-              onClick={() => onSelect(cell.day)}
+              data-calendar-date={cell.iso}
+              onClick={() => onSelect(cell.iso)}
               className={cn(
                 "mx-auto grid h-7 w-7 place-items-center rounded-full transition",
                 isSelected
                   ? "bg-[#e11d48] font-semibold text-white"
                   : inWeek
-                    ? "bg-rose-50 text-[#e11d48] hover:bg-rose-100"
-                    : "text-slate-600 hover:bg-slate-100",
+                    ? "bg-rose-50 font-medium text-[#e11d48] hover:bg-rose-100"
+                    : cell.inMonth
+                      ? "text-slate-600 hover:bg-slate-100"
+                      : "text-slate-300 hover:bg-slate-100",
               )}
             >
               {cell.day}
@@ -119,38 +160,104 @@ function MiniCalendar({ selected, onSelect }: { selected: number; onSelect: (day
 
 /* ---------------------------- карточка записи ------------------------------ */
 
-function AppointmentBlock({ appointment }: { appointment: Appointment }) {
+function AppointmentBlock({
+  appointment,
+  onStatusChange,
+  busy,
+}: {
+  appointment: Appointment;
+  onStatusChange: (id: string, status: AppointmentStatus) => void;
+  busy: boolean;
+}) {
   const meta = serviceKindMeta[appointment.kind];
-  const isFree = appointment.client === "Свободное окно";
-  const cancelled = appointment.status === "cancelled";
+  const statusLabels: Record<AppointmentStatus, string> = {
+    pending: "Ожидает подтверждения",
+    confirmed: "Ожидается",
+    completed: "Выполнен",
+    no_show: "Клиент не пришёл",
+    cancelled: "Отменён",
+  };
+  const compactStatusLabels: Record<AppointmentStatus, string> = {
+    pending: "Подтв.",
+    confirmed: "Ожидается",
+    completed: "Выполнен",
+    no_show: "Неявка",
+    cancelled: "Отмена",
+  };
+  const statusColor: Record<AppointmentStatus, string> = {
+    pending: "border-amber-200 bg-amber-50 text-amber-700",
+    confirmed: "border-sky-200 bg-sky-50 text-sky-700",
+    completed: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    no_show: "border-slate-200 bg-slate-100 text-slate-600",
+    cancelled: "border-rose-200 bg-rose-50 text-rose-600",
+  };
+  const actions = appointment.status === "pending"
+    ? [{ status: "confirmed" as const, label: "Ожидается", icon: <Check className="h-3.5 w-3.5" /> }]
+    : appointment.status === "confirmed"
+      ? [
+          { status: "completed" as const, label: "Выполнен", icon: <Check className="h-3.5 w-3.5" /> },
+          { status: "no_show" as const, label: "Клиент не пришёл", icon: <UserX className="h-3.5 w-3.5" /> },
+          { status: "cancelled" as const, label: "Отменён", icon: <X className="h-3.5 w-3.5" /> },
+        ]
+      : [];
 
   return (
     <div
+      data-appointment-id={appointment.id}
+      data-appointment-status={appointment.status}
       className={cn(
-        "absolute inset-x-1 overflow-hidden rounded-xl border px-2.5 py-2 text-xs shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
+        "absolute inset-x-1 overflow-hidden rounded-xl border px-2 py-1.5 text-xs shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
         meta.block,
         meta.border,
-        cancelled && "border-rose-200 bg-rose-50/70",
-        appointment.status === "pending" && !isFree && "border-amber-200 bg-amber-50/80",
+        statusColor[appointment.status],
       )}
       style={{
         top: ((appointment.start - dayStartHour * 60) / 60) * hourHeight,
-        height: (appointment.duration / 60) * hourHeight - 4,
+        height: Math.max((appointment.duration / 60) * hourHeight - 4, 42),
       }}
     >
-      <div className="flex items-start justify-between gap-1">
-        <p className="text-[11px] font-medium text-slate-500">
+      <div className="flex items-center justify-between gap-1">
+        <p className="truncate text-[10px] font-medium opacity-80">
           {formatMinutes(appointment.start)} – {formatMinutes(appointment.start + appointment.duration)}
         </p>
-        {appointment.status === "confirmed" && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" />}
-        {appointment.status === "pending" && <Clock className="h-3.5 w-3.5 shrink-0 text-amber-500" />}
-        {cancelled && <X className="h-3.5 w-3.5 shrink-0 text-rose-400" />}
+        <span
+          className="max-w-[72px] truncate rounded-full bg-white/70 px-1.5 py-0.5 text-[9px] leading-none"
+          title={statusLabels[appointment.status]}
+        >
+          {compactStatusLabels[appointment.status]}
+        </span>
       </div>
-      <p className={cn("mt-1 truncate font-medium text-slate-800", cancelled && "line-through text-slate-400")}>
-        {appointment.client}
-      </p>
-      {appointment.service && <p className="mt-0.5 line-clamp-2 text-slate-500">{appointment.service}</p>}
-      {isFree && <Plus className="mt-1 h-3.5 w-3.5 text-slate-400" />}
+      <div className="mt-0.5 flex min-w-0 items-center justify-between gap-1">
+        <p
+          className={cn("min-w-0 truncate font-medium text-slate-800", appointment.status === "cancelled" && "line-through text-slate-500")}
+          title={`${appointment.client} · ${appointment.service}`}
+        >
+          {appointment.client}
+        </p>
+        {actions.length > 0 && (
+          <div className="flex shrink-0 items-center gap-0.5">
+            {actions.map((action) => (
+              <button
+                key={action.status}
+                type="button"
+                data-action="calendar-status"
+                data-next-status={action.status}
+                aria-label={`${action.label}: ${appointment.client}`}
+                title={action.label}
+                disabled={busy}
+                onClick={() => onStatusChange(appointment.id, action.status)}
+                className={cn(
+                  "grid h-4 w-4 place-items-center rounded border border-white/80 bg-white/80 transition hover:bg-white disabled:cursor-wait disabled:opacity-50",
+                  action.status === "cancelled" ? "text-rose-600" : action.status === "no_show" ? "text-slate-600" : "text-emerald-700",
+                )}
+              >
+                {action.icon}
+                <span className="sr-only">{action.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -194,28 +301,63 @@ function TimeBlockCell({ block, onRemove }: { block: TimeBlock; onRemove: (id: s
 /* --------------------------------- экран ---------------------------------- */
 
 export function SchedulePage() {
-  const { masters } = useCatalog();
   const [view, setView] = useState("Неделя");
-  const [selectedDay, setSelectedDay] = useState(TODAY_DATE);
-  const [master, setMaster] = useState("all");
+  const [weekStartISO, setWeekStartISO] = useState(() => mondayForISO(TODAY_ISO));
+  const [selectedDayISO, setSelectedDayISO] = useState(TODAY_ISO);
+  const [monthAnchorISO, setMonthAnchorISO] = useState(TODAY_ISO);
   const [modalOpen, setModalOpen] = useState(false);
   const [service, setService] = useState("all");
   const [status, setStatus] = useState("all");
-  const [onlyMine, setOnlyMine] = useState(true);
   const [showCancelled, setShowCancelled] = useState(false);
+  const [statusBusyId, setStatusBusyId] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
-  const appointments = useCabinetAppointments(weekAppointments);
+  const appointments = useCabinetAppointments();
+  const bookings = useBookingsStore();
+  const calendarDays = buildWeek(weekStartISO);
+  const monthAnchor = dateFromISO(monthAnchorISO);
+  const monthYear = monthAnchor.getFullYear();
+  const monthIndex = monthAnchor.getMonth();
+  const firstMonthWeekday = (new Date(monthYear, monthIndex, 1).getDay() + 6) % 7;
+  const monthCells = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(monthYear, monthIndex, index - firstMonthWeekday + 1);
+    const iso = isoFromDate(date);
+    return {
+      day: date.getDate(),
+      iso,
+      inMonth: date.getMonth() === monthIndex,
+      count: bookings.filter((booking) => booking.dateISO === iso && booking.status !== "cancelled" && booking.status !== "no_show").length,
+    };
+  });
+
+  const chooseDate = (iso: string) => {
+    setSelectedDayISO(iso);
+    setWeekStartISO(mondayForISO(iso));
+    setMonthAnchorISO(iso);
+  };
+
+  const shiftPeriod = (direction: -1 | 1) => {
+    if (view === "Месяц") {
+      const selected = dateFromISO(selectedDayISO);
+      const targetMonth = selected.getMonth() + direction;
+      const daysInTargetMonth = new Date(selected.getFullYear(), targetMonth + 1, 0).getDate();
+      const target = new Date(selected.getFullYear(), targetMonth, Math.min(selected.getDate(), daysInTargetMonth));
+      chooseDate(isoFromDate(target));
+      return;
+    }
+    chooseDate(addDays(selectedDayISO, direction * (view === "День" ? 1 : 7)));
+  };
 
   /**
    * Технические перерывы недели: их считает сервер, и он же закрывает это
    * время для клиентов. В сетке они рисуются серыми блоками.
    */
-  const weekFrom = demoWeek[0]!.iso;
-  const weekTo = demoWeek[6]!.iso;
+  const weekFrom = calendarDays[0]!.iso;
+  const weekTo = calendarDays[6]!.iso;
   const blocksResource = useTimeBlocks(weekFrom, weekTo);
   const blocks = blocksResource.data?.items ?? [];
   const [blockOpen, setBlockOpen] = useState(false);
-  const [blockDate, setBlockDate] = useState(demoWeek[0]!.iso);
+  const [blockDate, setBlockDate] = useState(TODAY_ISO);
   const [blockStart, setBlockStart] = useState("13:00");
   const [blockEnd, setBlockEnd] = useState("14:00");
   const [blockReason, setBlockReason] = useState("Обед");
@@ -227,6 +369,7 @@ export function SchedulePage() {
   // Часы работы берём из базы: их мастер правит в настройках, они же
   // определяют свободные окна для клиентов.
   const hoursResource = useCabinetHours();
+  const profileResource = useCabinetProfile();
   const workDays = (hoursResource.data?.items ?? []).filter((day) => day.enabled);
   const hoursLabel =
     workDays.length === 0
@@ -243,16 +386,28 @@ export function SchedulePage() {
   const visible = useMemo(
     () =>
       appointments.filter((item) => {
-        const owner = item.masterSlug ?? cabinetOwnerSlug;
-        if (onlyMine && owner !== cabinetOwnerSlug) return false;
-        if (master !== "all" && owner !== master) return false;
-        if (!showCancelled && item.status === "cancelled") return false;
+        if (!showCancelled && (item.status === "cancelled" || item.status === "no_show")) return false;
         if (service !== "all" && item.service !== service) return false;
         if (status !== "all" && item.status !== status) return false;
         return true;
       }),
-    [appointments, service, status, showCancelled, master, onlyMine],
+    [appointments, service, status, showCancelled],
   );
+
+  const changeAppointmentStatus = async (id: string, nextStatus: AppointmentStatus) => {
+    setStatusBusyId(id);
+    setStatusError(null);
+    try {
+      if (nextStatus === "confirmed") await confirmBooking(id);
+      else if (nextStatus === "completed") await completeBooking(id);
+      else if (nextStatus === "no_show") await noShowBooking(id);
+      else if (nextStatus === "cancelled") await cancelBooking(id);
+    } catch (cause) {
+      setStatusError(cause instanceof Error ? cause.message : "Не удалось изменить статус записи");
+    } finally {
+      setStatusBusyId(null);
+    }
+  };
 
   const saveBlock = async () => {
     setBlockState({ saving: true, error: null });
@@ -280,36 +435,54 @@ export function SchedulePage() {
   };
 
   const blocksOfDay = (dateISO: string) => blocks.filter((block) => block.dateISO === dateISO);
+  const openBlockModal = () => {
+    setBlockDate(selectedDayISO);
+    setBlockOpen(true);
+  };
 
   const hours = Array.from({ length: dayEndHour - dayStartHour }, (_, index) => dayStartHour + index);
-  const todayAppointments = visible.filter((item) => item.day === TODAY_INDEX && item.status !== "cancelled");
+  const todayAppointments = visible.filter((item) => item.dateISO === TODAY_ISO && item.status !== "cancelled");
   const load = Math.round((todayAppointments.reduce((acc, item) => acc + item.duration, 0) / 600) * 100);
 
-  const dayColumns = view === "День" ? weekDays.filter((day) => day.date === TODAY_DATE) : weekDays;
+  const dayColumns = view === "День" ? calendarDays.filter((day) => day.iso === selectedDayISO) : calendarDays;
+  const weekRangeLabel = `${formatDateLabel(calendarDays[0]!.iso)} – ${formatDateLabel(calendarDays[6]!.iso)}`;
+  const periodLabel = view === "Месяц"
+    ? `${MONTH_NAMES[monthIndex]} ${monthYear}`
+    : view === "День"
+      ? formatDateLabel(selectedDayISO)
+      : weekRangeLabel;
+  const currentMasterName = profileResource.data?.profile.name ?? "Мои записи";
 
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Расписание</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <GhostButton onClick={() => setSelectedDay(TODAY_DATE)}>Сегодня</GhostButton>
+          <GhostButton onClick={() => chooseDate(TODAY_ISO)}>Сегодня</GhostButton>
           <div className="flex items-center gap-1">
-            <button className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-400 transition hover:bg-slate-50">
+            <button
+              type="button"
+              aria-label="Предыдущий период"
+              onClick={() => shiftPeriod(-1)}
+              className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-400 transition hover:bg-slate-50"
+            >
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <button className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-400 transition hover:bg-slate-50">
+            <button
+              type="button"
+              aria-label="Следующий период"
+              onClick={() => shiftPeriod(1)}
+              className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-400 transition hover:bg-slate-50"
+            >
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
-          <Select
-            className="w-[170px]"
-            value="20 – 26 мая 2024"
-            onChange={() => undefined}
-            options={[{ value: "20 – 26 мая 2024", label: "20 – 26 мая 2024" }]}
-          />
+          <span data-field="schedule-week" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+            {periodLabel}
+          </span>
           <SegmentedControl options={["День", "Неделя", "Месяц"]} value={view} onChange={setView} />
           {/* Перерыв закрывает время для клиентов; запись мастер вносит вручную. */}
-          <GhostButton dataAction="block-time" onClick={() => setBlockOpen(true)}>
+          <GhostButton dataAction="block-time" onClick={openBlockModal}>
             <Coffee className="h-4 w-4" />
             Перерыв
           </GhostButton>
@@ -320,25 +493,22 @@ export function SchedulePage() {
         </div>
       </div>
 
+      {statusError && (
+        <p className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">
+          Статус не изменён: {statusError}
+        </p>
+      )}
+
       <div className="grid gap-4 xl:grid-cols-[286px_1fr]">
         <div className="space-y-4">
-          <MiniCalendar selected={selectedDay} onSelect={setSelectedDay} />
+          <MiniCalendar
+            selected={selectedDayISO}
+            onSelect={chooseDate}
+            currentWeek={calendarDays.map((day) => day.iso)}
+          />
 
           <Card>
             <div className="space-y-4">
-              <div>
-                <p className="mb-1.5 text-xs font-medium text-slate-500">Мастер</p>
-                <Select
-                  avatarName={master === "all" ? undefined : masters.find((item) => item.slug === master)?.name}
-                  value={master}
-                  onChange={setMaster}
-                  options={[
-                    { value: "all", label: "Все мастера" },
-                    ...masters.map((item) => ({ value: item.slug, label: item.name })),
-                  ]}
-                />
-              </div>
-
               <div>
                 <p className="mb-1.5 text-xs font-medium text-slate-500">Услуга</p>
                 <Select
@@ -357,18 +527,17 @@ export function SchedulePage() {
                   value={status}
                   onChange={setStatus}
                   options={[
-                    { value: "all", label: "Все" },
-                    { value: "confirmed", label: "Подтверждённые" },
-                    { value: "pending", label: "Ожидают подтверждения" },
-                    { value: "cancelled", label: "Отменённые" },
+                    { value: "all", label: "Все статусы" },
+                    { value: "pending", label: "Ожидает подтверждения" },
+                    { value: "confirmed", label: "Ожидается" },
+                    { value: "completed", label: "Выполнен" },
+                    { value: "no_show", label: "Клиент не пришёл" },
+                    { value: "cancelled", label: "Отменён" },
                   ]}
                 />
               </div>
 
-              <div className="space-y-2.5 pt-1">
-                <Checkbox checked={onlyMine} onChange={setOnlyMine} label="Показывать только мои записи" />
-                <Checkbox checked={showCancelled} onChange={setShowCancelled} label="Показывать отменённые" />
-              </div>
+              <Checkbox checked={showCancelled} onChange={setShowCancelled} label="Показывать отменённые и неявки" />
             </div>
           </Card>
 
@@ -400,6 +569,7 @@ export function SchedulePage() {
         <Card padded={false} className="overflow-hidden">
           {view === "Месяц" ? (
             <div className="p-5">
+              <p className="mb-2 text-sm font-medium text-slate-700">{MONTH_NAMES[monthIndex]} {monthYear}</p>
               <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-slate-400">
                 {dayNames.map((day) => (
                   <span key={day} className="py-2">
@@ -408,30 +578,29 @@ export function SchedulePage() {
                 ))}
               </div>
               <div className="grid grid-cols-7 gap-1">
-                {Array.from({ length: 35 }, (_, index) => {
-                  const dayNumber = index - 1;
-                  const isCurrentMonth = dayNumber >= 1 && dayNumber <= DAYS_IN_MONTH;
-                  const count = weekAppointments.filter((item) => item.day === (index % 7) && isCurrentMonth).length;
-                  return (
-                    <div
-                      key={index}
-                      className={cn(
-                        "min-h-[86px] rounded-xl border p-2 text-left text-xs",
-                        isCurrentMonth ? "border-slate-200 bg-white" : "border-transparent bg-slate-50/60 text-slate-300",
-                        isCurrentMonth && dayNumber === TODAY_DATE && "border-[#e11d48] bg-rose-50/60",
-                      )}
-                    >
-                      <p className={cn("font-medium", isCurrentMonth ? "text-slate-700" : "text-slate-300")}>
-                        {isCurrentMonth ? dayNumber : ""}
+                {monthCells.map((cell) => (
+                  <button
+                    key={cell.iso}
+                    type="button"
+                    data-calendar-date={cell.iso}
+                    onClick={() => chooseDate(cell.iso)}
+                    className={cn(
+                      "min-h-[86px] rounded-xl border p-2 text-left text-xs transition hover:bg-rose-50/50",
+                      cell.inMonth ? "border-slate-200 bg-white" : "border-transparent bg-slate-50/60",
+                      cell.iso === selectedDayISO && "border-[#e11d48] ring-1 ring-[#e11d48]/20",
+                      cell.iso === TODAY_ISO && "bg-rose-50/60",
+                    )}
+                  >
+                    <p className={cn("font-medium", cell.inMonth ? "text-slate-700" : "text-slate-300")}>
+                      {cell.day}
+                    </p>
+                    {cell.count > 0 && (
+                      <p className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-600">
+                        {cell.count} записей
                       </p>
-                      {isCurrentMonth && count > 0 && (
-                        <p className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-600">
-                          {count} записи
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
+                    )}
+                  </button>
+                ))}
               </div>
             </div>
           ) : (
@@ -447,17 +616,17 @@ export function SchedulePage() {
                       key={day.iso}
                       className={cn(
                         "border-l border-slate-100 px-2 py-3 text-center",
-                        day.date === selectedDay && "bg-rose-50/40",
+                        day.iso === selectedDayISO && "bg-rose-50/40",
                       )}
                     >
                       <p className={cn("text-xs", day.today ? "text-[#e11d48]" : "text-slate-400")}>{day.short}</p>
                       <p
                         className={cn(
                           "mt-0.5 text-sm",
-                          day.date === selectedDay ? "font-semibold text-slate-900" : "text-slate-600",
+                          day.iso === selectedDayISO ? "font-semibold text-slate-900" : "text-slate-600",
                         )}
                       >
-                        {day.date} мая
+                        {formatDateLabel(day.iso)}
                       </p>
                     </div>
                   ))}
@@ -482,7 +651,7 @@ export function SchedulePage() {
                   {dayColumns.map((day) => (
                     <div
                       key={day.iso}
-                      className={cn("relative border-l border-slate-100", day.date === selectedDay && "bg-rose-50/20")}
+                      className={cn("relative border-l border-slate-100", day.iso === selectedDayISO && "bg-rose-50/20")}
                       style={{ height: hours.length * hourHeight }}
                     >
                       {hours.map((hour) => (
@@ -496,9 +665,14 @@ export function SchedulePage() {
                         />
                       ))}
                       {visible
-                        .filter((item) => weekDays[item.day]?.date === day.date)
+                        .filter((item) => item.dateISO === day.iso)
                         .map((item) => (
-                          <AppointmentBlock key={item.id} appointment={item} />
+                          <AppointmentBlock
+                            key={item.id}
+                            appointment={item}
+                            onStatusChange={changeAppointmentStatus}
+                            busy={statusBusyId === item.id}
+                          />
                         ))}
                     </div>
                   ))}
@@ -515,16 +689,20 @@ export function SchedulePage() {
               </span>
             ))}
             <span className="inline-flex items-center gap-2">
-              <Check className="h-3.5 w-3.5 text-emerald-500" />
-              Подтверждена
-            </span>
-            <span className="inline-flex items-center gap-2">
-              <Clock className="h-3.5 w-3.5 text-amber-500" />
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
               Ожидает подтверждения
             </span>
             <span className="inline-flex items-center gap-2">
-              <Plus className="h-3.5 w-3.5 text-slate-400" />
-              Свободное окно
+              <span className="h-2.5 w-2.5 rounded-full bg-sky-300" />
+              Ожидается
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
+              Выполнен
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
+              Неявка
             </span>
             <span className="inline-flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-sm border border-dashed border-slate-400 bg-slate-200" />
@@ -536,18 +714,14 @@ export function SchedulePage() {
 
       <Card className="mt-4">
         <div className="mb-3 flex items-center gap-3">
-          <PersonAvatar
-            name={master === "all" ? masterProfile.name : (masters.find((item) => item.slug === master)?.name ?? masterProfile.name)}
-            size={32}
-          />
+          <PersonAvatar name={currentMasterName} size={32} />
           <p className="text-sm font-medium text-slate-700">
-            Записи на {selectedDay} {TODAY_MONTH_LABEL} ·{" "}
-            {master === "all" ? masterProfile.name : (masters.find((item) => item.slug === master)?.name ?? "")}
+            Записи на {formatDateLabel(selectedDayISO)} · {currentMasterName}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           {visible
-            .filter((item) => weekDays[item.day]?.date === selectedDay)
+            .filter((item) => item.dateISO === selectedDayISO)
             .map((item) => (
               <span
                 key={item.id}
@@ -560,9 +734,10 @@ export function SchedulePage() {
                 <span className="font-medium text-slate-600">{formatMinutes(item.start)}</span>
                 <span className="text-slate-700">{item.client}</span>
                 {item.service && <span className="text-slate-500">· {item.service}</span>}
+                <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] text-slate-600">{item.status}</span>
               </span>
             ))}
-          {visible.filter((item) => weekDays[item.day]?.date === selectedDay).length === 0 && (
+          {visible.filter((item) => item.dateISO === selectedDayISO).length === 0 && (
             <p className="text-sm text-slate-400">На этот день записей нет — можно открыть свободное окно.</p>
           )}
         </div>
@@ -579,7 +754,7 @@ export function SchedulePage() {
               Обед и личные дела: время закрыто для клиентов, в статистику и деньги не попадает.
             </p>
           </div>
-          <GhostButton dataAction="block-time-list" onClick={() => setBlockOpen(true)}>
+          <GhostButton dataAction="block-time-list" onClick={openBlockModal}>
             <Coffee className="h-4 w-4" />
             Поставить перерыв
           </GhostButton>
@@ -641,7 +816,7 @@ export function SchedulePage() {
             <Select
               value={blockDate}
               onChange={setBlockDate}
-              options={demoWeek.map((day) => ({ value: day.iso, label: `${day.label}, ${day.weekday}` }))}
+              options={calendarDays.map((day) => ({ value: day.iso, label: `${formatDateLabel(day.iso)}, ${day.short}` }))}
             />
           </div>
           <TextField label="Начало (ЧЧ:ММ)" value={blockStart} onChange={setBlockStart} placeholder="13:00" />

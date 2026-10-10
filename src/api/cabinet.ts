@@ -23,9 +23,9 @@ export type CabinetStats = {
   byStatus: { pending: number; confirmed: number; completed: number; cancelled: number };
   bySource: { client: number; master: number };
   /** Дни месяца: график «Записи по дням». */
-  byDay: { dateISO: string; label: string; bookings: number; revenue: number }[];
-  /** Последние 12 месяцев: динамика записей, выручки и новых клиентов. */
-  monthly: { monthISO: string; label: string; bookings: number; revenue: number; newClients: number; cancelled: number }[];
+  byDay: { dateISO: string; label: string; bookings: number; completedBookings: number; revenue: number }[];
+  /** Последние 12 месяцев: динамика записей и выручка по завершённым визитам. */
+  monthly: { monthISO: string; label: string; bookings: number; completedBookings: number; revenue: number; newClients: number; cancelled: number }[];
   /** Воронка месяца по фактическим записям (без рекламных показов). */
   funnel: { label: string; value: number; percent: string | null }[];
 };

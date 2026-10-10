@@ -81,7 +81,6 @@ function actionsFor(status: BookingRow["status"]): { action: RowAction; label: s
 export function BookingsPage() {
   const [tab, setTab] = useState("all");
   const [query, setQuery] = useState("");
-  const [master, setMaster] = useState("all");
   const [service, setService] = useState("all");
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
@@ -139,10 +138,9 @@ export function BookingsPage() {
           `${row.client} ${row.phone} ${row.service}`.toLowerCase().includes(query.trim().toLowerCase()),
         )
       : byTab;
-    const byMaster = master === "all" ? byQuery : byQuery.filter((row) => row.master === master);
-    const byService = service === "all" ? byMaster : byMaster.filter((row) => row.service === service);
+    const byService = service === "all" ? byQuery : byQuery.filter((row) => row.service === service);
     return status === "all" ? byService : byService.filter((row) => row.status === status);
-  }, [tab, query, master, service, status, baseRows]);
+  }, [tab, query, service, status, baseRows]);
 
   /** Счётчики вкладок считаем по тем же данным, что и таблицу. */
   const tabs = useMemo(() => {
@@ -163,7 +161,6 @@ export function BookingsPage() {
     ];
   }, [baseRows]);
 
-  const masters = Array.from(new Set(baseRows.map((row) => row.master)));
   const services = Array.from(new Set(baseRows.map((row) => row.service)));
 
   const runAction = async (row: BookingRow, action: RowAction) => {
@@ -223,24 +220,14 @@ export function BookingsPage() {
         <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{actionError}</div>
       )}
 
-      <div className="mb-4 grid gap-3 xl:grid-cols-[minmax(220px,1.6fr)_repeat(3,minmax(140px,1fr))_minmax(160px,1fr)]">
+      <div className="mb-4 grid gap-3 xl:grid-cols-[minmax(220px,1.6fr)_repeat(2,minmax(140px,1fr))]">
         <SearchInput placeholder="Поиск по клиенту, телефону или услуге" value={query} onChange={setQuery} />
-        <Select
-          value={master}
-          onChange={setMaster}
-          options={[{ value: "all", label: "Все мастера" }, ...masters.map((item) => ({ value: item, label: item }))]}
-        />
         <Select
           value={service}
           onChange={setService}
           options={[{ value: "all", label: "Все услуги" }, ...services.map((item) => ({ value: item, label: item }))]}
         />
         <Select value={status} onChange={setStatus} options={statusFilterOptions} />
-        <Select
-          value="week"
-          onChange={() => undefined}
-          options={[{ value: "week", label: "20 – 26 мая 2024" }]}
-        />
       </div>
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />

@@ -12,18 +12,17 @@ import {
   MessagesSquare,
   Settings,
   Table2,
-  TrendingUp,
   Users,
   X,
 } from "lucide-react";
 import { cn } from "../utils/cn";
+import { useAuth } from "../auth/AuthContext";
 import { PersonAvatar } from "./components/ui";
 import { NotificationsBell } from "./components/NotificationsBell";
 import { useStoreStatus } from "../store/bookings";
 import { useUnreadMessages } from "../api/messages";
 import { useCabinetProfile } from "../api/profile";
 import { MessengerBanner } from "../components/MessengerBanner";
-import { masterProfile } from "./data";
 
 const navItems = [
   { to: "/pro", label: "Главная", icon: LayoutDashboard, end: true },
@@ -32,7 +31,6 @@ const navItems = [
   { to: "/pro/clients", label: "Клиенты", icon: Users },
   { to: "/pro/services", label: "Услуги и цены", icon: CircleDollarSign },
   { to: "/pro/reviews", label: "Отзывы", icon: MessageCircle },
-  { to: "/pro/promotion", label: "Продвижение", icon: TrendingUp },
   { to: "/pro/stats", label: "Статистика", icon: LineChart },
   { to: "/pro/messages", label: "Сообщения", icon: MessagesSquare },
   { to: "/pro/media", label: "Портфолио", icon: ImageIcon },
@@ -80,9 +78,10 @@ function Logo() {
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   // Живой счётчик непрочитанных сообщений: приходит из базы, а не из макета.
   const { unread } = useUnreadMessages();
+  const { user } = useAuth();
   // Имя и студия — из профиля кабинета: правки в настройках видны в сайдбаре.
   const { data: cabinet } = useCabinetProfile();
-  const profileName = cabinet?.profile.name ?? masterProfile.name;
+  const profileName = cabinet?.profile.name ?? user?.name ?? "Мастер";
 
   return (
     <div className="flex h-full flex-col px-4 py-6">
@@ -125,7 +124,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-white">{profileName}</p>
             <p className="truncate text-xs text-slate-400">
-              {cabinet?.profile.metro ? `Студия · ${cabinet.profile.metro}` : masterProfile.studio}
+              {cabinet?.profile.metro ? `Студия · ${cabinet.profile.metro}` : "Кабинет мастера"}
             </p>
           </div>
         </div>
@@ -146,9 +145,10 @@ export function MasterLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { pathname } = useLocation();
   const { status, error } = useStoreStatus();
+  const { user } = useAuth();
   // Имя для мобильной шапки — то же, что в сайдбаре: из профиля кабинета.
   const { data: layoutProfile } = useCabinetProfile();
-  const profileName = layoutProfile?.profile.name ?? masterProfile.name;
+  const profileName = layoutProfile?.profile.name ?? user?.name ?? "Мастер";
 
   return (
     <div className="min-h-screen bg-[#f5f6f8] text-slate-800">
@@ -188,7 +188,7 @@ export function MasterLayout() {
             </div>
           )}
 
-          <main key={pathname} className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <main key={`${user?.id ?? "anonymous"}:${pathname}`} className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             {/* Решение площадки видно сразу: снятый с публикации профиль не
                 показывается клиентам, и мастер должен понимать, почему. */}
             <ModerationBanner />

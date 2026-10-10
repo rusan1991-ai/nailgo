@@ -228,14 +228,14 @@ assert(
 );
 clientReviewsPage.dom.window.close();
 
-/* --- «Продвижение»: честно помеченные демо-данные --- */
+/* --- «Продвижение»: фантомная вкладка отключена --- */
 const promoPage = makeDom("/pro/promotion", { session: master });
 await wait(1400);
 const promoText = normalize(rootText(promoPage.dom));
 assert(
-  "рекламные метрики помечены как демо",
-  /демо|не подключен|нет данных/i.test(promoText),
-  "на странице продвижения должно быть видно, что реклама не подключена",
+  "раздел продвижения отключён и перенаправляет в кабинет",
+  promoPage.window.location.pathname === "/pro" && !promoText.includes("интеграция не подключена"),
+  `${promoPage.window.location.pathname}: ${promoText.slice(0, 80)}`,
 );
 assert("на странице нет ошибок", promoPage.errors.length === 0 && promoPage.consoleErrors.length === 0, promoPage.errors[0] ?? "");
 promoPage.dom.window.close();

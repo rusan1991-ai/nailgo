@@ -11,7 +11,7 @@
  *   cd tools/devcheck && node bundle.mjs && npm run locations
  */
 import fs from "node:fs";
-import { api, check, loginMaster, makeDom, rootText, wait } from "./harness.mjs";
+import { api, apiAs, check, loginMaster, makeDom, rootText, wait } from "./harness.mjs";
 
 let failures = 0;
 const assert = (label, ok, extra = "") => {
@@ -108,6 +108,41 @@ assert(
   JSON.stringify([...popular.data.metro, ...popular.data.cities]).slice(0, 160),
 );
 
+/* --- Привязка кабинета строго по ID из справочника --- */
+const session = await loginMaster();
+const profileBefore = await apiAs(session, "/cabinet/profile");
+const profileLocation = [...all.data.metro, ...all.data.cities].find((item) => item.id === profileBefore.data.profile.locationId);
+assert("профиль мастера хранит ID существующего места", Boolean(profileLocation), String(profileBefore.data.profile.locationId));
+
+const invalidLocation = await apiAs(session, "/cabinet/profile", {
+  method: "PATCH",
+  body: { locationId: "not-a-directory-location" },
+});
+assert("API отклоняет location_id вне справочника", invalidLocation.status === 400, `status=${invalidLocation.status}`);
+
+const targetLocation = all.data.cities.find((item) => item.id !== profileBefore.data.profile.locationId);
+if (targetLocation) {
+  const savedLocation = await apiAs(session, "/cabinet/profile", {
+    method: "PATCH",
+    body: { locationId: targetLocation.id },
+  });
+  const profileAfter = await apiAs(session, "/cabinet/profile");
+  assert("город из справочника сохраняется как location_id", savedLocation.status === 200 && profileAfter.data.profile.locationId === targetLocation.id, profileAfter.data.profile.locationId);
+  assert(
+    "регион и город получаются из выбранного ID",
+    profileAfter.data.profile.region === targetLocation.region && profileAfter.data.profile.city === targetLocation.name,
+    `${profileAfter.data.profile.region} / ${profileAfter.data.profile.city}`,
+  );
+  await apiAs(session, "/cabinet/profile", { method: "PATCH", body: { locationId: profileBefore.data.profile.locationId } });
+}
+
+const settings = makeDom("/pro/settings", { session });
+await wait(1200);
+assert("настройки имеют select региона", Boolean(settings.window.document.querySelector("select[data-field='master-region']")));
+assert("настройки имеют select места из справочника", Boolean(settings.window.document.querySelector("select[data-field='master-location-id']")));
+assert("свободное поле адреса удалено", !settings.window.document.querySelector("[data-field='master-address']"));
+settings.dom.window.close();
+
 /* --- Фильтр витрины --- */
 
 const byMetro = await api("/masters?metro=mayakovskaya");
@@ -156,9 +191,6 @@ assert(
 );
 
 /* --- Интерфейс: выбор места на карте мастеров --- */
-
-const session = await loginMaster();
-void session;
 
 const { dom, window } = makeDom("/search");
 await wait(1200);

@@ -128,6 +128,8 @@ export const masters = pgTable("masters", {
    */
   metroSlug: text("metro_slug"),
   districtSlug: text("district_slug"),
+  /** Каноническое место из справочника `locations`; slugs остаются для витринных фильтров. */
+  locationId: text("location_id").references(() => locations.id, { onDelete: "set null" }),
   /**
    * Модерация площадки: активный мастер попадает в витрину и принимает записи,
    * `paused` — приостановлен (витрина его не показывает, записаться нельзя),

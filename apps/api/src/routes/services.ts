@@ -40,10 +40,10 @@ const serviceInput = z.object({
 
 const servicePatch = serviceInput.partial();
 
-/** Услуги текущего мастера: ищем профиль по master_id из сессии. */
-async function currentMaster(masterId: string | null) {
-  if (!masterId) return null;
-  const [master] = await db.select().from(masters).where(eq(masters.id, masterId)).limit(1);
+/** Услуги текущего мастера: владелец берётся из проверенной сессии. */
+async function currentMaster(userId: string | null) {
+  if (!userId) return null;
+  const [master] = await db.select().from(masters).where(eq(masters.userId, userId)).limit(1);
   return master ?? null;
 }
 
@@ -54,7 +54,7 @@ export async function serviceRoutes(app: FastifyInstance) {
    * а не удалять — иначе пропадёт история визитов.
    */
   app.get("/cabinet/services", masterOnly, async (request, reply) => {
-    const master = await currentMaster(request.currentUser?.masterId ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const rows = await db
@@ -92,7 +92,7 @@ export async function serviceRoutes(app: FastifyInstance) {
 
   /** Новая услуга: цена и длительность сразу влияют на запись и окна. */
   app.post("/cabinet/services", masterOnly, async (request, reply) => {
-    const master = await currentMaster(request.currentUser?.masterId ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const input = serviceInput.parse(request.body ?? {});
@@ -126,7 +126,7 @@ export async function serviceRoutes(app: FastifyInstance) {
   /** Правка услуги: имя, категория, цена, длительность, видимость. */
   app.patch("/cabinet/services/:id", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const master = await currentMaster(request.currentUser?.masterId ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const [service] = await db.select().from(services).where(eq(services.id, id)).limit(1);
@@ -158,7 +158,7 @@ export async function serviceRoutes(app: FastifyInstance) {
    */
   app.delete("/cabinet/services/:id", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const master = await currentMaster(request.currentUser?.masterId ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const [service] = await db.select().from(services).where(eq(services.id, id)).limit(1);

@@ -7,6 +7,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { api, ApiError, setAuthToken, setRefreshHandler } from "../api/client";
 import { safeStorage } from "../utils/storage";
+import { setBookingOwnerScope } from "../store/bookings";
 
 export type AuthUser = {
   id?: string;
@@ -20,9 +21,9 @@ export type AuthUser = {
   masterSlug?: string | null;
 };
 
-/** Мастер это или админ — им открыт кабинет /pro. */
+/** В /pro входит только владелец кабинета; у администратора отдельный /admin. */
 export function isMaster(user: AuthUser | null): boolean {
-  return user?.role === "master" || user?.role === "admin";
+  return user?.role === "master";
 }
 
 /**
@@ -143,6 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(() => {
     const stored = adoptPendingSession() ?? readSession();
     setAuthToken(stored?.accessToken ?? null);
+    setBookingOwnerScope(stored?.user.id ?? stored?.user.phone ?? null);
     return stored;
   });
   const [ready, setReady] = useState(false);
@@ -152,6 +154,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const persist = useCallback((next: Session | null) => {
     setSession(next);
     setAuthToken(next?.accessToken ?? null);
+    setBookingOwnerScope(next?.user.id ?? next?.user.phone ?? null);
     if (next) safeStorage.set(AUTH_STORAGE_KEY, JSON.stringify(next));
     else safeStorage.remove(AUTH_STORAGE_KEY);
   }, []);
@@ -198,7 +201,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void (async () => {
       try {
         const response = await api.get<{ user: AuthUser }>("/auth/me");
-        if (alive) persist({ ...stored, user: response.user });
+        if (alive) {
+          // Запрос /auth/me может завершиться уже после refresh-токена. Берём
+          // актуальную пару из storage, иначе старый снимок `stored` затрёт
+          // только что выданный access token и разлогинит пользователя через 15 минут.
+          const latest = readSession();
+          const latestId = latest?.user.id ?? latest?.user.phone;
+          const responseId = response.user.id ?? response.user.phone;
+          if (latest && (!latestId || !responseId || latestId === responseId)) {
+            persist({ ...latest, user: response.user });
+          }
+        }
       } catch (caught) {
         if (caught instanceof ApiError && (caught.status === 401 || caught.status === 403)) persist(null);
       } finally {

@@ -68,7 +68,13 @@ export type NewBookingInput =
   | (NewBookingFields & { source: "master"; masterId?: string; masterSlug: string })
   | (NewBookingFields & { source?: "client"; masterSlug: string });
 
-const CACHE_KEY = "nailgo_bookings_cache_v3";
+const CACHE_KEY = "nailgo_bookings_cache_v4";
+let ownerScope = "anonymous";
+let scopeVersion = 0;
+
+function isCurrentScope(scope: string, version: number): boolean {
+  return ownerScope === scope && scopeVersion === version;
+}
 
 const WEEKDAY_SHORT = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
 const MONTH_GENITIVE = [
@@ -238,8 +244,12 @@ type State = {
   error: string | null;
 };
 
-function loadCache(): Booking[] {
-  const raw = safeStorage.get(CACHE_KEY);
+function cacheKey(scope = ownerScope): string {
+  return `${CACHE_KEY}:${scope}`;
+}
+
+function loadCache(scope = ownerScope): Booking[] {
+  const raw = safeStorage.get(cacheKey(scope));
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -251,33 +261,47 @@ function loadCache(): Booking[] {
 
 let state: State = { bookings: loadCache(), status: "idle", error: null };
 const listeners = new Set<() => void>();
-let inFlight: Promise<void> | null = null;
+let inFlight: { scope: string; promise: Promise<void> } | null = null;
+
+/** Выдача и локальный кэш записей привязаны к пользователю, а не к браузеру. */
+export function setBookingOwnerScope(userId: string | null): void {
+  const nextScope = userId?.trim() || "anonymous";
+  if (nextScope === ownerScope) return;
+  ownerScope = nextScope;
+  scopeVersion += 1;
+  inFlight = null;
+  emit({ bookings: loadCache(ownerScope), status: "idle", error: null });
+}
 
 function emit(next: State) {
   state = next;
-  if (next.bookings.length > 0) {
-    safeStorage.set(CACHE_KEY, JSON.stringify(next.bookings));
-  }
+  // Пустой ответ тоже перезаписывает кэш: удалённые/закрытые записи не всплывут снова.
+  safeStorage.set(cacheKey(), JSON.stringify(next.bookings));
   listeners.forEach((listener) => listener());
 }
 
 export async function refresh(): Promise<void> {
-  if (inFlight) return inFlight;
+  const requestScope = ownerScope;
+  if (inFlight?.scope === requestScope) return inFlight.promise;
+  const requestVersion = scopeVersion;
 
-  inFlight = (async () => {
+  let promise: Promise<void>;
+  promise = (async () => {
     emit({ ...state, status: state.bookings.length ? state.status : "loading" });
     try {
       const data = await api.get<{ items: ApiBooking[] }>("/cabinet/bookings");
+      if (ownerScope !== requestScope || scopeVersion !== requestVersion) return;
       emit({ bookings: data.items.map(mapBooking), status: "ready", error: null });
     } catch (error) {
+      if (ownerScope !== requestScope || scopeVersion !== requestVersion) return;
       const message = error instanceof ApiError ? error.message : "Не удалось загрузить записи";
       emit({ ...state, status: "offline", error: message });
     } finally {
-      inFlight = null;
+      if (ownerScope === requestScope && scopeVersion === requestVersion) inFlight = null;
     }
   })();
-
-  return inFlight;
+  inFlight = { scope: requestScope, promise };
+  return promise;
 }
 
 function ensureLoaded() {
@@ -297,6 +321,8 @@ export function getSnapshot(): State {
 }
 
 export async function createBooking(input: NewBookingInput): Promise<{ booking: Booking; greeting: BookingGreeting | null }> {
+  const requestScope = ownerScope;
+  const requestVersion = scopeVersion;
   const isMasterBooking = input.source === "master";
   const path = isMasterBooking ? "/cabinet/bookings" : "/bookings";
   const response = await api.post<{ booking: ApiBooking; greeting?: BookingGreeting | null }>(path, {
@@ -315,14 +341,18 @@ export async function createBooking(input: NewBookingInput): Promise<{ booking: 
   });
 
   const booking = mapBooking(response.booking);
-  emit({ bookings: [booking, ...state.bookings.filter((item) => item.id !== booking.id)], status: "ready", error: null });
+  if (isCurrentScope(requestScope, requestVersion)) {
+    emit({ bookings: [booking, ...state.bookings.filter((item) => item.id !== booking.id)], status: "ready", error: null });
+  }
   return { booking, greeting: response.greeting ?? null };
 }
 
 export async function cancelBooking(id: string, phone?: string): Promise<void> {
   if (phone) {
+    const requestScope = ownerScope;
+    const requestVersion = scopeVersion;
     await api.post(`/bookings/${id}/cancel`, { phone });
-    updateStatus(id, "cancelled");
+    updateStatus(id, "cancelled", requestScope, requestVersion);
     return;
   }
   await setStatus(id, "cancel");
@@ -333,17 +363,20 @@ export async function cancelBooking(id: string, phone?: string): Promise<void> {
  * отказал — возвращаем то, что реально лежит в базе, чтобы экран не врал.
  */
 async function setStatus(id: string, action: "confirm" | "complete" | "cancel"): Promise<void> {
+  const requestScope = ownerScope;
+  const requestVersion = scopeVersion;
   const next: BookingStatus = action === "confirm" ? "confirmed" : action === "complete" ? "completed" : "cancelled";
-  updateStatus(id, next);
+  updateStatus(id, next, requestScope, requestVersion);
   try {
     await api.post(`/cabinet/bookings/${id}/${action}`);
   } catch (error) {
-    await refresh();
+    if (isCurrentScope(requestScope, requestVersion)) await refresh();
     throw error;
   }
 }
 
-function updateStatus(id: string, status: BookingStatus): void {
+function updateStatus(id: string, status: BookingStatus, requestScope = ownerScope, requestVersion = scopeVersion): void {
+  if (!isCurrentScope(requestScope, requestVersion)) return;
   emit({
     ...state,
     bookings: state.bookings.map((booking) => (booking.id === id ? { ...booking, status } : booking)),
@@ -366,14 +399,16 @@ export async function completeBooking(id: string): Promise<void> {
  * ограничивает клиенту запись — ответ об этом говорит полем `discipline`.
  */
 export async function noShowBooking(id: string): Promise<{ blacklisted: boolean; noShowCount: number } | null> {
-  updateStatus(id, "no_show");
+  const requestScope = ownerScope;
+  const requestVersion = scopeVersion;
+  updateStatus(id, "no_show", requestScope, requestVersion);
   try {
     const response = await api.post<{
       discipline: { noShowCount: number; blacklisted: boolean } | null;
     }>(`/cabinet/bookings/${id}/no-show`);
     return response.discipline ? { blacklisted: response.discipline.blacklisted, noShowCount: response.discipline.noShowCount } : null;
   } catch (error) {
-    await refresh();
+    if (isCurrentScope(requestScope, requestVersion)) await refresh();
     throw error;
   }
 }
@@ -390,9 +425,13 @@ async function applyReschedule(
   path: string,
   input: { dateISO: string; startMinutes: number },
 ): Promise<Booking> {
+  const requestScope = ownerScope;
+  const requestVersion = scopeVersion;
   const response = await api.post<{ booking: ApiBooking }>(path, input);
   const booking = mapBooking(response.booking);
-  emit({ ...state, bookings: state.bookings.map((item) => (item.id === id ? booking : item)) });
+  if (isCurrentScope(requestScope, requestVersion)) {
+    emit({ ...state, bookings: state.bookings.map((item) => (item.id === id ? booking : item)) });
+  }
   return booking;
 }
 
@@ -416,8 +455,10 @@ export function exportBookings(): string {
 }
 
 export async function resetDemoData(): Promise<void> {
+  const requestScope = ownerScope;
+  const requestVersion = scopeVersion;
   await api.post("/cabinet/demo/reset");
-  await refresh();
+  if (isCurrentScope(requestScope, requestVersion)) await refresh();
 }
 
 /* ---------------------------------- хуки --------------------------------- */

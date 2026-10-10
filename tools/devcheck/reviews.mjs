@@ -277,6 +277,12 @@ assert(
 /* --- Интерфейс: мастер отвечает из кабинета --- */
 const pro = makeDom("/pro/reviews", { session: master });
 await wait(900);
+const replyCard = pro.dom.window.document.querySelector(`[data-block='review-reply-card'][data-review-id='${uiReview?.id}']`);
+assert(
+  "в карточке отзыва есть форма ответа без открытия модального окна",
+  Boolean(replyCard?.querySelector("textarea") && replyCard.querySelector("[data-action='review-card-reply-save']")),
+);
+assert("в отзывах нет выбора «Все мастера»", !rootText(pro.dom).includes("Все мастера"));
 const opened = clickActionIn(pro.dom, "Всё аккуратно", "Открыть отзыв");
 assert("карточка нового отзыва открывается в кабинете", opened);
 await wait(300);

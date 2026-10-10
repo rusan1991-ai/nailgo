@@ -155,7 +155,10 @@ const { dom, window } = makeDom("/pro/media", { session: master });
 await wait(1500);
 const text = rootText(dom);
 assert("страница портфолио открылась", text.includes("Портфолио"), text.slice(0, 140));
-assert("есть поле выбора файла", Boolean(window.document.querySelector("[data-field='media-file']")), text.slice(0, 160));
+const mediaInput = window.document.querySelector("[data-field='media-file']");
+const uploadButton = window.document.querySelector("[data-action='upload-media']");
+assert("поле выбора файла есть в доступности, но не выглядит как сырой input", Boolean(mediaInput && mediaInput.classList.contains("sr-only")));
+assert("загрузка запускается оформленной кнопкой", Boolean(uploadButton) && uploadButton.textContent.includes("Загрузить"));
 assert(
   "в кабинете объяснён лимит размера",
   text.includes("5,0 МБ") || text.includes("5 МБ"),

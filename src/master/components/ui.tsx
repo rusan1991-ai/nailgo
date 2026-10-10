@@ -1,4 +1,4 @@
-import { useEffect, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, type ChangeEvent, type ComponentPropsWithoutRef, type ReactNode } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { cn } from "../../utils/cn";
 
@@ -10,13 +10,11 @@ export function Card({
   children,
   className,
   padded = true,
-}: {
-  children: ReactNode;
-  className?: string;
-  padded?: boolean;
-}) {
+  ...sectionProps
+}: Omit<ComponentPropsWithoutRef<"section">, "className"> & { className?: string; padded?: boolean }) {
   return (
     <section
+      {...sectionProps}
       className={cn(
         "rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
         padded && "p-5",

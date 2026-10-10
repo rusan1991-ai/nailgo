@@ -313,6 +313,8 @@ export async function seed() {
   await syncLocations();
 
   const masterRows = await db.insert(masters).values(mastersSeed).returning();
+  // Обратная совместимость сидов: сразу сохраняем canonical location_id.
+  await syncLocations();
 
   // Контакты кабинета: показываются в настройках профиля.
   const ownerRow = masterRows.find((row) => row.slug === "anna-smirnova");

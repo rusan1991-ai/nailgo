@@ -8,10 +8,27 @@
 const BASE_URL = import.meta.env.VITE_API_URL ?? "/api";
 
 let authToken: string | null = null;
+let authScopeVersion = 0;
+const authScopeListeners = new Set<() => void>();
 
 /** Токен доступа для авторизованных запросов (ставится из AuthProvider). */
 export function setAuthToken(token: string | null) {
+  if (authToken !== token) {
+    authScopeVersion += 1;
+    authScopeListeners.forEach((listener) => listener());
+  }
   authToken = token;
+}
+
+/** Версия аутентифицированного scope: private resources не должны мигать чужими данными. */
+export function getAuthScopeVersion(): number {
+  return authScopeVersion;
+}
+
+/** Подписка ресурсов API на вход/выход/ротацию сессии. */
+export function subscribeAuthScope(listener: () => void): () => void {
+  authScopeListeners.add(listener);
+  return () => authScopeListeners.delete(listener);
 }
 
 /**

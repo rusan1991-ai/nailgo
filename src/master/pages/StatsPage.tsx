@@ -125,14 +125,14 @@ export function StatsPage() {
     },
     {
       label: "Средний чек",
-      value:
-        stats && stats.bookingsThisMonth > 0
-          ? formatRub(Math.round(stats.incomeThisMonth / stats.bookingsThisMonth))
-          : "—",
+      value: stats && stats.byStatus.completed > 0 ? formatRub(stats.avgCheckThisMonth) : "—",
       delta: "",
-      caption: "выручка / записи за месяц",
+      caption: "выручка / завершённые визиты",
       color: "#f59e0b",
-      spark: days.map((day) => (day.bookings > 0 ? Math.round(day.revenue / day.bookings) : 0)),
+      spark: days.map((day) =>
+        day.completedBookings > 0 ? Math.round(day.revenue / day.completedBookings) : 0,
+      ),
+
     },
   ];
 

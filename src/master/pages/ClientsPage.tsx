@@ -81,7 +81,6 @@ const AWAY_DAYS = 60;
 export function ClientsPage() {
   const [tab, setTab] = useState("all");
   const [query, setQuery] = useState("");
-  const [master, setMaster] = useState("all");
   const [status, setStatus] = useState("all");
   const [source, setSource] = useState("all");
   const [activeClient, setActiveClient] = useState<ClientView | null>(null);
@@ -142,9 +141,7 @@ export function ClientsPage() {
   const clientBookings = useMemo(
     () =>
       activeClient
-        ? stored.filter(
-            (booking) => booking.clientName === activeClient.name || booking.clientPhone === activeClient.phone,
-          )
+        ? stored.filter((booking) => Boolean(activeClient.phone) && booking.clientPhone === activeClient.phone)
         : [],
     [activeClient, stored],
   );
@@ -216,11 +213,10 @@ export function ClientsPage() {
       const needle = query.trim().toLowerCase();
       result = result.filter((row) => `${row.name} ${row.phone}`.toLowerCase().includes(needle));
     }
-    if (master !== "all") result = result.filter((row) => row.master === master);
     if (status !== "all") result = result.filter((row) => row.status === status);
     if (source !== "all") result = result.filter((row) => row.source === source);
     return result;
-  }, [allClients, tab, query, master, status, source]);
+  }, [allClients, tab, query, status, source]);
 
   /** Счётчики вкладок — по тем же данным, что и таблица. */
   const tabs = useMemo(
@@ -233,7 +229,6 @@ export function ClientsPage() {
     [allClients],
   );
 
-  const masters = Array.from(new Set(allClients.map((row) => row.master)));
   const sources = Array.from(new Set(allClients.map((row) => row.source)));
 
   return (
@@ -248,13 +243,8 @@ export function ClientsPage() {
 
       {error && <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600">Не удалось загрузить клиентов: {error}</div>}
 
-      <div className="mb-4 grid gap-3 xl:grid-cols-[minmax(220px,1.6fr)_repeat(3,minmax(150px,1fr))_auto]">
+      <div className="mb-4 grid gap-3 xl:grid-cols-[minmax(220px,1.6fr)_repeat(2,minmax(150px,1fr))_auto]">
         <SearchInput placeholder="Поиск по имени, телефону или заметкам" value={query} onChange={setQuery} />
-        <Select
-          value={master}
-          onChange={setMaster}
-          options={[{ value: "all", label: "Все мастера" }, ...masters.map((item) => ({ value: item, label: item }))]}
-        />
         <Select
           value={status}
           onChange={setStatus}
@@ -273,7 +263,6 @@ export function ClientsPage() {
         <GhostButton
           onClick={() => {
             setQuery("");
-            setMaster("all");
             setStatus("all");
             setSource("all");
           }}

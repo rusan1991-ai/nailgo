@@ -14,9 +14,9 @@
  * название, линия и координаты. Удалять ничего нельзя — на места ссылаются
  * профили мастеров.
  */
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "./index.js";
-import { locations } from "./schema.js";
+import { locations, masters } from "./schema.js";
 import { LOCATIONS_SEED } from "./locations-data.js";
 
 export type LocationsSyncResult = {
@@ -62,6 +62,22 @@ export async function syncLocations(): Promise<LocationsSyncResult> {
           sort: sql`excluded.sort`,
         },
       });
+  }
+
+  // Мигрируем прежнюю привязку по slug в строгий `location_id`. Ничего не
+  // выводим из пользовательского текста: подхватываем только запись справочника.
+  const [locationRows, masterRows] = await Promise.all([
+    db.select({ id: locations.id, slug: locations.slug, kind: locations.kind }).from(locations),
+    db.select({ id: masters.id, locationId: masters.locationId, metroSlug: masters.metroSlug, districtSlug: masters.districtSlug }).from(masters),
+  ]);
+  const bySlug = new Map(locationRows.map((location) => [location.slug, location]));
+  for (const master of masterRows) {
+    if (master.locationId) continue;
+    const slug = master.metroSlug ?? master.districtSlug;
+    const location = slug ? bySlug.get(slug) : undefined;
+    if (!location) continue;
+    if ((master.metroSlug && location.kind !== "metro") || (master.districtSlug && location.kind !== "district")) continue;
+    await db.update(masters).set({ locationId: location.id }).where(eq(masters.id, master.id));
   }
 
   return {

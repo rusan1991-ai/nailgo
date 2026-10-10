@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Camera, Check, Download, Save, Trash2, Upload } from "lucide-react";
 import {
   Card,
@@ -24,11 +24,18 @@ import {
   useHoursDraft,
 } from "../../api/profile";
 import { cn } from "../../utils/cn";
+import { useLocationDirectory } from "../../api/locations";
+
+const REGION_SPB = "Санкт-Петербург";
+const REGION_LO = "Ленинградская область";
+
+type LocationRegion = typeof REGION_SPB | typeof REGION_LO;
 
 export function SettingsProPage() {
   const [section, setSection] = useState("profile");
 
   const profileResource = useCabinetProfile();
+  const locationsResource = useLocationDirectory();
   const hoursResource = useCabinetHours();
   const { draft: hours, update: updateHours } = useHoursDraft(hoursResource.data?.items);
 
@@ -36,9 +43,9 @@ export function SettingsProPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [site, setSite] = useState("");
-  const [address, setAddress] = useState("");
   const [description, setDescription] = useState("");
-  const [metro, setMetro] = useState("");
+  const [region, setRegion] = useState<LocationRegion>(REGION_SPB);
+  const [locationId, setLocationId] = useState("");
   const [tags, setTags] = useState("");
   const [priceFrom, setPriceFrom] = useState("0");
   /**
@@ -67,15 +74,22 @@ export function SettingsProPage() {
 
   // Значения формы берём из базы: до загрузки поля пустые, а не выдуманные.
   const profile = profileResource.data?.profile;
+  const metros = locationsResource.data?.metro ?? [];
+  const cities = locationsResource.data?.cities ?? [];
+  const metroLines = useMemo(
+    () => Array.from(new Set(metros.map((item) => item.line ?? "Метро"))),
+    [locationsResource.data?.metro],
+  );
+
   useEffect(() => {
     if (!profile) return;
     setName(profile.name);
     setPhone(profile.phone);
     setEmail(profile.email);
     setSite(profile.site);
-    setAddress(profile.address);
     setDescription(profile.about);
-    setMetro(profile.metro);
+    setRegion(profile.region === REGION_LO ? REGION_LO : REGION_SPB);
+    setLocationId(profile.locationId ?? "");
     setTags(profile.tags);
     setPriceFrom(String(profile.priceFrom));
     setTimezone(profile.timezone);
@@ -86,14 +100,14 @@ export function SettingsProPage() {
   const save = async () => {
     setState({ saving: true, saved: false, error: null });
     try {
+      if (!locationId) throw new Error("Выберите место работы из справочника");
       await saveCabinetProfile({
         name,
         email,
         site,
-        address,
         about: description,
         tags,
-        metro,
+        locationId,
         experience: profile?.experience ?? "5 лет",
         priceFrom: Number.parseInt(priceFrom, 10) || 0,
         timezone,
@@ -249,9 +263,67 @@ export function SettingsProPage() {
                       )}
                     </div>
                     <TextField label="Email" value={email} onChange={setEmail} />
-                    <TextField label="Адрес (необязательно)" value={address} onChange={setAddress} />
                     <TextField label="Сайт (необязательно)" value={site} onChange={setSite} />
-                    <TextField label="Метро" value={metro} onChange={setMetro} />
+                    <div className="sm:col-span-2" data-block="master-location">
+                      <p className="mb-2 text-sm font-medium text-slate-700">Место работы</p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="block text-sm text-slate-600">
+                          Регион
+                          <select
+                            value={region}
+                            data-field="master-region"
+                            onChange={(event) => {
+                              setRegion(event.target.value as LocationRegion);
+                              setLocationId("");
+                              setState({ saving: false, saved: false, error: null });
+                            }}
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-pink-400"
+                          >
+                            <option value={REGION_SPB}>Санкт-Петербург</option>
+                            <option value={REGION_LO}>Ленинградская область</option>
+                          </select>
+                        </label>
+                        <label className="block text-sm text-slate-600">
+                          {region === REGION_SPB ? "Ветка метро и станция" : "Город Ленинградской области"}
+                          <select
+                            value={locationId}
+                            data-field="master-location-id"
+                            disabled={locationsResource.loading || Boolean(locationsResource.error)}
+                            onChange={(event) => {
+                              setLocationId(event.target.value);
+                              setState({ saving: false, saved: false, error: null });
+                            }}
+                            required
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-pink-400 disabled:bg-slate-50"
+                          >
+                            <option value="">
+                              {locationsResource.loading
+                                ? "Загружаем справочник…"
+                                : region === REGION_SPB
+                                  ? "Выберите станцию метро"
+                                  : "Выберите город"}
+                            </option>
+                            {region === REGION_SPB
+                              ? metroLines.map((line) => (
+                                  <optgroup key={line} label={line}>
+                                    {metros
+                                      .filter((item) => (item.line ?? "Метро") === line)
+                                      .map((item) => (
+                                        <option key={item.id} value={item.id}>{item.name}</option>
+                                      ))}
+                                  </optgroup>
+                                ))
+                              : cities.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                          </select>
+                        </label>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-400">
+                        Место выбирается из справочника и сохраняется по location_id. Адрес и станцию нельзя задать произвольным текстом.
+                      </p>
+                      {locationsResource.error && (
+                        <p className="mt-1 text-xs text-rose-600" role="alert">Справочник мест недоступен: {locationsResource.error}</p>
+                      )}
+                    </div>
                     <div className="sm:col-span-2">
                       <TextField
                         label="Специализация (через запятую)"

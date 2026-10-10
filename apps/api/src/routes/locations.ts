@@ -16,10 +16,10 @@ import { locations, masters } from "../db/schema.js";
 function group(rows: (typeof locations.$inferSelect)[]) {
   const metro = rows
     .filter((row) => row.kind === "metro")
-    .map((row) => ({ slug: row.slug, name: row.name, line: row.line, color: row.color, region: row.region }));
+    .map((row) => ({ id: row.id, slug: row.slug, name: row.name, line: row.line, color: row.color, region: row.region }));
   const cities = rows
     .filter((row) => row.kind === "district")
-    .map((row) => ({ slug: row.slug, name: row.name, region: row.region }));
+    .map((row) => ({ id: row.id, slug: row.slug, name: row.name, region: row.region }));
   return { metro, cities };
 }
 

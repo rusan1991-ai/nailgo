@@ -16,7 +16,7 @@ import {
   apiAs,
   check,
   demoDay,
-  demoMoment,
+  isoMoment,
   isoShift,
   login,
   loginMaster,
@@ -90,7 +90,7 @@ const lateAttempt = await api("/bookings", {
     clientName: "Клиент Прошлого",
     clientPhone: PHONE,
     // dev-подмена «сейчас»: до начала визита 30 минут — лид-тайм не выдержан.
-    now: isoShift(demoMoment(1, slot.startMinute), { minutes: -30 }),
+    now: isoShift(isoMoment(tomorrowISO, slot.startMinute), { minutes: -30 }),
   },
 });
 assert(

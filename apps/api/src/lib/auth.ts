@@ -160,12 +160,12 @@ export async function requireAdmin(request: FastifyRequest, reply: FastifyReply)
   }
 }
 
-/** Кабинет мастера: только пользователь с ролью master (или admin). */
+/** Кабинет мастера доступен только его владельцу; для администраторов есть отдельные /admin ручки. */
 export async function requireMaster(request: FastifyRequest, reply: FastifyReply) {
   if (!request.currentUser) {
     return reply.code(401).send({ error: "unauthorized", message: "Требуется вход" });
   }
-  if (request.currentUser.role !== "master" && request.currentUser.role !== "admin") {
-    return reply.code(403).send({ error: "forbidden", message: "Раздел доступен мастеру" });
+  if (request.currentUser.role !== "master") {
+    return reply.code(403).send({ error: "forbidden", message: "Раздел доступен только владельцу кабинета" });
   }
 }

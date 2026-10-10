@@ -25,10 +25,10 @@ import {
 } from "../lib/media.js";
 import { readFile } from "node:fs/promises";
 
-/** Кабинет мастера по слагу из токена: у каждого своя галерея. */
-async function currentMaster(slug: string | null) {
-  if (!slug) return null;
-  const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
+/** Владелец галереи определяется по пользователю авторизованной сессии. */
+async function currentMaster(userId: string | null) {
+  if (!userId) return null;
+  const [master] = await db.select().from(masters).where(eq(masters.userId, userId)).limit(1);
   return master ?? null;
 }
 
@@ -84,7 +84,7 @@ export async function mediaRoutes(app: FastifyInstance) {
 
   /** Галерея мастера для кабинета: все файлы, аватар — первым. */
   app.get("/cabinet/media", { preHandler: [requireAuth, requireMaster] }, async (request) => {
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return { items: [], rules: mediaRules() };
 
     const rows = await db
@@ -101,7 +101,7 @@ export async function mediaRoutes(app: FastifyInstance) {
    * подпись. Картинка проверяется и сжимается в двух вариантах.
    */
   app.post("/cabinet/media", { preHandler: [requireAuth, requireMaster] }, async (request, reply) => {
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     // Лимит размера проверяет сам разбор формы, но ошибку нужно превратить
@@ -109,6 +109,9 @@ export async function mediaRoutes(app: FastifyInstance) {
     const file = await request.file({ limits: { fileSize: mediaRules().maxBytes, files: 1 } }).catch(() => null);
     if (!file) return reply.code(400).send({ error: "no_file", message: "Выберите файл" });
 
+    // Сначала полностью читаем поток: multipart-поля, которые пришли после
+    // файла, становятся доступны только после его потребления.
+    const buffer = await file.toBuffer();
     const kindField = (file.fields?.kind as { value?: string } | undefined)?.value ?? "portfolio";
     const captionField = (file.fields?.caption as { value?: string } | undefined)?.value ?? null;
     if (!MEDIA_KINDS.includes(kindField as MediaKind)) {
@@ -130,7 +133,6 @@ export async function mediaRoutes(app: FastifyInstance) {
       }
     }
 
-    const buffer = await file.toBuffer();
     if (file.file.truncated) {
       return reply.code(413).send({
         error: "too_large",
@@ -177,7 +179,7 @@ export async function mediaRoutes(app: FastifyInstance) {
   /** Подпись к работе: у портфолио и сертификатов она полезна, у аватара — нет. */
   app.patch("/cabinet/media/:id", { preHandler: [requireAuth, requireMaster] }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const { caption, sort } = z
@@ -197,7 +199,7 @@ export async function mediaRoutes(app: FastifyInstance) {
   /** Удаление: файлы уходят с диска, строка — из базы. */
   app.delete("/cabinet/media/:id", { preHandler: [requireAuth, requireMaster] }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const removed = await db

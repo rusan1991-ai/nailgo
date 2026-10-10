@@ -14,6 +14,11 @@ export type CabinetProfile = {
   about: string;
   tags: string;
   metro: string;
+  locationId: string | null;
+  locationKind: "metro" | "district" | null;
+  locationName: string | null;
+  region: string;
+  city: string;
   distance: string;
   priceFrom: number;
   experience: string;
@@ -77,10 +82,9 @@ export async function saveCabinetProfile(input: {
   name: string;
   email: string;
   site: string;
-  address: string;
   about: string;
   tags: string;
-  metro: string;
+  locationId: string;
   experience: string;
   priceFrom: number;
   timezone?: string;

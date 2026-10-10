@@ -6,9 +6,11 @@
  * который просто упомянул её в описании.
  */
 import { api } from "./client";
+import { useApiResource, type Resource } from "./resource";
 
-export type MetroItem = { slug: string; name: string; line: string | null; color: string | null; region: string };
-export type CityItem = { slug: string; name: string; region: string };
+export type MetroItem = { id: string; slug: string; name: string; line: string | null; color: string | null; region: string };
+export type CityItem = { id: string; slug: string; name: string; region: string };
+export type LocationDirectory = { metro: MetroItem[]; cities: CityItem[]; total: number };
 export type PopularItem = { slug: string; name: string; line: string | null; color: string | null; masters: number };
 
 /** Станция метро в фильтре: сколько активных мастеров к ней привязано. */
@@ -22,9 +24,13 @@ export type LocationsTree = {
   totals: { metro: number; districts: number; occupied: number };
 };
 
+export function useLocationDirectory(): Resource<LocationDirectory> {
+  return useApiResource<LocationDirectory>("/locations");
+}
+
 export const locationsApi = {
   /** Полный справочник: метро и города отдельными блоками. */
-  all: () => api.get<{ metro: MetroItem[]; cities: CityItem[]; total: number }>("/locations"),
+  all: () => api.get<LocationDirectory>("/locations"),
 
   /** Места, где реально есть мастера: показываются в фильтре первыми. */
   popular: () => api.get<{ metro: PopularItem[]; cities: PopularItem[] }>("/locations/popular"),

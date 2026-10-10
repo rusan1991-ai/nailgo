@@ -18,6 +18,34 @@ console.log(`Демо-данные сброшены: ${JSON.stringify(reset.coun
 
 const stats = await apiAs(master, `/cabinet/stats?month=${demoMonthISO}`);
 const s = stats.data;
+const bookingRows = await apiAs(master, "/cabinet/bookings");
+const monthBookings = bookingRows.data.items.filter((item) => item.dateISO.startsWith(demoMonthISO));
+const completedMonth = monthBookings.filter((item) => item.status === "completed");
+const completedRevenue = completedMonth.reduce((sum, item) => sum + item.price, 0);
+assert(
+  "доход месяца считает только завершённые визиты",
+  s.incomeThisMonth === completedRevenue,
+  `${s.incomeThisMonth} вместо ${completedRevenue}`,
+);
+assert(
+  "средний чек считается по завершённым визитам",
+  s.avgCheckThisMonth === (completedMonth.length ? Math.round(completedRevenue / completedMonth.length) : 0),
+  `средний чек=${s.avgCheckThisMonth}, выполненных=${completedMonth.length}`,
+);
+assert(
+  "дневная выручка графика суммируется ровно в заработок",
+  s.byDay.reduce((sum, item) => sum + item.revenue, 0) === completedRevenue,
+  `по дням=${s.byDay.reduce((sum, item) => sum + item.revenue, 0)}, доход=${completedRevenue}`,
+);
+const monthPoint = s.monthly.find((item) => item.monthISO === demoMonthISO);
+assert("месячная динамика показывает ту же выручку, только по completed", monthPoint?.revenue === completedRevenue, String(monthPoint?.revenue));
+const expectedServiceRevenue = new Map();
+for (const booking of completedMonth) expectedServiceRevenue.set(booking.serviceName, (expectedServiceRevenue.get(booking.serviceName) ?? 0) + booking.price);
+assert(
+  "топ услуг суммирует выручку только завершённых визитов",
+  [...expectedServiceRevenue].every(([name, revenue]) => s.topServices.find((item) => item.name === name)?.revenue === revenue),
+  JSON.stringify(s.topServices.map(({ name, revenue }) => ({ name, revenue }))),
+);
 assert("API отдаёт воронку по записям", Array.isArray(s.funnel) && s.funnel.length === 4, JSON.stringify(s.funnel));
 assert("API отдаёт динамику за 12 месяцев", Array.isArray(s.monthly) && s.monthly.length === 12, String(s.monthly?.length));
 const statusSum =

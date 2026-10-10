@@ -39,6 +39,7 @@ export function ReviewsProPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [details, setDetails] = useState<CabinetReview | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
+  const [cardReplyDrafts, setCardReplyDrafts] = useState<Record<string, string>>({});
   const [replyBusy, setReplyBusy] = useState(false);
   /** Жалоба на отзыв: текст пишется здесь, решение остаётся за администратором. */
   const [complaintDraft, setComplaintDraft] = useState("");
@@ -76,7 +77,7 @@ export function ReviewsProPage() {
     setActionError(null);
     try {
       const result = await replyToReview(review.id, text.trim());
-      setDetails((current) => (current ? { ...current, replyText: result.replyText } : current));
+      setDetails((current) => (current?.id === review.id ? { ...current, replyText: result.replyText } : current));
       await reload();
     } catch (caught) {
       setActionError(
@@ -154,7 +155,7 @@ export function ReviewsProPage() {
         </GhostButton>
       </div>
 
-      <div className="mb-4 grid gap-3 xl:grid-cols-[repeat(4,minmax(150px,1fr))_minmax(190px,1fr)]">
+      <div className="mb-4 grid gap-3 xl:grid-cols-[repeat(3,minmax(150px,1fr))]">
         <Select
           value={status}
           onChange={setStatus}
@@ -181,8 +182,6 @@ export function ReviewsProPage() {
           onChange={setService}
           options={[{ value: "all", label: "Все услуги" }, ...services.map((item) => ({ value: item, label: item }))]}
         />
-        <Select value="all-masters" onChange={() => undefined} options={[{ value: "all-masters", label: "Все мастера" }]} />
-        <Select value="2024" onChange={() => undefined} options={[{ value: "2024", label: "01.01.2024 – 31.12.2024" }]} />
       </div>
 
       <div className="space-y-3">
@@ -211,6 +210,35 @@ export function ReviewsProPage() {
                     <p className="mt-1 text-sm text-slate-700">{row.replyText}</p>
                   </div>
                 )}
+                <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 p-3" data-block="review-reply-card" data-review-id={row.id}>
+                  <label htmlFor={`review-reply-${row.id}`} className="text-xs font-medium text-slate-600">
+                    Ответить клиенту
+                  </label>
+                  <textarea
+                    id={`review-reply-${row.id}`}
+                    value={cardReplyDrafts[row.id] ?? row.replyText ?? ""}
+                    onChange={(event) => setCardReplyDrafts((drafts) => ({ ...drafts, [row.id]: event.target.value }))}
+                    rows={2}
+                    maxLength={1000}
+                    placeholder="Спасибо за отзыв! Будем рады видеть вас снова"
+                    data-field="review-card-reply"
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-pink-400"
+                  />
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      disabled={
+                        !live || replyBusy ||
+                        (cardReplyDrafts[row.id] ?? row.replyText ?? "").trim() === (row.replyText ?? "")
+                      }
+                      onClick={() => void saveReply(row, cardReplyDrafts[row.id] ?? row.replyText ?? "")}
+                      data-action="review-card-reply-save"
+                      className="rounded-xl bg-pink-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-pink-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {replyBusy ? "Сохраняем…" : row.replyText ? "Сохранить ответ" : "Ответить"}
+                    </button>
+                  </div>
+                </div>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <Chip tone={reviewStatus[row.status].tone}>{reviewStatus[row.status].label}</Chip>

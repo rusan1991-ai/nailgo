@@ -68,17 +68,27 @@ async function pastVisit() {
     day.setDate(day.getDate() - offset);
     candidates.push(day.toISOString().slice(0, 10));
   }
+  const existing = await apiAs(master, `/cabinet/bookings?from=${candidates.at(-1)}&to=${todayISO}`);
+  const busy = existing.data.items.filter((item) => item.status !== "cancelled");
 
   for (const dateISO of candidates) {
     const weekday = (new Date(`${dateISO}T12:00:00Z`).getUTCDay() + 6) % 7;
     const work = hours.find((item) => item.weekday === weekday && item.enabled);
     if (!work) continue;
-    // Берём время ближе к концу смены: если день ещё идёт — оно уже прошло
-    // (текущее время минус час), если день закончился — тоже прошло.
-    const target = dateISO === todayISO ? Math.min(nowMinutes - 60, work.endMinute - 60) : work.endMinute - 60;
-    const start = Math.max(work.startMinute, Math.floor(target / 30) * 30);
-    if (dateISO === todayISO && start >= nowMinutes) continue;
-    return { dateISO, startMinutes: start };
+    // Берём ближайшее к концу смены прошлое окно и пропускаем занятое
+    // сидом: скрипт не должен зависеть от случайного пересечения расписания.
+    const target = dateISO === todayISO ? Math.min(nowMinutes - 60, work.endMinute - service.durationMinutes) : work.endMinute - service.durationMinutes;
+    const latestStart = Math.floor(target / 30) * 30;
+    for (let start = latestStart; start >= work.startMinute; start -= 30) {
+      if (dateISO === todayISO && start >= nowMinutes) continue;
+      const overlapsBooking = busy.some(
+        (item) =>
+          item.dateISO === dateISO &&
+          start < item.startMinutes + item.durationMinutes &&
+          start + service.durationMinutes > item.startMinutes,
+      );
+      if (!overlapsBooking) return { dateISO, startMinutes: start };
+    }
   }
   return null;
 }

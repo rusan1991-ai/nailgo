@@ -4,39 +4,59 @@ import { BadgeCheck, Check, Plus } from "lucide-react";
 import { Card, CardTitle, Chip, PersonAvatar, PrimaryButton, GhostButton } from "../components/ui";
 import { journalArticles, profileCompletion, formatRub } from "../data";
 import { useCabinetClients, useCabinetStats } from "../../api/cabinet";
+import { useCabinetProfile } from "../../api/profile";
 import { AppointmentModal } from "../components/AppointmentModal";
 import { formatDateLabel, formatTimeLabel, useBookingsStore, weekdayForDate, type Booking } from "../../store/bookings";
 
-/** День, который кабинет показывает как «сегодня»: среда демо-недели. */
-/** Сегодня в кабинете: день, на который смотрим расписание. */
-const CABINET_TODAY_ISO = (() => {
+/** Локальная дата — временная подпорка до ответа профиля/статистики API. */
+const LOCAL_TODAY_ISO = (() => {
   const today = new Date();
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 })();
-const CABINET_MONTH = CABINET_TODAY_ISO.slice(0, 7);
 /** Рабочий день мастера — из настроек: 10:00–20:00, как в расписании. */
 const DAY_START = 10 * 60;
 const DAY_END = 20 * 60;
 
-type Slot = { time: string; client: string; service: string; status: "confirmed" | "pending" };
+type Slot = { time: string; client: string; service: string; status: Booking["status"]; price: number };
 
-/** Раскладываем записи дня по времени; свободные окна не показываем — таблица честная. */
-function slotsForDay(bookings: Booking[]): Slot[] {
+/** Текущая минута дня в часовом поясе мастера. */
+function minutesAtTimezone(date: Date, timezone?: string): number {
+  if (!timezone) return date.getHours() * 60 + date.getMinutes();
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? 0);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? 0);
+  return hour * 60 + minute;
+}
+
+/** Ближайшие визиты на сегодня: не показываем прошедшее, отмены и неявки. */
+function slotsForDay(bookings: Booking[], nowMinutes: number, todayISO: string): Slot[] {
   return bookings
-    .filter((booking) => booking.dateISO === CABINET_TODAY_ISO && booking.status !== "cancelled")
+    .filter(
+      (booking) =>
+        booking.dateISO === todayISO &&
+        booking.startMinutes >= nowMinutes &&
+        (booking.status === "pending" || booking.status === "confirmed"),
+    )
     .sort((a, b) => a.startMinutes - b.startMinutes)
+    .slice(0, 5)
     .map((booking) => ({
       time: formatTimeLabel(booking.startMinutes),
       client: booking.clientName,
       service: booking.serviceName,
-      status: booking.status === "pending" ? "pending" : "confirmed",
+      status: booking.status,
+      price: booking.price,
     }));
 }
 
 /** Свободен ли ещё час в рабочем дне — по реальным записям. */
-function hasFreeWindow(bookings: Booking[]): boolean {
+function hasFreeWindow(bookings: Booking[], todayISO: string): boolean {
   const busy = bookings
-    .filter((booking) => booking.dateISO === CABINET_TODAY_ISO && booking.status !== "cancelled")
+    .filter((booking) => booking.dateISO === todayISO && booking.status !== "cancelled")
     .map((booking) => [booking.startMinutes, booking.startMinutes + booking.durationMinutes]);
   for (let start = DAY_START; start + 60 <= DAY_END; start += 30) {
     if (!busy.some(([from, to]) => start < to && start + 60 > from)) return true;
@@ -48,24 +68,35 @@ export function DashboardPage() {
   const bookings = useBookingsStore();
   /** Ручная запись прямо с дашборда: та же форма, что в расписании. */
   const [modalOpen, setModalOpen] = useState(false);
-  const { data: stats } = useCabinetStats(CABINET_MONTH);
+  const { data: stats } = useCabinetStats();
+  const { data: profile } = useCabinetProfile();
   const { data: clients } = useCabinetClients();
 
-  const todaySlots = slotsForDay(bookings);
-  const freeWindow = hasFreeWindow(bookings);
+  const now = new Date();
+  const todayISO = stats?.todayISO ?? LOCAL_TODAY_ISO;
+  const nowMinutes = minutesAtTimezone(now, profile?.profile.timezone);
+  const todayBookings = bookings.filter((booking) => booking.dateISO === todayISO);
+  const activeToday = todayBookings.filter((booking) => booking.status !== "cancelled" && booking.status !== "no_show");
+  const todayIncome = activeToday.reduce((sum, booking) => sum + booking.price, 0);
+  const earnedToday = activeToday
+    .filter((booking) => booking.status === "completed")
+    .reduce((sum, booking) => sum + booking.price, 0);
+  const todaySlots = slotsForDay(bookings, nowMinutes, todayISO);
+  const freeWindow = hasFreeWindow(bookings, todayISO);
   const recentClients = (clients?.items ?? []).slice(0, 3);
 
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-            Сегодня, {formatDateLabel(CABINET_TODAY_ISO).replace(" мая", " мая")}
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900" data-block="today-focus">
+            Фокус на сегодня · {formatDateLabel(todayISO)}
           </h1>
           <p className="text-sm text-slate-500">
-            {weekdayForDate(CABINET_TODAY_ISO)}, записей на день: {todaySlots.length}
+            {weekdayForDate(todayISO)} · записей: {activeToday.length} · сумма записей: {formatRub(todayIncome)}
             {freeWindow ? " · есть свободные окна" : " · день заполнен"}
           </p>
+          <p className="mt-1 text-xs text-slate-400">Из суммы {formatRub(earnedToday)} уже отмечено как выполненные визиты.</p>
         </div>
         <PrimaryButton dataAction="manual-booking" onClick={() => setModalOpen(true)}>
           <Plus className="h-4 w-4" />
@@ -74,10 +105,11 @@ export function DashboardPage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr_1fr]">
-        <Card>
+        <Card data-block="today-appointments">
+          <CardTitle>Ближайшие визиты сегодня</CardTitle>
           <div className="space-y-4">
             {todaySlots.length === 0 && (
-              <p className="text-sm text-slate-500">На этот день записей нет — добавьте первую.</p>
+              <p className="text-sm text-slate-500">Ближайших визитов сегодня нет.</p>
             )}
 
             {todaySlots.map((item) => (
@@ -88,25 +120,14 @@ export function DashboardPage() {
                   <p className="truncate text-sm font-medium text-slate-800">{item.client}</p>
                   <p className="truncate text-xs text-slate-500">{item.service}</p>
                 </div>
-                <Chip tone={item.status === "confirmed" ? "green" : "gray"}>
-                  {item.status === "confirmed" ? "Подтверждена" : "Ожидает"}
-                </Chip>
+                <div className="text-right">
+                  <p className="text-sm font-medium text-slate-700">{formatRub(item.price)}</p>
+                  <Chip tone={item.status === "confirmed" ? "blue" : "amber"}>
+                    {item.status === "confirmed" ? "Ожидается" : "Ожидает подтверждения"}
+                  </Chip>
+                </div>
               </div>
             ))}
-
-            {freeWindow && (
-              <div className="flex items-center gap-4">
-                <span className="w-12 text-sm font-medium text-slate-400">—</span>
-                <span className="grid h-[38px] w-[38px] place-items-center rounded-full bg-slate-100 text-slate-400">
-                  <Plus className="h-4 w-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-500">Свободное окно</p>
-                  <p className="truncate text-xs text-slate-400">Можно записать клиента</p>
-                </div>
-                <Chip tone="gray">Свободно</Chip>
-              </div>
-            )}
           </div>
           <Link to="/pro/bookings">
             <GhostButton className="mt-5 w-full justify-center">Все записи</GhostButton>
@@ -160,9 +181,6 @@ export function DashboardPage() {
               </li>
             ))}
           </ul>
-          <GhostButton className="mt-5 w-full justify-center !border-rose-200 !text-[#e11d48] hover:!bg-rose-50">
-            Продвигать профиль
-          </GhostButton>
         </Card>
       </div>
 

@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { and, asc, desc, eq, gt, gte, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { bookings, masterClients, masters, reviews, services, timeBlocks, users, workingHours } from "../db/schema.js";
+import { bookings, locations, masterClients, masters, reviews, services, timeBlocks, users, workingHours } from "../db/schema.js";
 import { env, isDev } from "../env.js";
 import {
   addDaysISO,
@@ -36,7 +36,6 @@ import { checkUsername, masterPublicPath, usernameTaken } from "../lib/username.
 const listQuery = z.object({
   status: z.enum(["all", "pending", "confirmed", "completed", "cancelled", "no_show"]).optional(),
   query: z.string().trim().optional(),
-  masterSlug: z.string().trim().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
 });
@@ -91,10 +90,10 @@ function nextDateForWeekday(weekday: number, timezone: string): string {
 /** Короткие названия месяцев для подписей графиков динамики. */
 const monthShort = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
 
-/** Кабинет текущего пользователя: ищем по slug мастера из сессии. */
-async function currentMaster(slug: string | null) {
-  if (!slug) return null;
-  const [master] = await db.select().from(masters).where(eq(masters.slug, slug)).limit(1);
+/** Кабинет текущего пользователя: владелец определяется только по user ID из проверенной сессии. */
+async function currentMaster(userId: string | null) {
+  if (!userId) return null;
+  const [master] = await db.select().from(masters).where(eq(masters.userId, userId)).limit(1);
   return master ?? null;
 }
 
@@ -106,8 +105,8 @@ type MasterBookingResult =
   | { booking: typeof bookings.$inferSelect }
   | { reply: { code: number; error: string; message: string } };
 
-async function masterBooking(bookingId: string, masterSlug: string | null): Promise<MasterBookingResult> {
-  const master = await currentMaster(masterSlug);
+async function masterBooking(bookingId: string, userId: string | null): Promise<MasterBookingResult> {
+  const master = await currentMaster(userId);
   if (!master) {
     return { reply: { code: 404, error: "not_found", message: "Кабинет не найден" } };
   }
@@ -127,11 +126,14 @@ export async function cabinetRoutes(app: FastifyInstance) {
    * Телефон лежит в аккаунте (users) и служит логином, поэтому только для чтения.
    */
   app.get("/cabinet/profile", masterOnly, async (request, reply) => {
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const [account] = master.userId
       ? await db.select().from(users).where(eq(users.id, master.userId)).limit(1)
+      : [];
+    const [location] = master.locationId
+      ? await db.select().from(locations).where(eq(locations.id, master.locationId)).limit(1)
       : [];
 
     return {
@@ -146,6 +148,11 @@ export async function cabinetRoutes(app: FastifyInstance) {
         about: master.about ?? "",
         tags: master.tags,
         metro: master.metro,
+        locationId: master.locationId,
+        locationKind: location?.kind ?? null,
+        locationName: location?.name ?? null,
+        region: location?.region ?? master.region,
+        city: master.city,
         distance: master.distance,
         priceFrom: master.priceFrom,
         experience: master.experience,
@@ -179,7 +186,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
   /** Сохранение профиля: имя уходит и в аккаунт, чтобы совпадало в уведомлениях. */
   app.patch("/cabinet/profile", masterOnly, async (request, reply) => {
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const input = z
@@ -187,10 +194,10 @@ export async function cabinetRoutes(app: FastifyInstance) {
         name: z.string().trim().min(2, "Имя слишком короткое").max(120).optional(),
         email: z.string().trim().email("Некорректный email").max(160).or(z.literal("")).optional(),
         site: z.string().trim().max(160).optional(),
-        address: z.string().trim().max(200).optional(),
         about: z.string().trim().max(1000).optional(),
         tags: z.string().trim().max(200).optional(),
-        metro: z.string().trim().max(80).optional(),
+        /** Выбор места только по id из справочника, не по строке адреса/метро. */
+        locationId: z.string().trim().min(1).optional(),
         experience: z.string().trim().max(40).optional(),
         priceFrom: z.number().int().min(0).max(1_000_000).optional(),
         /** Пояс мастера: только настоящие IANA-зоны, иначе слоты «уедут». */
@@ -228,16 +235,34 @@ export async function cabinetRoutes(app: FastifyInstance) {
       }
     }
 
+    let selectedLocation: typeof locations.$inferSelect | undefined;
+    if (input.locationId !== undefined) {
+      [selectedLocation] = await db.select().from(locations).where(eq(locations.id, input.locationId)).limit(1);
+      if (!selectedLocation || (selectedLocation.kind !== "metro" && selectedLocation.kind !== "district")) {
+        return reply.code(400).send({ error: "location_not_found", message: "Выберите место из справочника" });
+      }
+    }
+
     await db
       .update(masters)
       .set({
         ...(input.name !== undefined ? { name: input.name } : {}),
         ...(input.email !== undefined ? { email: input.email || null } : {}),
         ...(input.site !== undefined ? { site: input.site || null } : {}),
-        ...(input.address !== undefined ? { address: input.address || null } : {}),
         ...(input.about !== undefined ? { about: input.about || null } : {}),
         ...(input.tags !== undefined ? { tags: input.tags } : {}),
-        ...(input.metro !== undefined ? { metro: input.metro } : {}),
+        ...(selectedLocation
+          ? {
+              locationId: selectedLocation.id,
+              region: selectedLocation.region,
+              city: selectedLocation.kind === "metro" ? "Санкт-Петербург" : selectedLocation.name,
+              metro: `${selectedLocation.kind === "metro" ? "м." : "г."} ${selectedLocation.name}`,
+              metroSlug: selectedLocation.kind === "metro" ? selectedLocation.slug : null,
+              districtSlug: selectedLocation.kind === "district" ? selectedLocation.slug : null,
+              lat: selectedLocation.lat,
+              lng: selectedLocation.lng,
+            }
+          : {}),
         ...(input.experience !== undefined ? { experience: input.experience } : {}),
         ...(input.priceFrom !== undefined ? { priceFrom: input.priceFrom } : {}),
         ...(input.timezone !== undefined ? { timezone: input.timezone } : {}),
@@ -262,7 +287,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
    * Именно они определяют, какие окна показываются клиентам при записи.
    */
   app.get("/cabinet/hours", masterOnly, async (request, reply) => {
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const rows = await db.select().from(workingHours).where(eq(workingHours.masterId, master.id));
@@ -284,7 +309,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
   /** Сохранение часов работы: список дней заменяем целиком. */
   app.put("/cabinet/hours", masterOnly, async (request, reply) => {
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const { items } = z
@@ -345,10 +370,10 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
   /** Записи мастера с фильтрами — источник данных для таблицы «Записи». */
   app.get("/cabinet/bookings", masterOnly, async (request, reply) => {
-    const { status, query, masterSlug, from, to } = listQuery.parse(request.query ?? {});
+    const { status, query, from, to } = listQuery.parse(request.query ?? {});
     const needle = query?.toLowerCase();
 
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     // Границы диапазона — календарные даты в поясе мастера.
@@ -365,7 +390,6 @@ export async function cabinetRoutes(app: FastifyInstance) {
           // Кабинет видит только свои записи: чужие клиенты — не его дело.
           eq(bookings.masterId, master.id),
           status && status !== "all" ? eq(bookings.status, status) : undefined,
-          masterSlug ? eq(masters.slug, masterSlug) : undefined,
           fromDate ? gte(bookings.startAt, dayBounds(fromDate, master.timezone).start) : undefined,
           toDate ? lt(bookings.startAt, dayBounds(toDate, master.timezone).end) : undefined,
         ),
@@ -395,9 +419,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
     // Идентификатор мастера берём только из авторизованной сессии. Любой
     // masterSlug из тела запроса игнорируется, чтобы форму нельзя было
     // переключить на чужой кабинет подменой payload.
-    const masterId = request.currentUser?.masterId ?? null;
-    if (!masterId) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
-    const [master] = await db.select().from(masters).where(eq(masters.id, masterId)).limit(1);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const { masterId: requestedMasterId, ...bookingFields } = manualBookingSchema.parse(request.body ?? {});
@@ -420,7 +442,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
   /** Мастер отменяет запись. */
   app.post("/cabinet/bookings/:id/cancel", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    const found = await masterBooking(id, request.currentUser?.id ?? null);
     if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
     const { booking } = found;
 
@@ -436,7 +458,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
     if (booking.paymentStatus === "paid") await refundBookingPayment(booking);
 
     // Окно освободилось: предлагаем его избранным клиентам (кроме самого клиента).
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (master) {
       await notifyFavoritesAboutWindow({
         masterId: booking.masterId,
@@ -451,7 +473,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
   /** Мастер подтверждает запись. */
   app.post("/cabinet/bookings/:id/confirm", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    const found = await masterBooking(id, request.currentUser?.id ?? null);
     if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
     const { booking } = found;
 
@@ -470,7 +492,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
    */
   app.get("/cabinet/bookings/:id/payments", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    const found = await masterBooking(id, request.currentUser?.id ?? null);
     if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
 
     const rows = await paymentRowsForBooking(id);
@@ -494,7 +516,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
   /** Мастер подтверждает предоплату: деньги пришли (перевод или наличные). */
   app.post("/cabinet/bookings/:id/payment/paid", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    const found = await masterBooking(id, request.currentUser?.id ?? null);
     if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
 
     const rows = await paymentRowsForBooking(id);
@@ -516,7 +538,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
   /** Мастер возвращает предоплату (например, визит не состоялся по его вине). */
   app.post("/cabinet/bookings/:id/payment/refund", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    const found = await masterBooking(id, request.currentUser?.id ?? null);
     if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
 
     if (found.booking.paymentStatus !== "paid") {
@@ -530,7 +552,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
   /** Мастер завершает визит (услуга оказана). */
   app.post("/cabinet/bookings/:id/complete", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    const found = await masterBooking(id, request.currentUser?.id ?? null);
     if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
     const { booking } = found;
 
@@ -550,7 +572,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
    */
   app.post("/cabinet/bookings/:id/no-show", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    const found = await masterBooking(id, request.currentUser?.id ?? null);
     if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
     const { booking } = found;
 
@@ -564,13 +586,13 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
     await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "no_show");
     const discipline = await registerNoShow(booking.clientPhone);
-    return { ok: true, discipline }; 
+    return { ok: true, discipline };
   });
 
   /** Мастер видит историю своей записи: кто её подтвердил, отменил, отметил неявку. */
   app.get("/cabinet/bookings/:id/history", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    const found = await masterBooking(id, request.currentUser?.id ?? null);
     if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
     return { items: await bookingHistory(id) };
   });
@@ -582,7 +604,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
    */
   app.get("/cabinet/clients/:phone/policy", masterOnly, async (request, reply) => {
     const { phone } = request.params as { phone: string };
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const [own] = await db
@@ -600,7 +622,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const input = rescheduleSchema.parse(request.body ?? {});
 
-    const found = await masterBooking(id, request.currentUser?.masterSlug ?? null);
+    const found = await masterBooking(id, request.currentUser?.id ?? null);
     if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
 
     await rescheduleBooking(found.booking, input, "master");
@@ -617,7 +639,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "bad_request", message: "Некорректные даты" });
     }
 
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const rows = await db
@@ -671,7 +693,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
     const { query } = listQuery.parse(request.query ?? {});
     const needle = query?.toLowerCase();
 
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const rows = await db
@@ -699,7 +721,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
     >();
 
     for (const { booking, master, service } of rows) {
-      const active = booking.status !== "cancelled";
+      const completed = booking.status === "completed";
       const dateISO = toISODate(booking.startAt, master.timezone);
       const entry = byPhone.get(booking.clientPhone);
 
@@ -707,25 +729,22 @@ export async function cabinetRoutes(app: FastifyInstance) {
         byPhone.set(booking.clientPhone, {
           name: booking.clientName,
           phone: booking.clientPhone,
-          visits: active ? 1 : 0,
-          lastVisitISO: dateISO,
-          avgCheck: booking.price,
-          totalSpent: active ? booking.price : 0,
-          lastService: service.name,
+          visits: completed ? 1 : 0,
+          lastVisitISO: completed ? dateISO : "",
+          avgCheck: completed ? booking.price : 0,
+          totalSpent: completed ? booking.price : 0,
+          lastService: completed ? service.name : "",
           masterName: master.name,
-          cancelled: active ? 0 : 1,
-          sources: [booking.source],
+          cancelled: booking.status === "cancelled" ? 1 : 0,
+          sources: completed ? [booking.source] : [],
         });
         continue;
       }
 
+      if (booking.status === "cancelled") entry.cancelled += 1;
+      if (!completed) continue;
+
       entry.sources.push(booking.source);
-
-      if (!active) {
-        entry.cancelled += 1;
-        continue;
-      }
-
       entry.visits += 1;
       entry.totalSpent += booking.price;
       entry.avgCheck = Math.round(entry.totalSpent / entry.visits);
@@ -736,7 +755,10 @@ export async function cabinetRoutes(app: FastifyInstance) {
       }
     }
 
+    // В CRM попадают клиенты с состоявшимся визитом; отменённые и неявки
+    // сами по себе не создают карточку. Исключение — ручная карточка ниже.
     const fromBookings = [...byPhone.values()]
+      .filter((client) => client.visits > 0)
       .map(({ sources, ...client }) => ({
         ...client,
         /** Откуда клиент в списке: из записей витрины или из блокнота мастера. */
@@ -776,7 +798,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
         };
       }),
       ...cards
-        .filter((card) => !card.phone || !byPhone.has(card.phone))
+        .filter((card) => !card.phone || (byPhone.get(card.phone)?.visits ?? 0) === 0)
         .map((card) => ({
           name: card.name,
           phone: card.phone,
@@ -845,7 +867,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
   }
 
   app.post("/cabinet/clients", masterOnly, async (request, reply) => {
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const input = clientCardSchema.parse(request.body ?? {});
@@ -894,7 +916,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
   });
 
   app.patch("/cabinet/clients/:id", masterOnly, async (request, reply) => {
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const { id } = request.params as { id: string };
@@ -937,7 +959,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
   });
 
   app.delete("/cabinet/clients/:id", masterOnly, async (request, reply) => {
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const { id } = request.params as { id: string };
@@ -958,7 +980,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
    * звёздочкой — мастеру не нужно искать её заново.
    */
   app.post("/cabinet/messenger-preference", masterOnly, async (request, reply) => {
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const input = z
@@ -1029,7 +1051,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
   });
 
   app.get("/cabinet/time-blocks", masterOnly, async (request, reply) => {
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const { from, to } = z
@@ -1067,7 +1089,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
   });
 
   app.post("/cabinet/time-blocks", masterOnly, async (request, reply) => {
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const input = timeBlockSchema.parse(request.body ?? {});
@@ -1137,7 +1159,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
   });
 
   app.delete("/cabinet/time-blocks/:id", masterOnly, async (request, reply) => {
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const { id } = request.params as { id: string };
@@ -1160,10 +1182,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
       .object({ status: z.enum(["all", "published", "moderation", "hidden"]).optional() })
       .parse(request.query ?? {});
 
-    const masterSlug = request.currentUser!.masterSlug;
-    const [master] = masterSlug
-      ? await db.select().from(masters).where(eq(masters.slug, masterSlug)).limit(1)
-      : [];
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return { items: [], total: 0, average: 0, byStatus: { published: 0, moderation: 0, hidden: 0 } };
 
     const rows = await db
@@ -1228,10 +1247,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
       .object({ text: z.string().trim().min(10, "Опишите причину жалобы (минимум 10 символов)").max(1000) })
       .parse(request.body ?? {});
 
-    const masterSlug = request.currentUser!.masterSlug;
-    const [master] = masterSlug
-      ? await db.select().from(masters).where(eq(masters.slug, masterSlug)).limit(1)
-      : [];
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const [review] = await db.select().from(reviews).where(eq(reviews.id, id)).limit(1);
@@ -1264,10 +1280,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const { text } = z.object({ text: z.string().trim().max(1000) }).parse(request.body ?? {});
 
-    const masterSlug = request.currentUser!.masterSlug;
-    const [master] = masterSlug
-      ? await db.select().from(masters).where(eq(masters.slug, masterSlug)).limit(1)
-      : [];
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const [review] = await db.select().from(reviews).where(eq(reviews.id, id)).limit(1);
@@ -1303,7 +1316,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
     const { month } = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/).optional() }).parse(request.query ?? {});
 
     // Считаем только свои записи: у каждого мастера своя статистика и клиенты.
-    const master = await currentMaster(request.currentUser?.masterSlug ?? null);
+    const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
     const rows = await db.select().from(bookings).where(eq(bookings.masterId, master.id));
 
@@ -1325,9 +1338,13 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
     const thisMonth = active.filter((booking) => inRange(booking.startAt, monthStart));
     const prevMonthBookings = active.filter((booking) => inRange(booking.startAt, prevMonthStart, monthStart));
+    // Заработок — только по состоявшимся визитам. Подтверждённые записи
+    // попадут в доход лишь после перехода в `completed`.
+    const completedThisMonth = thisMonth.filter((booking) => booking.status === "completed");
+    const completedPrevMonth = prevMonthBookings.filter((booking) => booking.status === "completed");
 
-    const income = thisMonth.reduce((sum, booking) => sum + booking.price, 0);
-    const prevIncome = prevMonthBookings.reduce((sum, booking) => sum + booking.price, 0);
+    const income = completedThisMonth.reduce((sum, booking) => sum + booking.price, 0);
+    const prevIncome = completedPrevMonth.reduce((sum, booking) => sum + booking.price, 0);
 
     const firstSeen = new Map<string, Date>();
     for (const booking of active) {
@@ -1343,12 +1360,12 @@ export async function cabinetRoutes(app: FastifyInstance) {
           : "0%"
         : `${current >= previous ? "+" : ""}${Math.round(((current - previous) / previous) * 100)}%`;
 
-    // Топ услуг и источники записей — по фактическим записям месяца.
+    // Топ услуг считает все активные записи, но заработок только по завершённым визитам.
     const topServicesMap = new Map<string, { bookings: number; revenue: number }>();
     for (const booking of thisMonth) {
       const entry = topServicesMap.get(booking.serviceId) ?? { bookings: 0, revenue: 0 };
       entry.bookings += 1;
-      entry.revenue += booking.price;
+      if (booking.status === "completed") entry.revenue += booking.price;
       topServicesMap.set(booking.serviceId, entry);
     }
     const serviceNames = new Map<string, string>();
@@ -1373,15 +1390,17 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
     // Динамика по дням месяца: и график, и подписи берутся отсюда.
     const monthPrefix = `${year}-${String(monthNumber).padStart(2, "0")}`;
-    const byDay: { dateISO: string; label: string; bookings: number; revenue: number }[] = [];
+    const byDay: { dateISO: string; label: string; bookings: number; completedBookings: number; revenue: number }[] = [];
     for (let cursor = `${monthPrefix}-01`; cursor.startsWith(monthPrefix); cursor = addDaysISO(cursor, 1)) {
       const bounds = dayBounds(cursor, tz);
       const dayBookings = thisMonth.filter((booking) => inRange(booking.startAt, bounds.start, bounds.end));
+      const completedDayBookings = dayBookings.filter((booking) => booking.status === "completed");
       byDay.push({
         dateISO: cursor,
         label: String(Number(cursor.slice(8, 10))),
         bookings: dayBookings.length,
-        revenue: dayBookings.reduce((sum, booking) => sum + booking.price, 0),
+        completedBookings: completedDayBookings.length,
+        revenue: completedDayBookings.reduce((sum, booking) => sum + booking.price, 0),
       });
     }
 
@@ -1392,12 +1411,14 @@ export async function cabinetRoutes(app: FastifyInstance) {
       const start = bounds.start;
       const end = bounds.end;
       const monthBookings = active.filter((booking) => inRange(booking.startAt, start, end));
+      const completedMonthBookings = monthBookings.filter((booking) => booking.status === "completed");
       const monthClients = new Set(monthBookings.map((booking) => booking.clientPhone));
       return {
         monthISO: bounds.monthISO,
         label: monthShort[shifted.month - 1]!,
         bookings: monthBookings.length,
-        revenue: monthBookings.reduce((sum, booking) => sum + booking.price, 0),
+        completedBookings: completedMonthBookings.length,
+        revenue: completedMonthBookings.reduce((sum, booking) => sum + booking.price, 0),
         newClients: [...monthClients].filter((phone) => {
           const first = firstSeen.get(phone);
           return first ? inRange(first, start, end) : false;
@@ -1438,7 +1459,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
     }).length;
 
     return {
-      avgCheckThisMonth: thisMonth.length > 0 ? Math.round(income / thisMonth.length) : 0,
+      avgCheckThisMonth: completedThisMonth.length > 0 ? Math.round(income / completedThisMonth.length) : 0,
       topServices,
       byStatus,
       bySource,

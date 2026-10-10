@@ -37,8 +37,8 @@ assert(
   feed.data.items.map((item) => `${item.dateISO} ${item.timeLabel}`).join(", ").slice(0, 120),
 );
 assert(
-  "день подписан словами",
-  ["Сегодня", "Завтра"].includes(feed.data.items[0].dateLabel),
+  "дата окна подписана по-человечески",
+  ["Сегодня", "Завтра"].includes(feed.data.items[0].dateLabel) || /^\d{1,2} \p{L}{3,}$/u.test(feed.data.items[0].dateLabel),
   feed.data.items[0].dateLabel,
 );
 assert(
@@ -139,7 +139,11 @@ assert(
 
 /* --- Страница витрины: карточки из API и ссылка на запись --- */
 const page = makeDom("/last-minute", { session: null });
-await wait(2400);
+await wait(600);
+page.dom.window.document.querySelector("[data-filter='days7']")?.dispatchEvent(
+  new page.dom.window.MouseEvent("click", { bubbles: true }),
+);
+await wait(2000);
 const text = rootText(page.dom).replace(/\s+/g, " ");
 assert("страница показала окна", text.includes("Горящие окна") && text.includes(offer.timeLabel), text.slice(0, 160));
 

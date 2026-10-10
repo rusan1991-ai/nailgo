@@ -83,6 +83,8 @@ export function ServicesPage() {
   const [page, setPage] = useState(1);
   const [editor, setEditor] = useState<{ mode: "create" } | { mode: "edit"; service: CabinetService } | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [categoryCustomMode, setCategoryCustomMode] = useState(false);
+  const [categoryDraft, setCategoryDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [inUse, setInUse] = useState<CabinetService | null>(null);
@@ -112,6 +114,8 @@ export function ServicesPage() {
   useEffect(() => {
     if (!editor) return;
     setDraft(editor.mode === "edit" ? draftOf(editor.service) : emptyDraft);
+    setCategoryCustomMode(false);
+    setCategoryDraft("");
   }, [editor]);
 
   const run = async (action: () => Promise<void>, message: string) => {
@@ -130,9 +134,14 @@ export function ServicesPage() {
   };
 
   const save = async () => {
+    const category = (categoryCustomMode ? categoryDraft : draft.category).trim();
+    if (!category) {
+      setActionError("Выберите существующую категорию или введите новую");
+      return;
+    }
     const payload = {
       name: draft.name.trim(),
-      category: draft.category.trim(),
+      category,
       durationMinutes: Number(draft.duration) || 0,
       price: Number(draft.price) || 0,
       prepaymentPercent: Math.min(100, Math.max(0, Number(draft.prepayment) || 0)),
@@ -394,8 +403,17 @@ export function ServicesPage() {
             <label className="block text-sm text-slate-600">
               Категория
               <select
-                value={draft.category}
-                onChange={(event) => setDraft({ ...draft, category: event.target.value })}
+                value={categoryCustomMode ? "__new_category__" : draft.category}
+                onChange={(event) => {
+                  if (event.target.value === "__new_category__") {
+                    setCategoryCustomMode(true);
+                    setCategoryDraft("");
+                  } else {
+                    setCategoryCustomMode(false);
+                    setDraft({ ...draft, category: event.target.value });
+                  }
+                }}
+                data-field="service-category"
                 className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-pink-400"
               >
                 {[...new Set([...CATEGORIES, ...services.map((service) => service.category)])].map((category) => (
@@ -403,7 +421,19 @@ export function ServicesPage() {
                     {category}
                   </option>
                 ))}
+                <option value="__new_category__">+ Новая категория</option>
               </select>
+              {categoryCustomMode && (
+                <input
+                  autoFocus
+                  value={categoryDraft}
+                  onChange={(event) => setCategoryDraft(event.target.value)}
+                  maxLength={60}
+                  placeholder="Название новой категории"
+                  data-field="service-new-category"
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-pink-400"
+                />
+              )}
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="block text-sm text-slate-600">

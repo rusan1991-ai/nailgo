@@ -92,6 +92,21 @@ assert("карточка видна в базе клиентов", Boolean(cardI
 assert("карточка помечена как заведённая мастером", cardInList?.kind === "manual", cardInList?.kind);
 assert("у нового клиента визитов ещё нет", cardInList?.lastVisitISO === null, String(cardInList?.lastVisitISO));
 
+const ownBookings = await apiAs(master, "/cabinet/bookings");
+const completedPhones = new Set(ownBookings.data.items.filter((item) => item.status === "completed").map((item) => item.clientPhone));
+const bookingClients = clients.data.items.filter((item) => item.kind === "booking");
+assert(
+  "CRM включает клиентов только с завершённым визитом к текущему мастеру",
+  bookingClients.every((item) => item.visits > 0 && completedPhones.has(item.phone)),
+  `клиентов из визитов=${bookingClients.length}`,
+);
+const withInjectedOwner = await apiAs(master, "/cabinet/bookings?masterId=another-master");
+assert(
+  "параметр masterId не переключает приватную выдачу записей",
+  JSON.stringify(withInjectedOwner.data.items.map((item) => item.id)) === JSON.stringify(ownBookings.data.items.map((item) => item.id)),
+  `записей=${withInjectedOwner.data.items.length}`,
+);
+
 const repeated = await apiAs(master, "/cabinet/clients", {
   method: "POST",
   body: { ...cardInput, note: "Обновлённая заметка: аллергия на гель-лак" },
@@ -289,10 +304,19 @@ assert(
 );
 clientsPage.dom.window.close();
 
+const dashboardPage = makeDom("/pro/dashboard", { session: master });
+await wait(1600);
+assert("дашборд показывает фокус с сегодняшней датой", rootText(dashboardPage.dom).includes("Фокус на сегодня") && Boolean(dashboardPage.dom.window.document.querySelector("[data-block='today-focus']")));
+assert("дашборд показывает ленту ближайших визитов сегодня", Boolean(dashboardPage.dom.window.document.querySelector("[data-block='today-appointments']")));
+assert("дашборд не показывает записи всех мастеров", !rootText(dashboardPage.dom).includes("Все мастера"));
+assert("в навигации кабинета нет фантомной вкладки продвижения", !rootText(dashboardPage.dom).includes("Продвижение"));
+dashboardPage.dom.window.close();
+
 const schedulePage = makeDom("/pro/schedule", { session: master });
 await wait(2400);
 const scheduleText = rootText(schedulePage.dom);
 assert("в расписании есть ручная запись", scheduleText.includes("Записать клиента вручную"), "");
+assert("в расписании нет фильтра «Все мастера»", !scheduleText.includes("Все мастера"));
 assert("в расписании есть кнопка перерыва", scheduleText.includes("Перерыв"), "");
 assert("перерыв недели виден списком", scheduleText.includes("Обед"), "");
 assert(
@@ -300,6 +324,9 @@ assert(
   schedulePage.dom.window.document.querySelector("[data-block='time-blocks']") !== null,
   "карточка перерывов",
 );
+const nextPeriod = schedulePage.dom.window.document.querySelector("button[aria-label='Следующий период']");
+nextPeriod?.click();
+await wait(450);
 
 click(schedulePage.dom, "Записать клиента вручную");
 await wait(600);
@@ -343,7 +370,44 @@ assert(
   (base?.textContent ?? "").includes("Оля Тестовая"),
   "клиент найден в списке",
 );
+setField(schedulePage.dom, "Начните вводить имя или телефон", "Оля Тест");
+await wait(250);
+const searchOptions = [...(base?.querySelectorAll("[role='option']") ?? [])];
+assert(
+  "поиск клиента в ручной записи фильтрует по введённому имени",
+  searchOptions.length === 1 && (searchOptions[0]?.textContent ?? "").includes("Оля Тестовая"),
+  `результатов=${searchOptions.length}`,
+);
+searchOptions[0]?.dispatchEvent(new schedulePage.dom.window.MouseEvent("click", { bubbles: true }));
+await wait(150);
+assert(
+  "клиент выбирается одним действием из результата поиска",
+  (base?.textContent ?? "").includes("Выбран клиент: Оля Тестовая"),
+  (base?.textContent ?? "").slice(0, 100),
+);
+
+const pendingAppointment = schedulePage.dom.window.document.querySelector("[data-appointment-status='pending']");
+const pendingConfirm = pendingAppointment?.querySelector("[data-next-status='confirmed']");
+const confirmedAppointment = schedulePage.dom.window.document.querySelector("[data-appointment-status='confirmed']");
+assert("в карточке ожидающей записи есть быстрое подтверждение", Boolean(pendingConfirm));
+assert(
+  "в карточке ожидаемой записи есть быстрые статусы выполнен/неявка/отмена",
+  ["completed", "no_show", "cancelled"].every((value) => confirmedAppointment?.querySelector(`[data-next-status='${value}']`)),
+  `карточка=${confirmedAppointment?.getAttribute("data-appointment-id")}`,
+);
+if (pendingConfirm && pendingAppointment) {
+  const pendingId = pendingAppointment.getAttribute("data-appointment-id");
+  pendingConfirm.click();
+  await wait(700);
+  const changed = schedulePage.dom.window.document.querySelector(`[data-appointment-id='${pendingId}']`);
+  assert("быстрая смена статуса сразу обновляет карточку", changed?.getAttribute("data-appointment-status") === "confirmed", changed?.getAttribute("data-appointment-status") ?? "нет карточки");
+}
 schedulePage.dom.window.close();
+
+const bookingsPage = makeDom("/pro/bookings", { session: master });
+await wait(1600);
+assert("в разделе записей нет выбора «Все мастера»", !rootText(bookingsPage.dom).includes("Все мастера"));
+bookingsPage.dom.window.close();
 
 /* --- Снятие перерыва возвращает окно клиентам --- */
 

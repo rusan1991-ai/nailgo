@@ -135,9 +135,22 @@ assert(
   "услуг с записями: " + own.data.items.filter((item) => item.bookingsCount > 0).length,
 );
 
-// Создание из интерфейса
+// Создание из интерфейса: существующая личная категория доступна, новую можно добавить на лету.
 click(page.dom, "Добавить услугу");
 await wait(300);
+const categorySelect = page.dom.window.document.querySelector("[data-field='service-category']");
+const categoryValues = [...(categorySelect?.querySelectorAll("option") ?? [])].map((option) => option.value);
+assert(
+  "выбор категории содержит категории услуг текущего мастера",
+  own.data.items.some((item) => categoryValues.includes(item.category)),
+  categoryValues.slice(0, 8).join(", "),
+);
+if (categorySelect) {
+  Object.getOwnPropertyDescriptor(page.dom.window.HTMLSelectElement.prototype, "value").set.call(categorySelect, "__new_category__");
+  categorySelect.dispatchEvent(new page.dom.window.Event("change", { bubbles: true }));
+}
+await wait(100);
+setField(page.dom, "Название новой категории", "Категория из формы");
 setField(page.dom, "Название услуги", "Педикюр комбинированный");
 setField(page.dom, "Длительность, мин", "75");
 setField(page.dom, "Цена, ₽", "2600");
@@ -148,8 +161,8 @@ const afterCreate = await apiAs(master, "/cabinet/services");
 const uiCreated = afterCreate.data.items.find((item) => item.name === "Педикюр комбинированный");
 assert(
   "услуга из интерфейса сохранена в базе",
-  Boolean(uiCreated) && uiCreated.price === 2600 && uiCreated.durationMinutes === 75,
-  uiCreated ? `${uiCreated.price} ₽ / ${uiCreated.durationMinutes} мин` : "не найдена",
+  Boolean(uiCreated) && uiCreated.price === 2600 && uiCreated.durationMinutes === 75 && uiCreated.category === "Категория из формы",
+  uiCreated ? `${uiCreated.category} / ${uiCreated.price} ₽ / ${uiCreated.durationMinutes} мин` : "не найдена",
 );
 
 // Скрытие из интерфейса: клик по чипу «Активна»

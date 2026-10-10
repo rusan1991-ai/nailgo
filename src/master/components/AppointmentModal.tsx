@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, Loader2, MessageCircle, Send, Star, UserPlus, Users } from "lucide-react";
+import { Check, Copy, Loader2, MessageCircle, Search, Send, Star, UserPlus, Users } from "lucide-react";
 import { GhostButton, Modal, PersonAvatar, PrimaryButton, Select, TextArea, TextField } from "./ui";
 import { formatMinutes, formatRub } from "../data";
 import { durationLabel, useCabinetServices } from "../../api/services";
@@ -58,6 +58,8 @@ export function AppointmentModal({
    */
   const [clientMode, setClientMode] = useState<"new" | "base">("new");
   const [clientId, setClientId] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientResultsOpen, setClientResultsOpen] = useState(false);
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
   /** Заметка про ногти и аллергии: сохраняется в карточку вместе с клиентом. */
@@ -88,6 +90,8 @@ export function AppointmentModal({
     if (!open) return;
     setClientName(presetClient ?? "");
     setClientPhone(presetPhone ?? "");
+    setClientSearch([presetClient, presetPhone].filter(Boolean).join(" · "));
+    setClientResultsOpen(false);
     setClientNote("");
     // Пришли из карточки клиента — сразу выбираем её в базе.
     setClientId(presetClientId ?? "");
@@ -101,6 +105,28 @@ export function AppointmentModal({
   /** Карточки из базы: клиент без телефона тоже выбирается — телефон введём ниже. */
   const baseClients = clients.data?.items.filter((item) => item.id) ?? [];
   const pickedClient = baseClients.find((item) => item.id === clientId) ?? null;
+  const matchingBaseClients = useMemo(() => {
+    const query = clientSearch.trim().toLowerCase();
+    const digits = clientSearch.replace(/\D/g, "");
+    const matches = baseClients.filter((item) => {
+      if (!query) return true;
+      const phone = (item.phone ?? "").toLowerCase();
+      const phoneDigits = phone.replace(/\D/g, "");
+      return item.name.toLowerCase().includes(query) || phone.includes(query) || (digits.length > 0 && phoneDigits.includes(digits));
+    });
+    return matches.slice(0, 8);
+  }, [baseClients, clientSearch]);
+
+  const selectBaseClient = (id: string) => {
+    const client = baseClients.find((item) => item.id === id);
+    if (!client) return;
+    setClientId(id);
+    setClientName(client.name);
+    setClientPhone(client.phone ?? "");
+    setClientSearch(`${client.name}${client.phone ? ` · ${client.phone}` : ""}`);
+    setClientResultsOpen(false);
+    setError(null);
+  };
 
   const service = services.find((item) => item.id === serviceId) ?? services[0];
 
@@ -191,7 +217,9 @@ export function AppointmentModal({
         serviceId: service.id,
         dateISO,
         startMinutes: parseTimeLabel(time),
-        ...(clientId ? { clientId } : { clientName: clientName.trim(), clientPhone: phone }),
+        ...(clientId
+          ? { clientId, ...(phone ? { clientPhone: phone } : {}) }
+          : { clientName: clientName.trim(), clientPhone: phone }),
         comment,
         source: "master",
       });
@@ -360,6 +388,9 @@ export function AppointmentModal({
               data-action="client-mode-base"
               onClick={() => {
                 setClientMode("base");
+                setClientId("");
+                setClientSearch("");
+                setClientResultsOpen(true);
                 setError(null);
               }}
               className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition ${
@@ -375,6 +406,8 @@ export function AppointmentModal({
               onClick={() => {
                 setClientMode("new");
                 setClientId("");
+                setClientSearch("");
+                setClientResultsOpen(false);
                 setError(null);
               }}
               className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition ${
@@ -390,17 +423,82 @@ export function AppointmentModal({
         {clientMode === "base" ? (
           <div className="sm:col-span-2" data-field="client-base">
             <p className="mb-1.5 text-xs font-medium text-slate-500">Клиент из базы</p>
-            <Select
-              value={clientId}
-              onChange={setClientId}
-              options={[
-                { value: "", label: "Выберите клиента" },
-                ...baseClients.map((item) => ({
-                  value: item.id!,
-                  label: `${item.name}${item.phone ? ` · ${item.phone}` : " · без телефона"}`,
-                })),
-              ]}
-            />
+            <div className="relative" data-block="client-search">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={clientResultsOpen && !pickedClient}
+                aria-controls="manual-booking-client-results"
+                data-field="client-search"
+                value={clientSearch}
+                onFocus={() => setClientResultsOpen(true)}
+                onBlur={() => window.setTimeout(() => setClientResultsOpen(false), 100)}
+                onChange={(event) => {
+                  setClientSearch(event.target.value);
+                  setClientId("");
+                  setClientName("");
+                  setClientPhone("");
+                  setClientResultsOpen(true);
+                  setError(null);
+                }}
+                placeholder="Начните вводить имя или телефон"
+                className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-rose-300 focus:ring-2 focus:ring-rose-100"
+              />
+              {clientResultsOpen && !pickedClient && (
+                <div
+                  id="manual-booking-client-results"
+                  role="listbox"
+                  className="absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+                >
+                  {clients.loading ? (
+                    <p className="px-3 py-2 text-sm text-slate-400">Ищем клиентов…</p>
+                  ) : matchingBaseClients.length > 0 ? (
+                    matchingBaseClients.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        role="option"
+                        aria-selected={item.id === clientId}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => item.id && selectBaseClient(item.id)}
+                        className="flex w-full items-center gap-3 px-3 py-2 text-left transition hover:bg-rose-50"
+                      >
+                        <PersonAvatar name={item.name} size={32} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-slate-700">{item.name}</span>
+                          <span className="block truncate text-xs text-slate-400">
+                            {item.phone ?? "Телефон не указан"} · {item.visits} визитов
+                          </span>
+                        </span>
+                        {item.id === clientId && <Check className="h-4 w-4 text-emerald-600" />}
+                      </button>
+                    ))
+                  ) : (
+                    <p className="px-3 py-2 text-sm text-slate-400">
+                      {clientSearch.trim() ? "Клиент не найден в вашей базе" : "В базе пока нет клиентов"}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+            {pickedClient && (
+              <div className="mt-2 flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                <span>Выбран клиент: <strong>{pickedClient.name}</strong></span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setClientId("");
+                    setClientSearch("");
+                    setClientResultsOpen(true);
+                  }}
+                  className="font-medium underline underline-offset-2"
+                >
+                  Изменить
+                </button>
+              </div>
+            )}
             {pickedClient?.note && (
               <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
                 Заметка: {pickedClient.note}

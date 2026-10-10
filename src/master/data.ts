@@ -3,7 +3,7 @@
  * Всё локально: когда появится API, этот файл заменяется запросами к бэкенду.
  */
 
-export type AppointmentStatus = "confirmed" | "pending" | "cancelled";
+export type AppointmentStatus = "pending" | "confirmed" | "completed" | "no_show" | "cancelled";
 export type ServiceKind = "manicure" | "extension" | "design" | "other";
 
 export type Appointment = {
@@ -12,6 +12,9 @@ export type Appointment = {
   masterSlug?: string;
   /** День недели в сетке расписания, 0 = понедельник. */
   day: number;
+  /** Календарная дата и сумма реальной записи из API. */
+  dateISO?: string;
+  price?: number;
   /** Начало в минутах от полуночи. */
   start: number;
   /** Длительность в минутах. */
@@ -30,9 +33,11 @@ export const serviceKindMeta: Record<ServiceKind, { label: string; dot: string; 
 };
 
 export const statusMeta: Record<AppointmentStatus, { label: string; chip: string }> = {
-  confirmed: { label: "Подтверждена", chip: "bg-emerald-50 text-emerald-600" },
-  pending: { label: "Ожидает подтверждения", chip: "bg-amber-50 text-amber-600" },
-  cancelled: { label: "Отменена", chip: "bg-rose-50 text-rose-500" },
+  pending: { label: "Ожидается", chip: "bg-amber-50 text-amber-700" },
+  confirmed: { label: "Ожидается", chip: "bg-sky-50 text-sky-700" },
+  completed: { label: "Выполнен", chip: "bg-emerald-50 text-emerald-700" },
+  no_show: { label: "Клиент не пришёл", chip: "bg-slate-100 text-slate-600" },
+  cancelled: { label: "Отменён", chip: "bg-rose-50 text-rose-600" },
 };
 
 const WEEKDAY_SHORT_UPPER = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];

@@ -6,8 +6,10 @@
  * изображения до 5 МБ и сам сжимает их в два размера: карточка каталога
  * получает лёгкий `thumb`, страница мастера — `web`.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { Upload } from "lucide-react";
 import { formatBytes, mediaApi, type MasterMedia, type MediaKind, type MediaRules } from "../../api/media";
+import { useApiResource } from "../../api/resource";
 
 const KIND_LABELS: Record<MediaKind, string> = {
   avatar: "Аватар",
@@ -16,29 +18,15 @@ const KIND_LABELS: Record<MediaKind, string> = {
 };
 
 export function MediaPage() {
-  const [items, setItems] = useState<MasterMedia[]>([]);
-  const [rules, setRules] = useState<MediaRules | null>(null);
+  const gallery = useApiResource<{ items: MasterMedia[]; rules: MediaRules }>("/cabinet/media");
+  const items = gallery.data?.items ?? [];
+  const rules = gallery.data?.rules ?? null;
   const [kind, setKind] = useState<MediaKind>("portfolio");
   const [caption, setCaption] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const response = await mediaApi.gallery();
-      setItems(response.items);
-      setRules(response.rules);
-      setError(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Не удалось загрузить портфолио");
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   const upload = async (file: File) => {
     setBusy(true);
@@ -49,7 +37,7 @@ export function MediaPage() {
       setNotice(`Фото «${file.name}» загружено`);
       setCaption("");
       if (inputRef.current) inputRef.current.value = "";
-      await load();
+      gallery.reload();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Не удалось загрузить фото");
     } finally {
@@ -61,7 +49,7 @@ export function MediaPage() {
     setBusy(true);
     try {
       await mediaApi.remove(item.id);
-      await load();
+      gallery.reload();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Не удалось удалить фото");
     } finally {
@@ -117,20 +105,33 @@ export function MediaPage() {
             type="file"
             accept={(rules?.formats ?? ["image/jpeg", "image/png", "image/webp"]).join(",")}
             data-field="media-file"
+            aria-label={`Выбрать файл: ${KIND_LABELS[kind]}`}
             disabled={busy}
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (file) void upload(file);
             }}
-            className="text-sm"
+            className="sr-only"
           />
+          <button
+            type="button"
+            disabled={busy}
+            data-action="upload-media"
+            onClick={() => inputRef.current?.click()}
+            className="inline-flex items-center gap-2 rounded-xl bg-[#e11d48] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#be123c] disabled:cursor-wait disabled:opacity-60"
+          >
+            <Upload className="h-4 w-4" />
+            {busy ? "Загружаем и обрабатываем…" : `Загрузить ${KIND_LABELS[kind].toLowerCase()}`}
+          </button>
           <span className="text-xs text-slate-500">
             Только изображения, до {rules ? formatBytes(rules.maxBytes) : "5 МБ"}. Фото сжимается автоматически.
           </span>
         </div>
 
         {notice && <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</p>}
-        {error && <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</p>}
+        {(error ?? gallery.error) && (
+          <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-600">{error ?? gallery.error}</p>
+        )}
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5">

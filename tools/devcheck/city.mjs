@@ -57,13 +57,26 @@ assert(
 );
 
 /* --- Интерфейс: карта на главной --- */
-const home = makeDom("/", { session: null, storage: {} });
+const home = makeDom("/", { session: null, storage: {}, viewportWidth: 390 });
 await wait(1100);
 
 const cityBlock = home.dom.window.document.querySelector("[data-city-block]");
 assert("на главной есть блок выбора города", Boolean(cityBlock));
 const mapBlock = home.dom.window.document.querySelector("[data-city-map]");
 assert("на главной есть карта города", Boolean(mapBlock), mapBlock?.getAttribute("data-city-map") ?? "нет");
+const mapGuard = home.dom.window.document.querySelector("[data-map-overflow-guard]");
+assert(
+  "при ширине 390px карта находится внутри адаптивного overflow-wrapper",
+  Boolean(mapGuard && mapBlock && mapGuard.contains(mapBlock)) &&
+    ["w-full", "max-w-full", "overflow-hidden", "px-4", "block"].every((name) => mapGuard?.classList.contains(name)),
+  mapGuard?.className ?? "обёртка не найдена",
+);
+const storefrontMain = home.dom.window.document.querySelector("main");
+assert(
+  "main витрины на мобильном сохраняет w-full и overflow-x-hidden",
+  Boolean(storefrontMain?.classList.contains("w-full") && storefrontMain.classList.contains("overflow-x-hidden")),
+  storefrontMain?.className ?? "main не найден",
+);
 
 const homeText = rootText(home.dom);
 assert("карта открыта на Санкт-Петербурге по умолчанию", homeText.includes(`Мастера: ${SPB}`), homeText.slice(0, 80));

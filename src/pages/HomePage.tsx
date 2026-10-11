@@ -118,7 +118,7 @@ export function HomePage() {
     bookingLinkForAnna({ serviceId, date: demoWeek[0].iso });
 
   return (
-    <main className="min-h-dvh bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
+    <main className="min-h-dvh w-full max-w-full min-w-0 overflow-x-hidden bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
       <div className="mx-auto max-w-[1380px] rounded-[26px] border border-[#ffe6ef] bg-white p-5 shadow-[0_20px_80px_-40px_rgba(236,72,153,0.45)] sm:p-8">
         <AppHeader />
 
@@ -232,27 +232,29 @@ export function HomePage() {
             </div>
           </div>
 
-          <div className="space-y-3" data-city-block>
+          <div className="space-y-3 w-full max-w-full min-w-0" data-city-block>
             {!chosen && (
               <p className="rounded-2xl bg-[#fff4f8] px-4 py-3 text-sm text-slate-600">
                 Выбрали {region} — мастера этого региона на карте и в выдаче. Город можно переключить здесь.
               </p>
             )}
             <CityPicker variant="wide" />
-            <CityMap
-              masters={listedMasters}
-              center={
-                place && listedMasters.find((master) => master.lat && master.lng)
-                  ? {
-                      lat: listedMasters.find((master) => master.lat && master.lng)!.lat!,
-                      lng: listedMasters.find((master) => master.lat && master.lng)!.lng!,
-                    }
-                  : regionInfo.center
-              }
-              zoom={place ? 13 : regionInfo.cities.length > 1 ? 9 : 11}
-              height={430}
-              title={place ? `Мастера: ${place.name}` : `Мастера: ${region}`}
-            />
+            <div className="w-full max-w-full overflow-hidden px-4 block min-w-0" data-map-overflow-guard>
+              <CityMap
+                masters={listedMasters}
+                center={
+                  place && listedMasters.find((master) => master.lat && master.lng)
+                    ? {
+                        lat: listedMasters.find((master) => master.lat && master.lng)!.lat!,
+                        lng: listedMasters.find((master) => master.lat && master.lng)!.lng!,
+                      }
+                    : regionInfo.center
+                }
+                zoom={place ? 13 : regionInfo.cities.length > 1 ? 9 : 11}
+                height={430}
+                title={place ? `Мастера: ${place.name}` : `Мастера: ${region}`}
+              />
+            </div>
           </div>
 
           <motion.aside

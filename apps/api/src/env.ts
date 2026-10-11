@@ -31,8 +31,10 @@ export const env = {
   devOtpEnabled: defaultDevOtpEnabled === "true",
   /**
    * Как доставляется код подтверждения:
-   * - response — возвращаем в ответе и подставляем в форму (только dev);
-   * - log — пишем в лог сервера; тестовая форма в dev тоже получает код;
+   * - response — случайный тестовый код в ответе (только development);
+   * - log — пишем в лог сервера; тестовая форма в development тоже получает код;
+   * - dev — фиксированный тестовый код 1234; требует DEV_OTP_ENABLED=true
+   *   и разрешён даже при NODE_ENV=production (только для закрытых стендов);
    * - sms — не используется: платные SMS площадка не покупает (этап 2),
    *   на проде такой режим выключает телефонный вход, оставляя OAuth
    *   и мессенджеры.
@@ -40,6 +42,7 @@ export const env = {
   otpDelivery: (process.env.OTP_DELIVERY ?? (defaultDevOtpEnabled === "true" ? "response" : "log")) as
     | "response"
     | "log"
+    | "dev"
     | "sms",
   otpTtlSeconds: num(process.env.OTP_TTL_SECONDS, 300),
 
@@ -185,3 +188,9 @@ export const env = {
 export const isDev = env.nodeEnv !== "production";
 /** Строгая проверка окружения для функций, доступных только в development. */
 export const isDevelopment = env.nodeEnv === "development";
+/**
+ * Тестовый OTP доступен в development при включённом флаге, а вне development
+ * — только при явной паре DEV_OTP_ENABLED=true + OTP_DELIVERY=dev.
+ */
+export const canUseDevOtp = env.devOtpEnabled && env.otpDelivery !== "sms" &&
+  (isDevelopment || env.otpDelivery === "dev");

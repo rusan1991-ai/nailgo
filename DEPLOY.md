@@ -152,7 +152,7 @@ Important settings:
 - `APP_DOMAIN` is the plain hostname, without `https://`; `HOST=0.0.0.0` makes the API listen on all container interfaces.
 - `DATABASE_URL` must use `postgresql://...@postgres:5432/...`. The API selects the full `pg`/node-postgres driver for both `postgres://` and `postgresql://`; it does not use PGlite in production.
 - `PUBLIC_WEB_URL`, `OAUTH_REDIRECT_BASE`, and payment URLs use the public site origin because Nginx proxies `/api` on the same hostname. Register OAuth callbacks as `https://nail2go.ru/api/auth/oauth/yandex/callback` and/or `https://nail2go.ru/api/auth/oauth/vk/callback` with the relevant providers.
-- `DEV_OTP_ENABLED=false` keeps development phone-code login disabled. Configure OAuth and/or bots before inviting real users. Telegram/Max values can stay blank until those integrations are configured.
+- Production defaults keep OTP disabled (`DEV_OTP_ENABLED=false`, `OTP_DELIVERY=log`). The explicit pair `DEV_OTP_ENABLED=true` + `OTP_DELIVERY=dev` enables the fixed test code `1234` independently of `NODE_ENV`, but only use it on an isolated/private test deployment: anyone who can reach it knows the code. OAuth and bot credentials are not required for that test mode; configure Telegram/OAuth for real users.
 - `VITE_API_URL=/api` keeps browser requests same-origin so Nginx can proxy them; `VITE_YANDEX_MAPS_KEY` is a public browser key embedded during the frontend image build, not an API secret.
 - `AUTO_SEED_ON_EMPTY=true` enables the requested first-start demo bootstrap. Set it to `false` before the very first start if this deployment must begin without demo accounts and bookings.
 

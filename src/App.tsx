@@ -72,8 +72,8 @@ function RequireAuth({
 
   if (!user) {
     const returnTo = `${location.pathname}${location.search}`;
-    // Админские разделы ведут на свою форму входа, остальное — на общий вход.
-    const target = adminOnly ? "/admin/login" : "/login";
+    // Админ и мастер получают свои формы с уже выбранной ролью; остальное — общий вход.
+    const target = adminOnly ? "/admin/login" : masterOnly ? "/pro/login" : "/login";
     return <Navigate to={`${target}?returnTo=${encodeURIComponent(returnTo)}`} replace />;
   }
 
@@ -145,6 +145,8 @@ export default function App() {
             <Route path="/last-minute/:city" element={<LastMinutePage />} />
             <Route path="/journal" element={<JournalPage />} />
             <Route path="/login" element={<LoginPage />} />
+            {/* Прямой вход в кабинет мастера; оставляем общий экран с выбранной ролью. */}
+            <Route path="/pro/login" element={<LoginPage initialRole="master" />} />
             {/* Сюда возвращает провайдер входа (Яндекс ID, VK ID). */}
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
             <Route path="/register" element={<RegisterPage />} />

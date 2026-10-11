@@ -27,6 +27,7 @@
     "no-show": "node no-show.mjs",
     "scheduler": "node scheduler.mjs",
     "otp-limits": "node otp-limits.mjs",
+    "dev-otp-mode": "node dev-otp-mode.mjs",
     "locations": "node locations.mjs",
     "oauth": "node oauth.mjs",
     "messengers": "node messengers.mjs",

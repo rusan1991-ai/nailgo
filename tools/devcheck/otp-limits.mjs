@@ -68,18 +68,28 @@ assert(
 const PHONE = "+79990001933";
 const first = await requestCode(PHONE);
 const second = await requestCode(PHONE);
-assert(
-  "два запроса кода подряд выдают разные коды",
-  first.data.devCode && second.data.devCode && first.data.devCode !== second.data.devCode,
-  `${first.data?.devCode}/${second.data?.devCode}`,
-);
+const fixedDevOtp = first.data?.message?.includes("Тестовый код 1234") &&
+  second.data?.message?.includes("Тестовый код 1234");
+if (fixedDevOtp) {
+  assert(
+    "OTP_DELIVERY=dev выдаёт фиксированный код 1234 при каждом запросе",
+    first.data.devCode === "1234" && second.data.devCode === "1234",
+    `${first.data?.devCode}/${second.data?.devCode}`,
+  );
+} else {
+  assert(
+    "два запроса случайного кода подряд выдают разные коды",
+    first.data.devCode && second.data.devCode && first.data.devCode !== second.data.devCode,
+    `${first.data?.devCode}/${second.data?.devCode}`,
+  );
 
-const oldCode = await verifyCode(PHONE, first.data.devCode, { name: "Клиент Кодов" });
-assert(
-  "прежний код погашен новым",
-  oldCode.status === 401 && oldCode.data.error === "invalid_code",
-  `${oldCode.status}/${oldCode.data?.error}`,
-);
+  const oldCode = await verifyCode(PHONE, first.data.devCode, { name: "Клиент Кодов" });
+  assert(
+    "прежний случайный код погашен новым",
+    oldCode.status === 401 && oldCode.data.error === "invalid_code",
+    `${oldCode.status}/${oldCode.data?.error}`,
+  );
+}
 
 const newCode = await verifyCode(PHONE, second.data.devCode, { name: "Клиент Кодов", mode: "dev_login", role: "client" });
 assert("последний код входит", newCode.status === 200 && newCode.data.user.role === "client", `status=${newCode.status}`);

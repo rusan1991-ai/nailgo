@@ -19,6 +19,9 @@ const check = (label, ok, detail = "") => {
 
 const app = read("src/App.tsx");
 const css = read("src/index.css");
+const home = read("src/pages/HomePage.tsx");
+const cityMap = read("src/components/CityMap.tsx");
+const authShared = read("src/pages/auth-shared.tsx");
 const masterLayout = read("src/master/MasterLayout.tsx");
 const clientShell = read("src/components/ClientShell.tsx");
 const schedule = read("src/master/pages/SchedulePage.tsx");
@@ -28,12 +31,26 @@ const login = read("src/pages/LoginPage.tsx");
 const authUi = read("src/pages/auth-shared.tsx");
 const authApi = read("apps/api/src/routes/auth.ts");
 const authEnv = read("apps/api/src/env.ts");
+const productionEnv = read(".env.production.example");
 const harness = read("tools/devcheck/harness.mjs");
 const masterCrm = read("tools/devcheck/master-crm.mjs");
 
 check(
-  "корень приложения ограничивает горизонтальный overflow",
-  /data-mobile-root className="[^"]*w-full[^"]*max-w-full[^"]*overflow-x-hidden/.test(app) && /body\s*\{[^}]*overflow-x:\s*hidden/s.test(css),
+  "html/body/root и витрина сохраняют ширину 100% и защищают main от горизонтального overflow",
+  /html,[\s\S]*body,[\s\S]*#root\s*\{[^}]*width:\s*100%[^}]*max-width:\s*100%[^}]*overflow-x:\s*hidden/s.test(css) &&
+    /body\s*\{[^}]*overflow-x:\s*hidden/s.test(css) &&
+    /data-mobile-root className="[^"]*w-full[^"]*max-w-full[^"]*overflow-x-hidden/.test(app) &&
+    /<main className="[^"]*w-full[^"]*max-w-full[^"]*overflow-x-hidden/.test(home) &&
+    /<main className="[^"]*w-full[^"]*max-w-full[^"]*overflow-x-hidden/.test(authShared),
+);
+check(
+  "карта витрины зажата адаптивным w-full wrapper без фиксированной ширины",
+  /className="w-full max-w-full overflow-hidden px-4 block[^"]*" data-map-overflow-guard/.test(home) &&
+    /className="[^"]*w-full[^"]*min-w-0" data-city-block/.test(home) &&
+    cityMap.includes('className="w-full max-w-full min-w-0 overflow-hidden rounded-2xl') &&
+    cityMap.includes("block w-full max-w-full min-w-0 overflow-hidden") &&
+    cityMap.includes("w-full max-w-full min-w-0 border-0") &&
+    !/(?<!max-)w-screen|(?<!max-)w-\[100vw\]|width:\s*100vw|(?<!max-)w-\[\d+px\]/.test(home + cityMap),
 );
 check(
   "оболочки кабинетов используют динамическую высоту и min-width: 0",
@@ -70,9 +87,11 @@ check(
   }),
 );
 check(
-  "DEV OTP-кнопка видна только при server-reported доступности и запускает отдельный режим",
-  login.includes("import.meta.env.DEV && devOtpAvailable") && login.includes("screen.askDevCode()") &&
-    authUi.includes('"dev_login"'),
+  "основная кнопка «Получить код» зависит только от server-reported OTP-доступности",
+  login.includes("devOtpAvailable ? (") && login.includes("screen.askDevCode()") &&
+    login.includes("Получить код") && !login.includes("import.meta.env.DEV && devOtpAvailable") &&
+    app.includes('path="/pro/login"') && app.includes('initialRole="master"') &&
+    app.includes('masterOnly ? "/pro/login" : "/login"') && authUi.includes('"dev_login"'),
 );
 check(
   "неизвестный номер создаётся только в dev_login, существующая роль остаётся строгой",
@@ -81,11 +100,17 @@ check(
     authApi.includes('error: "role_mismatch"'),
 );
 check(
-  "DEV OTP заблокирован в production, без флага сервера и при SMS-конфигурации",
-  authApi.includes('!isDevelopment || !env.devOtpEnabled || env.otpDelivery === "sms"') &&
-    authApi.includes('available: isDevelopment && env.devOtpEnabled && env.otpDelivery !== "sms"') &&
-    authApi.includes('error: "dev_otp_disabled"') &&
-    authEnv.includes('nodeEnv === "development"') && authEnv.includes('isDevelopmentMode ? "true" : "false"'),
+  "фиксированный OTP 1234 разрешён по явной паре флагов независимо от NODE_ENV",
+  authApi.includes("if (!canUseDevOtp)") && authApi.includes('env.otpDelivery === "dev" ? "1234"') &&
+    authApi.includes("devCode: canUseDevOtp ? code") && authApi.includes("available: canUseDevOtp") &&
+    authApi.includes('if (mode === "dev_login" && !canUseDevOtp)') &&
+    authEnv.includes('env.otpDelivery === "dev"') && authEnv.includes('export const canUseDevOtp'),
+);
+check(
+  "публичный production-конфиг остаётся закрытым без полного явного сочетания флагов",
+  authEnv.includes('env.devOtpEnabled && env.otpDelivery !== "sms"') &&
+    authEnv.includes('(isDevelopment || env.otpDelivery === "dev")') &&
+    productionEnv.includes("DEV_OTP_ENABLED=false\nOTP_DELIVERY=log"),
 );
 
 if (failures > 0) {

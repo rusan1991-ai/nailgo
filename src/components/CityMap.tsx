@@ -182,7 +182,10 @@ export function CityMap({ masters, center, zoom = 11, height = 360, title = "М�
   }, [mode, center.lat, center.lng, zoom, markerKey]);
 
   return (
-    <section className="rounded-2xl border border-[#f1dde6] p-4" data-city-map={mode}>
+    <section
+      className="w-full max-w-full min-w-0 overflow-hidden rounded-2xl border border-[#f1dde6] p-4"
+      data-city-map={mode}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">{title}</h2>
         <span className="text-xs text-slate-400">
@@ -191,13 +194,17 @@ export function CityMap({ masters, center, zoom = 11, height = 360, title = "М�
       </div>
 
       {mode === "yandex" ? (
-        <div ref={container} className="mt-3 overflow-hidden rounded-2xl bg-slate-100" style={{ height }} />
+        <div
+          ref={container}
+          className="mt-3 block w-full max-w-full min-w-0 overflow-hidden rounded-2xl bg-slate-100"
+          style={{ height }}
+        />
       ) : (
-        <div className="mt-3 overflow-hidden rounded-2xl bg-slate-100" style={{ height }}>
+        <div className="mt-3 block w-full max-w-full min-w-0 overflow-hidden rounded-2xl bg-slate-100" style={{ height }}>
           <iframe
             title={`Карта: ${title}`}
             src={`https://yandex.ru/map-widget/v1/?ll=${center.lng}%2C${center.lat}&z=${zoom}`}
-            className="h-full w-full border-0"
+            className="block h-full w-full max-w-full min-w-0 border-0"
             loading="lazy"
           />
         </div>

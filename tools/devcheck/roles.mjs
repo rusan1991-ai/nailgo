@@ -229,6 +229,12 @@ assert(
 );
 assert("по умолчанию выбран клиент", roleButtons[0]?.getAttribute("aria-pressed") === "true", roleButtons[0]?.getAttribute("data-role"));
 assert(
+  "доступный по конфигурации OTP даёт основную розовую кнопку «Получить код» без DEV-бандл-гейта",
+  Boolean(loginPage.dom.window.document.querySelector('[data-action="ask-code"]')) &&
+    loginPage.dom.window.document.querySelector('[data-action="ask-code"]')?.textContent?.includes("Получить код"),
+  loginPage.dom.window.document.querySelector('[data-action="ask-code"]')?.textContent?.trim() ?? "кнопки нет",
+);
+assert(
   "на входе нет поля имени (оно только на регистрации)",
   !loginPage.dom.window.document.querySelector('[data-field="name"]'),
   loginPage.dom.window.document.querySelector('[data-field="name"]') ? "поле найдено" : "поля нет",
@@ -251,6 +257,47 @@ assert(
   "кнопка ведёт на экран регистрации",
   loginPage.dom.window.location.pathname === "/register",
   loginPage.dom.window.location.pathname,
+);
+
+/* --- Кабинет мастера ведёт на тот же OTP-экран с выбранной ролью --- */
+const masterGuard = makeDom("/pro", { session: null });
+await wait(900);
+assert(
+  "неавторизованный переход в /pro ведёт на /pro/login, не на OAuth",
+  masterGuard.dom.window.location.pathname === "/pro/login" &&
+    masterGuard.dom.window.document.querySelector('[data-role="master"]')?.getAttribute("aria-pressed") === "true",
+  `${masterGuard.dom.window.location.pathname}${masterGuard.dom.window.location.search}`,
+);
+
+/* --- Прямой маршрут мастера: тот же OTP без внешнего провайдера --- */
+const proLoginPage = makeDom("/pro/login", { session: null });
+await wait(1100);
+const defaultMasterRole = proLoginPage.dom.window.document.querySelector('[data-role="master"]');
+assert(
+  "/pro/login открывает общий экран сразу с выбранной ролью мастера",
+  defaultMasterRole?.getAttribute("aria-pressed") === "true" &&
+    Boolean(proLoginPage.dom.window.document.querySelector('[data-action="ask-code"]')),
+  `role=${defaultMasterRole?.getAttribute("aria-pressed")}, path=${proLoginPage.dom.window.location.pathname}`,
+);
+setField(proLoginPage.dom, "Телефон +79991234567", "+79990000001");
+click(proLoginPage.dom, "Получить код");
+await wait(900);
+const proLoginCode = proLoginPage.dom.window.document.querySelector('[data-field="code"]');
+assert(
+  "/pro/login получает OTP без перехода к OAuth или Telegram",
+  /^\d{4}$/.test(proLoginCode?.value ?? "") &&
+    rootText(proLoginPage.dom).includes(`код ${proLoginCode?.value}`),
+  `code=${proLoginCode?.value ?? "—"}`,
+);
+click(proLoginPage.dom, "Войти");
+await wait(1800);
+const annaSession = JSON.parse(proLoginPage.dom.window.localStorage.getItem("nailgo_auth_user") ?? "null");
+assert(
+  "/pro/login выдаёт JWT-сессию владельца демо-кабинета Анны",
+  proLoginPage.dom.window.location.pathname === "/pro" &&
+    annaSession?.user?.phone === "+79990000001" && annaSession?.user?.role === "master" &&
+    Boolean(annaSession?.accessToken),
+  `${proLoginPage.dom.window.location.pathname}: ${JSON.stringify(annaSession?.user ?? null)}`,
 );
 
 /* --- Экран регистрации: выбор роли, имя и вход в кабинет --- */
@@ -310,7 +357,7 @@ const freshLogin = makeDom("/login", { session: null });
 await wait(1100);
 const neverPhone = `+7994${stamp}`;
 setField(freshLogin.dom, "Телефон +79991234567", neverPhone);
-click(freshLogin.dom, "Получить код (тестовый режим)");
+click(freshLogin.dom, "Получить код");
 await wait(900);
 const devCodeInput = freshLogin.dom.window.document.querySelector('[data-field="code"]');
 const displayedDevCode = rootText(freshLogin.dom).includes(`код ${devCodeInput?.value}`);
@@ -334,7 +381,7 @@ const neverMasterPhone = `+7993${stamp}`;
 click(freshMasterLogin.dom, "Я мастер");
 await wait(120);
 setField(freshMasterLogin.dom, "Телефон +79991234567", neverMasterPhone);
-click(freshMasterLogin.dom, "Получить код (тестовый режим)");
+click(freshMasterLogin.dom, "Получить код");
 await wait(900);
 click(freshMasterLogin.dom, "Войти");
 await wait(1800);
@@ -350,7 +397,7 @@ await wait(1100);
 click(mismatchLogin.dom, "Я мастер");
 await wait(150);
 setField(mismatchLogin.dom, "Телефон +79991234567", uiClientPhone);
-click(mismatchLogin.dom, "Получить код (тестовый режим)");
+click(mismatchLogin.dom, "Получить код");
 await wait(900);
 click(mismatchLogin.dom, "Войти");
 await wait(1200);

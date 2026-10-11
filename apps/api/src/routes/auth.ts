@@ -4,7 +4,7 @@ import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import { authFlows, masters, otpCodes, sessions, users } from "../db/schema.js";
-import { env, isDevelopment } from "../env.js";
+import { canUseDevOtp, env } from "../env.js";
 import { requireAuth, signAccessToken, signRefreshToken, verifyRefreshToken } from "../lib/auth.js";
 import {
   ensureMasterProfile,
@@ -235,10 +235,9 @@ export async function authRoutes(app: FastifyInstance) {
   /**
    * Запрос кода подтверждения.
    *
-   * Платные SMS площадка не покупает (этап 2), поэтому телефонный вход остался
-   * тестовым инструментом: при DEV_OTP_ENABLED=true код возвращается только
-   * в dev-ответе формы и при необходимости пишется в журнал. В production
-   * ручка отвечает 503 и оставляет бесплатные способы — Яндекс ID, VK ID, Telegram, Max.
+   * Платные SMS площадка не покупает. В development тестовый код включается
+   * флагом DEV_OTP_ENABLED; в любом NODE_ENV доступен только при явной паре
+   * DEV_OTP_ENABLED=true + OTP_DELIVERY=dev (фиксированный код 1234).
    */
   app.post("/auth/request-otp", async (request, reply) => {
     const { phone: rawPhone } = z.object({ phone: phoneSchema }).parse(request.body ?? {});
@@ -247,10 +246,10 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "bad_phone", message: "Введите телефон полностью" });
     }
 
-    if (!isDevelopment || !env.devOtpEnabled || env.otpDelivery === "sms") {
+    if (!canUseDevOtp) {
       return reply.code(503).send({
         error: "phone_login_disabled",
-        message: "Вход по SMS отключён. Войдите через Яндекс ID, VK ID или мессенджер — это бесплатно.",
+        message: "Вход по коду отключён. Выберите другой доступный способ входа.",
         providers: availableProviders().filter((item) => item.available).map((item) => item.provider),
       });
     }
@@ -309,7 +308,7 @@ export async function authRoutes(app: FastifyInstance) {
         });
     }
 
-    const code = generateOtpCode();
+    const code = env.otpDelivery === "dev" ? "1234" : generateOtpCode();
 
     // Прежние живые коды этого номера гасим: действующим должен быть ровно
     // один код — последний отправленный. Иначе старые «висят» до TTL.
@@ -335,19 +334,22 @@ export async function authRoutes(app: FastifyInstance) {
       });
       app.log.warn({ phone }, `Код подтверждения (стенд, без SMS): ${code}`);
     } else {
-      app.log.info({ phone }, "OTP: код сгенерирован");
+      app.log.info({ phone, delivery: env.otpDelivery }, "OTP: тестовый код создан");
     }
 
     return reply.send({
       ok: true,
       phone,
       expiresInSeconds: env.otpTtlSeconds,
-      // Коды видны только в явно включённом dev-режиме и никогда не в production.
-      devCode: isDevelopment && env.devOtpEnabled ? code : undefined,
+      // Ответ с тестовым кодом возможен только при canUseDevOtp: в production
+      // исключение создаёт только явная конфигурация dev + DEV_OTP_ENABLED.
+      devCode: canUseDevOtp ? code : undefined,
       message:
-        env.otpDelivery === "log"
-          ? "Тестовый код создан без SMS и показан ниже."
-          : "Тестовый код создан без SMS и подставлен в форму.",
+        env.otpDelivery === "dev"
+          ? "Тестовый код 1234 создан без SMS и подставлен в форму."
+          : env.otpDelivery === "log"
+            ? "Тестовый код создан без SMS и показан ниже."
+            : "Тестовый код создан без SMS и подставлен в форму.",
     });
   });
 
@@ -367,7 +369,7 @@ export async function authRoutes(app: FastifyInstance) {
         /**
          * `login` — строгий вход, `register` — явная регистрация, `auto` — совместимый
          * строгий вход без повышения роли. `dev_login` — тестовый путь: неизвестный
-         * номер создаётся только при серверном DEV_OTP_ENABLED в dev.
+         * номер создаётся только при доступном на сервере тестовом OTP.
          */
         mode: z.enum(["login", "register", "auto", "dev_login"]).default("login"),
       })
@@ -376,10 +378,10 @@ export async function authRoutes(app: FastifyInstance) {
     if (!/^\+?\d{10,15}$/.test(phone)) {
       return reply.code(400).send({ error: "bad_phone", message: "Введите телефон полностью" });
     }
-    if (mode === "dev_login" && (!isDevelopment || !env.devOtpEnabled || env.otpDelivery === "sms")) {
+    if (mode === "dev_login" && !canUseDevOtp) {
       return reply.code(403).send({
         error: "dev_otp_disabled",
-        message: "Тестовый вход доступен только в dev-среде при DEV_OTP_ENABLED=true",
+        message: "Тестовый вход отключён: включите DEV_OTP_ENABLED и допустимый режим OTP_DELIVERY.",
       });
     }
 
@@ -573,8 +575,8 @@ export async function authRoutes(app: FastifyInstance) {
           provider: "phone",
           title: "Код по телефону (стенд)",
           kind: "otp" as const,
-          // На проде телефонный вход выключен: SMS мы не покупаем.
-          available: isDevelopment && env.devOtpEnabled && env.otpDelivery !== "sms",
+          // Доступность ровно совпадает с серверным гейтом запроса OTP.
+          available: canUseDevOtp,
         },
       ],
     };

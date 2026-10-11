@@ -16,7 +16,8 @@ npm run bundle                             # сборка приложения �
 npm run routes                             # рендер всех маршрутов
 npm run e2e                                # сквозной сценарий «мастер ↔ клиент»
 npm run master-crm                         # база клиентов, ручная запись, перерывы
-npm run mobile-layout                      # responsive-контракт и server-side dev OTP gate
+npm run mobile-layout                      # mobile layout, карта и OTP-гейт
+npm run dev-otp-mode                       # фиксированный 1234 под NODE_ENV=production без OAuth/ботов
 npm run client-cabinet                     # визиты, повторная запись, отмена за 6 часов, отзывы
 npm run analytics                          # выручка по периодам и доли услуг/категорий
 npm run smart-notifications                # авторегистрация, magic-link, loader и шаринг

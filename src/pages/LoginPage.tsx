@@ -1,11 +1,11 @@
 /**
- * Вход в клиентский/мастерский кабинет: код со стенда или бесплатная выдача
- * четырёхзначного OTP через Telegram-бота после проверки Telegram ID.
+ * Вход в клиентский/мастерский кабинет: серверный тестовый OTP либо выдача
+ * четырёхзначного кода через Telegram-бота после проверки привязанного Telegram ID.
  */
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import { normalizePhone } from "../auth/AuthContext";
+import { normalizePhone, type LoginRole } from "../auth/AuthContext";
 import { MagicLoginPage } from "./MagicLoginPage";
 import { AuthCard, CodeStep, RoleChoice, useAuthScreen } from "./auth-shared";
 import { QuickLogin } from "../components/QuickLogin";
@@ -20,15 +20,15 @@ type TelegramOtpFlow = {
 
 type TelegramOtpStatus = { status: "pending" | "sent" | "failed"; message?: string };
 
-export function LoginPage() {
+export function LoginPage({ initialRole = "client" }: { initialRole?: LoginRole }) {
   const [params] = useSearchParams();
   const magic = params.get("magic");
   if (magic) return <MagicLoginPage key={magic} magic={magic} />;
-  return <LoginForm />;
+  return <LoginForm initialRole={initialRole} />;
 }
 
-function LoginForm() {
-  const screen = useAuthScreen("login");
+function LoginForm({ initialRole }: { initialRole: LoginRole }) {
+  const screen = useAuthScreen("login", initialRole);
   const [telegramFlow, setTelegramFlow] = useState<TelegramOtpFlow | null>(null);
   const [telegramStatus, setTelegramStatus] = useState("");
   const [telegramError, setTelegramError] = useState("");
@@ -122,15 +122,21 @@ function LoginForm() {
 
   const codeSubtitle = telegramFlow
     ? `Код для ${screen.phone} действует 5 минут. Бот отправит его после проверки привязанного Telegram.`
-    : `Код отправлен на ${screen.phone}. Он действует 5 минут. ${
-        screen.role === "master" ? "Входите как мастер." : "Входите как клиент."
-      }`;
+    : devOtpAvailable
+      ? `Тестовый код для ${screen.phone} действует 5 минут. ${
+          screen.role === "master" ? "Входите как мастер." : "Входите как клиент."
+        }`
+      : `Код подтверждения для ${screen.phone} действует 5 минут. ${
+          screen.role === "master" ? "Входите как мастер." : "Входите как клиент."
+        }`;
 
   return (
     <AuthCard
       title="Вход"
       subtitle={screen.step === "phone" && !telegramFlow
-        ? "Введите номер и получите бесплатный код через Telegram-бота."
+        ? devOtpAvailable
+          ? "Введите номер — тестовый код появится прямо в форме."
+          : "Введите номер и получите бесплатный код без платных SMS."
         : codeSubtitle}
       footer={
         <>
@@ -145,8 +151,9 @@ function LoginForm() {
             </Link>
           </p>
           <p className="mt-3 rounded-xl bg-[#fff4f8] px-3 py-2 text-xs text-slate-500">
-            Платные SMS не используются. В production четырёхзначный код выдаёт Telegram-бот после проверки привязанного Telegram ID;
-            на стенде код тестового входа может появиться в ответе формы.
+            {devOtpAvailable
+              ? "Тестовый вход активирован сервером: код появится в форме. SMS и внешние провайдеры для проверки не нужны."
+              : "Платные SMS не используются. В production четырёхзначный код выдаёт Telegram-бот после проверки привязанного Telegram ID."}
           </p>
           <Link to="/" className="mt-2 inline-block text-pink-600 hover:text-pink-700">
             Вернуться на главную
@@ -156,7 +163,6 @@ function LoginForm() {
     >
       {screen.step === "phone" && !telegramFlow ? (
         <>
-          <QuickLogin role={screen.role} returnTo={screen.returnTo} onError={screen.setError} />
           <form onSubmit={screen.askCode} className="mt-6 space-y-3">
             <RoleChoice role={screen.role} onChange={screen.setRole} legend="Куда входите?" />
             <input
@@ -171,27 +177,40 @@ function LoginForm() {
               placeholder="Телефон +79991234567"
             />
             {(screen.error || telegramError) && <p className="text-sm text-rose-500">{telegramError || screen.error}</p>}
-            <button
-              type="button"
-              onClick={() => void requestTelegramCode()}
-              disabled={telegramPending || screen.pending}
-              data-action="request-telegram-code"
-              className="w-full rounded-xl bg-pink-500 py-3 text-sm font-semibold text-white transition hover:bg-pink-600 disabled:opacity-60"
-            >
-              {telegramPending ? "Создаём ссылку…" : "Получить код в Telegram"}
-            </button>
-            {import.meta.env.DEV && devOtpAvailable && (
+            {devOtpAvailable ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void screen.askDevCode()}
+                  disabled={screen.pending}
+                  data-action="ask-code"
+                  className="w-full rounded-xl bg-pink-500 py-3 text-sm font-semibold text-white transition hover:bg-pink-600 disabled:opacity-60"
+                >
+                  {screen.pending ? "Запрашиваем…" : "Получить код"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void requestTelegramCode()}
+                  disabled={telegramPending || screen.pending}
+                  data-action="request-telegram-code"
+                  className="w-full rounded-xl border border-[#f1dde6] py-2.5 text-sm font-medium text-slate-600 transition hover:border-pink-300 disabled:opacity-60"
+                >
+                  {telegramPending ? "Создаём ссылку…" : "Другой способ — Telegram"}
+                </button>
+              </>
+            ) : (
               <button
                 type="button"
-                onClick={() => void screen.askDevCode()}
-                disabled={screen.pending}
-                data-action="ask-code"
-                className="w-full rounded-xl border border-[#f1dde6] py-2.5 text-sm font-medium text-slate-600 transition hover:border-pink-300 disabled:opacity-60"
+                onClick={() => void requestTelegramCode()}
+                disabled={telegramPending || screen.pending}
+                data-action="request-telegram-code"
+                className="w-full rounded-xl bg-pink-500 py-3 text-sm font-semibold text-white transition hover:bg-pink-600 disabled:opacity-60"
               >
-                {screen.pending ? "Запрашиваем…" : "Получить код (тестовый режим)"}
+                {telegramPending ? "Создаём ссылку…" : "Получить код"}
               </button>
             )}
           </form>
+          <QuickLogin role={screen.role} returnTo={screen.returnTo} onError={screen.setError} />
         </>
       ) : (
         <>

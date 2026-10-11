@@ -15,7 +15,7 @@ export const BUNDLE = fs.readFileSync(new URL("./bundle.js", import.meta.url), "
 
 export const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export function makeDom(route, { session, storage = {} } = {}) {
+export function makeDom(route, { session, storage = {}, viewportWidth = 1024 } = {}) {
   const errors = [];
   const consoleErrors = [];
   const vc = new VirtualConsole();
@@ -30,16 +30,20 @@ export function makeDom(route, { session, storage = {} } = {}) {
       url: `${ORIGIN}${route}`,
       virtualConsole: vc,
       beforeParse(window) {
-        window.matchMedia = (query) => ({
-          matches: false,
-          media: query,
-          onchange: null,
-          addListener() {},
-          removeListener() {},
-          addEventListener() {},
-          removeEventListener() {},
-          dispatchEvent: () => false,
-        });
+        Object.defineProperty(window, "innerWidth", { configurable: true, value: viewportWidth });
+        window.matchMedia = (query) => {
+          const maxWidth = query.match(/max-width:\s*(\d+(?:\.\d+)?)px/i);
+          return {
+            matches: Boolean(maxWidth) && viewportWidth <= Number(maxWidth[1]),
+            media: query,
+            onchange: null,
+            addListener() {},
+            removeListener() {},
+            addEventListener() {},
+            removeEventListener() {},
+            dispatchEvent: () => false,
+          };
+        };
         window.ResizeObserver = class {
           observe() {}
           unobserve() {}
@@ -176,11 +180,29 @@ export async function loginAdmin() {
   return login(ADMIN_PHONE, "Администратор Nail 2 Go");
 }
 
-/** Вход по коду: возвращает сессию для localStorage. */
+/** Вход по коду: сначала строгий вход, а неизвестный тестовый номер — отдельным dev_login. */
 export async function login(phone, name = "Тест Клиент") {
-  const requested = await api("/auth/request-otp", { method: "POST", body: { phone } });
-  const code = requested.data.devCode;
-  const verified = await api("/auth/verify-otp", { method: "POST", body: { phone, code, name } });
+  const requestCode = async () => {
+    const response = await api("/auth/request-otp", { method: "POST", body: { phone } });
+    if (response.status !== 200 || !response.data?.devCode) {
+      throw new Error(`OTP request failed: ${JSON.stringify(response.data)}`);
+    }
+    return response.data.devCode;
+  };
+
+  let code = await requestCode();
+  let verified = await api("/auth/verify-otp", {
+    method: "POST",
+    body: { phone, code, name, mode: "login" },
+  });
+  if (verified.status === 404 && verified.data?.error === "not_registered") {
+    // Не размываем обычный вход: тестовые новые аккаунты используют отдельный server-gated режим.
+    code = await requestCode();
+    verified = await api("/auth/verify-otp", {
+      method: "POST",
+      body: { phone, code, name, mode: "dev_login", role: "client" },
+    });
+  }
   if (verified.status !== 200) throw new Error(`login failed: ${JSON.stringify(verified.data)}`);
   // Храним оба токена: access — для запросов, refresh — чтобы продлить сессию.
   return {

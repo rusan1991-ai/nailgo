@@ -275,31 +275,31 @@ export function ClientsPage() {
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
       <Card className="mt-5" padded={false}>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] text-sm">
+        <div className="min-w-0 overflow-x-auto">
+          <table className="w-full min-w-0 table-fixed text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs text-slate-400">
-                <th className="px-5 py-3 font-medium">Клиент</th>
-                <th className="px-5 py-3 font-medium">Телефон</th>
-                <th className="px-5 py-3 font-medium">Мастер</th>
-                <th className="px-5 py-3 font-medium">Последнее посещение</th>
-                <th className="px-5 py-3 font-medium">Записей</th>
-                <th className="px-5 py-3 font-medium">Средний чек</th>
-                <th className="px-5 py-3 font-medium">Статус</th>
-                <th className="px-5 py-3 font-medium">Источник</th>
-                <th className="px-5 py-3" />
+                <th className="px-2 py-3 sm:px-5 font-medium">Клиент</th>
+                <th className="hidden px-2 py-3 font-medium sm:table-cell sm:px-5">Телефон</th>
+                <th className="hidden px-2 py-3 font-medium lg:table-cell lg:px-5">Мастер</th>
+                <th className="hidden px-2 py-3 font-medium md:table-cell md:px-5">Последнее посещение</th>
+                <th className="px-2 py-3 sm:px-5 font-medium">Записей</th>
+                <th className="px-2 py-3 sm:px-5 font-medium">Средний чек</th>
+                <th className="px-2 py-3 sm:px-5 font-medium">Статус</th>
+                <th className="hidden px-2 py-3 font-medium lg:table-cell lg:px-5">Источник</th>
+                <th className="px-2 py-3 sm:px-5" />
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-3">
-                      <PersonAvatar name={row.name} size={34} />
+                  <td className="px-2 py-3.5 sm:px-5">
+                    <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                      <span className="hidden sm:block"><PersonAvatar name={row.name} size={34} /></span>
                       <button
                         type="button"
                         onClick={() => setActiveClient(row)}
-                        className="text-left text-slate-700 transition hover:text-[#e11d48]"
+                        className="min-w-0 truncate text-left text-slate-700 transition hover:text-[#e11d48]"
                       >
                         {row.name}
                         {/* Заметка видна прямо в таблице: аллергии и особенности
@@ -315,23 +315,23 @@ export function ClientsPage() {
                       </button>
                     </div>
                   </td>
-                  <td className="px-5 py-3.5 text-slate-500">{row.phone ?? "—"}</td>
-                  <td className="px-5 py-3.5">
+                  <td className="hidden px-2 py-3.5 text-slate-500 sm:table-cell sm:px-5">{row.phone ?? "—"}</td>
+                  <td className="hidden px-2 py-3.5 sm:px-5 lg:table-cell">
                     <div className="flex items-center gap-2">
                       <PersonAvatar name={row.master} size={26} />
                       <span className="text-slate-600">{row.master}</span>
                     </div>
                   </td>
-                  <td className="px-5 py-3.5 text-slate-500">{row.lastVisit}</td>
-                  <td className="px-5 py-3.5 text-slate-700">{row.visits}</td>
-                  <td className="px-5 py-3.5 text-slate-700">{formatRub(row.avgCheck)}</td>
-                  <td className="px-5 py-3.5">
+                  <td className="hidden px-2 py-3.5 text-slate-500 md:table-cell md:px-5">{row.lastVisit}</td>
+                  <td className="px-2 py-3.5 sm:px-5 text-slate-700">{row.visits}</td>
+                  <td className="px-2 py-3.5 sm:px-5 text-slate-700">{formatRub(row.avgCheck)}</td>
+                  <td className="px-2 py-3.5 sm:px-5">
                     <Chip tone={statusMeta[row.status].tone}>{statusMeta[row.status].label}</Chip>
                   </td>
-                  <td className="px-5 py-3.5">
+                  <td className="hidden px-2 py-3.5 sm:px-5 lg:table-cell">
                     <Chip tone={sourceTone[row.source] ?? "gray"}>{row.source}</Chip>
                   </td>
-                  <td className="px-5 py-3.5">
+                  <td className="px-2 py-3.5 sm:px-5">
                     <div className="flex items-center justify-end gap-1.5">
                       <button
                         type="button"
@@ -341,7 +341,7 @@ export function ClientsPage() {
                         <Eye className="h-4 w-4" />
                         <span className="sr-only">Карточка клиента</span>
                       </button>
-                      <button className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-white">
+                      <button className="hidden h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-white sm:grid">
                         <MoreHorizontal className="h-4 w-4" />
                       </button>
                     </div>

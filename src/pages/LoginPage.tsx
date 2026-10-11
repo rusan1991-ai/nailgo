@@ -33,6 +33,21 @@ function LoginForm() {
   const [telegramStatus, setTelegramStatus] = useState("");
   const [telegramError, setTelegramError] = useState("");
   const [telegramPending, setTelegramPending] = useState(false);
+  const [devOtpAvailable, setDevOtpAvailable] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void api.get<{ items: Array<{ provider: string; available: boolean }> }>("/auth/providers")
+      .then((response) => {
+        if (alive) setDevOtpAvailable(response.items.some((item) => item.provider === "phone" && item.available));
+      })
+      .catch(() => {
+        if (alive) setDevOtpAvailable(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!telegramFlow?.token) return;
@@ -165,8 +180,10 @@ function LoginForm() {
             >
               {telegramPending ? "Создаём ссылку…" : "Получить код в Telegram"}
             </button>
-            {import.meta.env.DEV && (
+            {import.meta.env.DEV && devOtpAvailable && (
               <button
+                type="button"
+                onClick={() => void screen.askDevCode()}
                 disabled={screen.pending}
                 data-action="ask-code"
                 className="w-full rounded-xl border border-[#f1dde6] py-2.5 text-sm font-medium text-slate-600 transition hover:border-pink-300 disabled:opacity-60"

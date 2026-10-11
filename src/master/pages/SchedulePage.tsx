@@ -302,6 +302,10 @@ function TimeBlockCell({ block, onRemove }: { block: TimeBlock; onRemove: (id: s
 
 export function SchedulePage() {
   const [view, setView] = useState("Неделя");
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(max-width: 767px)").matches,
+  );
+  const calendarView = isMobile ? "День" : view;
   const [weekStartISO, setWeekStartISO] = useState(() => mondayForISO(TODAY_ISO));
   const [selectedDayISO, setSelectedDayISO] = useState(TODAY_ISO);
   const [monthAnchorISO, setMonthAnchorISO] = useState(TODAY_ISO);
@@ -311,6 +315,19 @@ export function SchedulePage() {
   const [showCancelled, setShowCancelled] = useState(false);
   const [statusBusyId, setStatusBusyId] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(max-width: 767px)");
+    const syncViewport = () => setIsMobile(media.matches);
+    syncViewport();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", syncViewport);
+      return () => media.removeEventListener("change", syncViewport);
+    }
+    media.addListener(syncViewport);
+    return () => media.removeListener(syncViewport);
+  }, []);
 
   const appointments = useCabinetAppointments();
   const bookings = useBookingsStore();
@@ -337,7 +354,7 @@ export function SchedulePage() {
   };
 
   const shiftPeriod = (direction: -1 | 1) => {
-    if (view === "Месяц") {
+    if (calendarView === "Месяц") {
       const selected = dateFromISO(selectedDayISO);
       const targetMonth = selected.getMonth() + direction;
       const daysInTargetMonth = new Date(selected.getFullYear(), targetMonth + 1, 0).getDate();
@@ -345,7 +362,7 @@ export function SchedulePage() {
       chooseDate(isoFromDate(target));
       return;
     }
-    chooseDate(addDays(selectedDayISO, direction * (view === "День" ? 1 : 7)));
+    chooseDate(addDays(selectedDayISO, direction * (calendarView === "День" ? 1 : 7)));
   };
 
   /**
@@ -497,11 +514,11 @@ export function SchedulePage() {
   const todayAppointments = visible.filter((item) => item.dateISO === TODAY_ISO && item.status !== "cancelled");
   const load = Math.round((todayAppointments.reduce((acc, item) => acc + item.duration, 0) / 600) * 100);
 
-  const dayColumns = view === "День" ? calendarDays.filter((day) => day.iso === selectedDayISO) : calendarDays;
+  const dayColumns = calendarView === "День" ? calendarDays.filter((day) => day.iso === selectedDayISO) : calendarDays;
   const weekRangeLabel = `${formatDateLabel(calendarDays[0]!.iso)} – ${formatDateLabel(calendarDays[6]!.iso)}`;
-  const periodLabel = view === "Месяц"
+  const periodLabel = calendarView === "Месяц"
     ? `${MONTH_NAMES[monthIndex]} ${monthYear}`
-    : view === "День"
+    : calendarView === "День"
       ? formatDateLabel(selectedDayISO)
       : weekRangeLabel;
   const currentMasterName = profileResource.data?.profile.name ?? "Мои записи";
@@ -536,7 +553,9 @@ export function SchedulePage() {
           <span data-field="schedule-week" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
             {periodLabel}
           </span>
-          <SegmentedControl options={["День", "Неделя", "Месяц"]} value={view} onChange={setView} />
+          <div className="hidden md:block">
+            <SegmentedControl options={["День", "Неделя", "Месяц"]} value={view} onChange={setView} />
+          </div>
           {/* Перерыв закрывает время для клиентов; запись мастер вносит вручную. */}
           <GhostButton dataAction="block-time" onClick={() => openBlockModal()}>
             <Coffee className="h-4 w-4" />
@@ -555,7 +574,7 @@ export function SchedulePage() {
         </p>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[286px_1fr]">
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[286px_minmax(0,1fr)]">
         <div className="space-y-4">
           <MiniCalendar
             selected={selectedDayISO}
@@ -622,8 +641,8 @@ export function SchedulePage() {
           </Card>
         </div>
 
-        <Card padded={false} className="overflow-hidden">
-          {view === "Месяц" ? (
+        <Card padded={false} className="min-w-0 overflow-hidden" data-scheduler-view={calendarView}>
+          {calendarView === "Месяц" ? (
             <div className="p-5">
               <p className="mb-2 text-sm font-medium text-slate-700">{MONTH_NAMES[monthIndex]} {monthYear}</p>
               <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-slate-400">
@@ -660,8 +679,8 @@ export function SchedulePage() {
               </div>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <div className="min-w-[820px]">
+            <div className="w-full min-w-0">
+              <div className="w-full min-w-0" data-scheduler-view={calendarView}>
                 <div
                   className="grid border-b border-slate-100"
                   style={{ gridTemplateColumns: `64px repeat(${dayColumns.length}, minmax(0, 1fr))` }}

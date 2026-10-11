@@ -326,6 +326,29 @@ assert(
   schedulePage.dom.window.document.querySelector("[data-block='time-blocks']") !== null,
   "карточка перерывов",
 );
+
+const mobileSchedulePage = makeDom("/pro/scheduler", { session: master, viewportWidth: 390 });
+await wait(1800);
+const mobileScheduleDoc = mobileSchedulePage.dom.window.document;
+const mobileDayButton = mobileScheduleDoc.querySelector(`button[data-calendar-date='${blockDate}']`);
+mobileDayButton?.click();
+await wait(650);
+const mobileDayCells = mobileScheduleDoc.querySelectorAll("[data-scheduler-day]");
+const mobileDayCell = mobileDayCells[0];
+const mobileTimeBlock = mobileDayCell?.querySelector(`[data-time-block='${block.data?.block?.id ?? "missing"}']`);
+assert(
+  "на ширине смартфона расписание показывает одну колонку выбранного Дня",
+  mobileScheduleDoc.querySelector("[data-scheduler-view='День']") !== null &&
+    mobileDayCells.length === 1 && mobileDayCell?.getAttribute("data-scheduler-day") === blockDate,
+  `вид=${mobileScheduleDoc.querySelector("[data-scheduler-view]")?.getAttribute("data-scheduler-view")}, колонок=${mobileDayCells.length}`,
+);
+assert(
+  "мобильный календарь показывает перерыв внутри дневной сетки",
+  mobileTimeBlock !== null,
+  `дата=${blockDate}, блок=${block.data?.block?.id ?? "не создан"}`,
+);
+mobileSchedulePage.dom.window.close();
+
 const nextPeriod = schedulePage.dom.window.document.querySelector("button[aria-label='Следующий период']");
 nextPeriod?.click();
 await wait(450);

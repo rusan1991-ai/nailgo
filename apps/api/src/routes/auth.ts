@@ -4,7 +4,7 @@ import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import { authFlows, masters, otpCodes, sessions, users } from "../db/schema.js";
-import { env, isDev } from "../env.js";
+import { env, isDevelopment } from "../env.js";
 import { requireAuth, signAccessToken, signRefreshToken, verifyRefreshToken } from "../lib/auth.js";
 import {
   ensureMasterProfile,
@@ -236,14 +236,18 @@ export async function authRoutes(app: FastifyInstance) {
    * Запрос кода подтверждения.
    *
    * Платные SMS площадка не покупает (этап 2), поэтому телефонный вход остался
-   * рабочим инструментом стенда: в dev код возвращается в ответе или пишется
-   * в журнал. В проде ручка честно отвечает 503 и отправляет человека к
-   * бесплатным способам входа — Яндекс ID, VK ID, Telegram, Max.
+   * тестовым инструментом: при DEV_OTP_ENABLED=true код возвращается только
+   * в dev-ответе формы и при необходимости пишется в журнал. В production
+   * ручка отвечает 503 и оставляет бесплатные способы — Яндекс ID, VK ID, Telegram, Max.
    */
   app.post("/auth/request-otp", async (request, reply) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(request.body ?? {});
+    const { phone: rawPhone } = z.object({ phone: phoneSchema }).parse(request.body ?? {});
+    const phone = normalizePhone(rawPhone);
+    if (!/^\+?\d{10,15}$/.test(phone)) {
+      return reply.code(400).send({ error: "bad_phone", message: "Введите телефон полностью" });
+    }
 
-    if (env.otpDelivery === "sms" || !isDev) {
+    if (!isDevelopment || !env.devOtpEnabled || env.otpDelivery === "sms") {
       return reply.code(503).send({
         error: "phone_login_disabled",
         message: "Вход по SMS отключён. Войдите через Яндекс ID, VK ID или мессенджер — это бесплатно.",
@@ -338,19 +342,18 @@ export async function authRoutes(app: FastifyInstance) {
       ok: true,
       phone,
       expiresInSeconds: env.otpTtlSeconds,
-      devCode: env.otpDelivery === "response" ? code : undefined,
+      // Коды видны только в явно включённом dev-режиме и никогда не в production.
+      devCode: isDevelopment && env.devOtpEnabled ? code : undefined,
       message:
-        env.otpDelivery === "response"
-          ? "Код подтверждения создан. В dev-режиме он возвращается в ответе."
-          : env.otpDelivery === "log"
-            ? "Код подтверждения создан. SMS не подключён — код ищите в логе сервера."
-            : "Код отправлен по SMS",
+        env.otpDelivery === "log"
+          ? "Тестовый код создан без SMS и показан ниже."
+          : "Тестовый код создан без SMS и подставлен в форму.",
     });
   });
 
   /** Проверка кода: при первом входе создаём пользователя, выдаём токены. */
   app.post("/auth/verify-otp", async (request, reply) => {
-    const { phone, code, name, role: requestedRole, mode } = z
+    const { phone: rawPhone, code, name, role: requestedRole, mode } = z
       .object({
         phone: phoneSchema,
         code: z.string().trim().regex(/^\d{4}$/, "Код из 4 цифр"),
@@ -362,14 +365,23 @@ export async function authRoutes(app: FastifyInstance) {
          */
         role: z.enum(["client", "master", "admin"]).optional(),
         /**
-         * Что делает клиент: `login` — вход в свой кабинет, `register` — создание
-         * аккаунта, `auto` — прежнее поведение (нет аккаунта — создать).
-         * Разделение нужно, чтобы формы не подменяли друг друга: вход по
-         * незарегистрированному номеру не должен молча регистрировать.
+         * `login` — строгий вход, `register` — явная регистрация, `auto` — совместимый
+         * строгий вход без повышения роли. `dev_login` — тестовый путь: неизвестный
+         * номер создаётся только при серверном DEV_OTP_ENABLED в dev.
          */
-        mode: z.enum(["login", "register", "auto"]).default("auto"),
+        mode: z.enum(["login", "register", "auto", "dev_login"]).default("login"),
       })
       .parse(request.body ?? {});
+    const phone = normalizePhone(rawPhone);
+    if (!/^\+?\d{10,15}$/.test(phone)) {
+      return reply.code(400).send({ error: "bad_phone", message: "Введите телефон полностью" });
+    }
+    if (mode === "dev_login" && (!isDevelopment || !env.devOtpEnabled || env.otpDelivery === "sms")) {
+      return reply.code(403).send({
+        error: "dev_otp_disabled",
+        message: "Тестовый вход доступен только в dev-среде при DEV_OTP_ENABLED=true",
+      });
+    }
 
     // Лимит на ввод: 4 цифры — это 10 000 вариантов, без ограничения их
     // можно перебрать за минуты. Считаем по телефону (IP тут не спасает:
@@ -434,9 +446,26 @@ export async function authRoutes(app: FastifyInstance) {
     await resetRateLimit(verifyKey);
 
     const [existing] = await db.select().from(users).where(eq(users.phone, phone)).limit(1);
+    const effectiveMode = mode === "dev_login"
+      ? (existing ? "login" : "auto")
+      : mode === "auto"
+        ? "login"
+        : mode;
+
+    if (mode === "auto" && !existing) {
+      return reply
+        .code(404)
+        .send({ error: "not_registered", message: "Номер не зарегистрирован — создайте аккаунт" });
+    }
+    if (mode === "dev_login" && requestedRole === "admin") {
+      return reply.code(400).send({ error: "admin_registration_disabled", message: "Тестовый вход в админку недоступен" });
+    }
+    if (mode === "dev_login" && existing?.role === "admin") {
+      return reply.code(403).send({ error: "forbidden", message: "Тестовый вход в админку недоступен" });
+    }
 
     // Регистрация: админов не создаём, занятый номер не перезаписываем.
-    if (mode === "register") {
+    if (effectiveMode === "register") {
       if (requestedRole === "admin") {
         return reply
           .code(400)
@@ -451,7 +480,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     // Вход: номер должен быть зарегистрирован, а роль — совпадать с выбранным
     // кабинетом. Иначе человека ждал бы чужой кабинет или пустой экран.
-    if (mode === "login") {
+    if (effectiveMode === "login") {
       if (!existing) {
         return reply
           .code(404)
@@ -477,7 +506,7 @@ export async function authRoutes(app: FastifyInstance) {
     let user = existing
       ? (await db
           .update(users)
-          .set({ name: mode === "login" ? (name ?? existing.name) : (name ?? existing.name) })
+          .set({ name: name ?? existing.name })
           .where(eq(users.id, existing.id))
           .returning())[0]!
       : (
@@ -491,11 +520,10 @@ export async function authRoutes(app: FastifyInstance) {
             .returning()
         )[0]!;
 
-    // Прежний контракт (`mode: auto`, без разделения экранов): клиент, выбравший
-    // «я мастер», получает кабинет. При явном входе роль не меняется — иначе
-    // человек незаметно для себя стал бы мастером. Понижать роль мастера нельзя
-    // в любом случае: у кабинета есть записи и услуги.
-    if (mode === "auto" && requestedRole === "master" && user.role === "client") {
+    // Клиент и мастер остаются в своей роли: вход не повышает и не понижает
+    // существующий аккаунт. Неизвестный номер создаётся только отдельным
+    // dev_login (либо по явному запросу register), а не в обычном входе.
+    if (effectiveMode === "auto" && requestedRole === "master" && user.role === "client") {
       user = (await db.update(users).set({ role: "master" }).where(eq(users.id, user.id)).returning())[0]!;
     }
     if (user.role === "master") {
@@ -546,7 +574,7 @@ export async function authRoutes(app: FastifyInstance) {
           title: "Код по телефону (стенд)",
           kind: "otp" as const,
           // На проде телефонный вход выключен: SMS мы не покупаем.
-          available: isDev && env.otpDelivery !== "sms",
+          available: isDevelopment && env.devOtpEnabled && env.otpDelivery !== "sms",
         },
       ],
     };

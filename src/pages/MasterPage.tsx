@@ -67,7 +67,7 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
   if (!master) {
     const masterLoading = catalogStatus === "idle" || catalogStatus === "loading";
     return (
-      <main className="grid min-h-screen place-items-center bg-[#fff7fa] p-6 text-center text-slate-500">
+      <main className="grid min-h-dvh place-items-center bg-[#fff7fa] p-6 text-center text-slate-500">
         <div>
           <p className="text-sm uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
           <h1 className="mt-3 text-2xl font-semibold text-slate-900">
@@ -85,7 +85,7 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
   }
 
   return (
-    <main className="min-h-screen bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
+    <main className="min-h-dvh bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
       <div className="mx-auto max-w-[1280px] rounded-[26px] border border-[#ffe6ef] bg-white p-5 shadow-[0_20px_80px_-40px_rgba(236,72,153,0.45)] sm:p-8">
         <AppHeader />
 

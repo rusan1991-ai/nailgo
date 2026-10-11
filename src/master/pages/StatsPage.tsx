@@ -170,7 +170,7 @@ export function StatsPage() {
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Статистика</h1>
         <div className="flex flex-wrap items-center gap-2">
           <Select
-            className="w-[210px]"
+            className="w-full md:w-auto"
             value={STATS_MONTH}
             onChange={() => undefined}
             options={[{ value: STATS_MONTH, label: "Демо-период: 20–26 мая 2024" }]}
@@ -283,7 +283,7 @@ export function StatsPage() {
               <CardTitle
                 action={
                   <Select
-                    className="w-[140px]"
+                    className="w-full md:w-auto"
                     value={scale}
                     onChange={setScale}
                     options={[
@@ -318,7 +318,20 @@ export function StatsPage() {
               <div className="px-5 py-4">
                 <h2 className="text-[15px] font-semibold text-slate-900">Топ услуг по записям</h2>
               </div>
-              <table className="w-full text-sm">
+              <div className="divide-y divide-slate-100 px-5 md:hidden">
+                {services.length === 0 ? (
+                  <p className="py-4 text-sm text-slate-400">Данных по услугам пока нет.</p>
+                ) : services.map((service, index) => (
+                  <div key={`mobile-${service.name}-${index}`} className="flex min-w-0 items-start justify-between gap-3 py-3">
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-medium text-slate-700">{service.name}</p>
+                      <p className="mt-1 text-xs text-slate-400">{formatNumber(service.bookings)} записей</p>
+                    </div>
+                    <p className="shrink-0 text-right text-sm text-slate-600">{formatRub(service.revenue)}</p>
+                  </div>
+                ))}
+              </div>
+              <table className="hidden w-full table-fixed text-sm md:table">
                 <thead>
                   <tr className="border-y border-slate-100 text-left text-xs text-slate-400">
                     <th className="px-5 py-2.5 font-medium">Услуга</th>
@@ -395,7 +408,22 @@ export function StatsPage() {
             <div className="px-5 py-4">
               <h2 className="text-[15px] font-semibold text-slate-900">Кто оставил больше всего</h2>
             </div>
-            <table className="w-full text-sm">
+            <div className="divide-y divide-slate-100 px-5 md:hidden">
+              {topClients.length === 0 ? (
+                <p className="py-4 text-sm text-slate-400">Данных по клиентам пока нет.</p>
+              ) : topClients.map((client) => (
+                <div key={`mobile-${client.phone}`} className="flex min-w-0 items-start justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-medium text-slate-700">{client.name}</p>
+                    <p className="mt-1 break-words text-xs text-slate-400">
+                      {client.visits} визитов · средний чек {formatRub(client.avgCheck)}
+                    </p>
+                  </div>
+                  <p className="shrink-0 text-right text-sm font-medium text-slate-700">{formatRub(client.totalSpent)}</p>
+                </div>
+              ))}
+            </div>
+            <table className="hidden w-full table-fixed text-sm md:table">
               <thead>
                 <tr className="border-y border-slate-100 text-left text-xs text-slate-400">
                   <th className="px-5 py-2.5 font-medium">Клиент</th>
@@ -485,11 +513,29 @@ export function StatsPage() {
 
       {tab === "services" && (
         <Card className="mt-5" padded={false}>
-          <div className="flex items-center justify-between px-5 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-4">
             <h2 className="text-[15px] font-semibold text-slate-900">Услуги за месяц</h2>
             <Chip tone="gray">Выручка: {stats ? formatRub(servicesTotal) : "—"}</Chip>
           </div>
-          <table className="w-full text-sm">
+          <div className="divide-y divide-slate-100 px-5 md:hidden">
+            {services.length === 0 ? (
+              <p className="py-4 text-sm text-slate-400">Услуги пока не добавлены.</p>
+            ) : services.map((service, index) => (
+              <div key={`mobile-${service.name}-${index}`} className="flex min-w-0 items-start justify-between gap-3 py-3">
+                <div className="min-w-0">
+                  <p className="break-words text-sm font-medium text-slate-700">{service.name}</p>
+                  <p className="mt-1 text-xs text-slate-400">{formatNumber(service.bookings)} записей</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-sm text-slate-600">{formatRub(service.revenue)}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {servicesTotal > 0 ? `${Math.round((service.revenue / servicesTotal) * 100)}%` : "—"}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <table className="hidden w-full table-fixed text-sm md:table">
             <thead>
               <tr className="border-y border-slate-100 text-left text-xs text-slate-400">
                 <th className="px-5 py-2.5 font-medium">Услуга</th>

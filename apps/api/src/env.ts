@@ -10,8 +10,11 @@ function num(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-/** Режим прод-эксплуатации: от него зависят дефолты лимитов и доставки. */
-const isProductionMode = (process.env.NODE_ENV ?? "development") === "production";
+/** Режим окружения: от него зависят безопасные дефолты конфигурации. */
+const nodeEnv = process.env.NODE_ENV ?? "development";
+const isProductionMode = nodeEnv === "production";
+const isDevelopmentMode = nodeEnv === "development";
+const defaultDevOtpEnabled = process.env.DEV_OTP_ENABLED ?? (isDevelopmentMode ? "true" : "false");
 
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
@@ -25,17 +28,16 @@ export const env = {
   accessTtlSeconds: num(process.env.JWT_ACCESS_TTL_SECONDS, 900),
   refreshTtlSeconds: num(process.env.JWT_REFRESH_TTL_SECONDS, 2592000),
 
-  devOtpEnabled: (process.env.DEV_OTP_ENABLED ?? "true") === "true",
+  devOtpEnabled: defaultDevOtpEnabled === "true",
   /**
    * Как доставляется код подтверждения:
-   * - response — возвращаем в ответе (только dev);
-   * - log — пишем в лог сервера (закрытый стенд);
+   * - response — возвращаем в ответе и подставляем в форму (только dev);
+   * - log — пишем в лог сервера; тестовая форма в dev тоже получает код;
    * - sms — не используется: платные SMS площадка не покупает (этап 2),
    *   на проде такой режим выключает телефонный вход, оставляя OAuth
    *   и мессенджеры.
    */
-  otpDelivery: (process.env.OTP_DELIVERY ??
-    ((process.env.DEV_OTP_ENABLED ?? "true") === "true" ? "response" : "log")) as
+  otpDelivery: (process.env.OTP_DELIVERY ?? (defaultDevOtpEnabled === "true" ? "response" : "log")) as
     | "response"
     | "log"
     | "sms",
@@ -181,3 +183,5 @@ export const env = {
 };
 
 export const isDev = env.nodeEnv !== "production";
+/** Строгая проверка окружения для функций, доступных только в development. */
+export const isDevelopment = env.nodeEnv === "development";

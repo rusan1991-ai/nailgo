@@ -91,7 +91,7 @@ export function PromotionPage() {
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Продвижение</h1>
         <div className="flex flex-wrap items-center gap-2">
           <Select
-            className="w-[210px]"
+            className="w-full md:w-auto"
             value={STATS_MONTH}
             onChange={() => undefined}
             options={[{ value: STATS_MONTH, label: "20.05.2024 – 26.05.2024" }]}

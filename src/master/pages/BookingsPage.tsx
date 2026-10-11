@@ -233,17 +233,17 @@ export function BookingsPage() {
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
       <Card className="mt-5" padded={false}>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-sm">
+        <div className="min-w-0 overflow-x-auto">
+          <table className="w-full min-w-0 table-fixed text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs text-slate-400">
-                <th className="px-5 py-3 font-medium">Дата и время</th>
-                <th className="px-5 py-3 font-medium">Клиент</th>
-                <th className="px-5 py-3 font-medium">Услуга</th>
-                <th className="px-5 py-3 font-medium">Мастер</th>
-                <th className="px-5 py-3 font-medium">Статус</th>
-                <th className="px-5 py-3 font-medium">Сумма</th>
-                <th className="px-5 py-3" />
+                <th className="px-2 py-3 sm:px-5 font-medium">Дата и время</th>
+                <th className="px-2 py-3 sm:px-5 font-medium">Клиент</th>
+                <th className="px-2 py-3 sm:px-5 font-medium">Услуга</th>
+                <th className="hidden px-2 py-3 font-medium sm:px-5 lg:table-cell">Мастер</th>
+                <th className="px-2 py-3 sm:px-5 font-medium">Статус</th>
+                <th className="px-2 py-3 sm:px-5 font-medium">Сумма</th>
+                <th className="px-2 py-3 sm:px-5" />
               </tr>
             </thead>
             <tbody>
@@ -251,33 +251,33 @@ export function BookingsPage() {
                 const actions = [...actionsFor(row.status), ...paymentActionsFor(row)];
                 return (
                   <tr key={row.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
-                    <td className="px-5 py-3.5">
+                    <td className="px-2 py-3.5 sm:px-5">
                       <p className="text-slate-700">{row.date}</p>
                       <p className="text-xs text-slate-400">{row.time}</p>
                     </td>
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <PersonAvatar name={row.client} size={34} />
-                        <div>
-                          <p className="text-slate-700">{row.client}</p>
-                          <p className="text-xs text-slate-400">{row.phone}</p>
+                    <td className="px-2 py-3.5 sm:px-5">
+                      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                        <span className="hidden sm:block"><PersonAvatar name={row.client} size={34} /></span>
+                        <div className="min-w-0">
+                          <p className="truncate text-slate-700">{row.client}</p>
+                          <p className="hidden truncate text-xs text-slate-400 sm:block">{row.phone}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-5 py-3.5">
-                      <p className="text-slate-700">{row.service}</p>
+                    <td className="px-2 py-3.5 sm:px-5">
+                      <p className="break-words text-slate-700">{row.service}</p>
                       <p className="text-xs text-slate-400">{row.duration}</p>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="hidden px-2 py-3.5 sm:px-5 lg:table-cell">
                       <div className="flex items-center gap-2">
                         <PersonAvatar name={row.master} size={28} />
                         <span className="text-slate-600">{row.master}</span>
                       </div>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-2 py-3.5 sm:px-5">
                       <Chip tone={statusChips[row.status].tone}>{statusChips[row.status].label}</Chip>
                     </td>
-                    <td className="px-5 py-3.5 font-medium text-slate-700">
+                    <td className="px-2 py-3.5 sm:px-5 font-medium text-slate-700">
                       {formatRub(row.price)}
                       {row.prepaymentAmount && row.prepaymentAmount > 0 ? (
                         <span
@@ -299,8 +299,8 @@ export function BookingsPage() {
                         </span>
                       ) : null}
                     </td>
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center justify-end gap-1.5">
+                    <td className="px-2 py-3.5 sm:px-5">
+                      <div className="flex flex-col items-end justify-center gap-1 sm:flex-row sm:gap-1.5">
                         <button
                           type="button"
                           onClick={() => liveById.has(row.id) && setDetails(liveById.get(row.id) ?? null)}
@@ -318,7 +318,7 @@ export function BookingsPage() {
                                 event.stopPropagation();
                                 setOpenMenu((current) => (current === row.id ? null : row.id));
                               }}
-                              className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-white disabled:opacity-50"
+                              className="hidden h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-white disabled:opacity-50 sm:grid"
                             >
                               <MoreHorizontal className="h-4 w-4" />
                               <span className="sr-only">Действия с записью</span>

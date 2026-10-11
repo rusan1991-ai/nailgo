@@ -347,37 +347,38 @@ export function ServicesPage() {
           </div>
 
           <Card padded={false}>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px] text-sm">
+            <div className="min-w-0 overflow-x-auto">
+              <table className="w-full min-w-0 table-fixed text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-xs text-slate-400">
-                    <th className="px-5 py-3 font-medium">Услуга</th>
-                    <th className="px-5 py-3 font-medium">Категория</th>
-                    <th className="px-5 py-3 font-medium">Длительность</th>
-                    <th className="px-5 py-3 font-medium">Цена</th>
-                    <th className="px-5 py-3 font-medium">Предоплата</th>
-                    <th className="px-5 py-3 font-medium">Статус</th>
-                    <th className="px-5 py-3 text-right font-medium">Действия</th>
+                    <th className="px-2 py-3 sm:px-5 font-medium">Услуга</th>
+                    <th className="hidden px-2 py-3 font-medium lg:table-cell lg:px-5">Категория</th>
+                    <th className="hidden px-2 py-3 font-medium sm:table-cell sm:px-5">Длительность</th>
+                    <th className="px-2 py-3 sm:px-5 font-medium">Цена</th>
+                    <th className="hidden px-2 py-3 font-medium lg:table-cell lg:px-5">Предоплата</th>
+                    <th className="px-2 py-3 sm:px-5 font-medium">Статус</th>
+                    <th className="px-2 py-3 sm:px-5 text-right font-medium">Действия</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visible.map((row) => (
                     <tr key={row.id} data-service-row={row.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-3">
-                          <ServiceThumb category={row.category} />
-                          <div>
-                            <p className="text-slate-700">{row.name}</p>
+                      <td className="px-2 py-3.5 sm:px-5">
+                        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                          <span className="hidden sm:inline-flex"><ServiceThumb category={row.category} /></span>
+                          <div className="min-w-0">
+                            <p className="truncate text-slate-700">{row.name}</p>
+                            <p className="mt-1 text-xs text-slate-400 sm:hidden">{durationLabel(row.durationMinutes)}</p>
                             {row.bookingsCount > 0 && (
                               <p className="text-xs text-slate-400">записей: {row.bookingsCount}</p>
                             )}
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-3.5 text-slate-500">{row.category}</td>
-                      <td className="px-5 py-3.5 text-slate-500">{durationLabel(row.durationMinutes)}</td>
-                      <td className="px-5 py-3.5 font-medium text-slate-700">{formatRub(row.price)}</td>
-                      <td className="px-5 py-3.5" data-prepayment={row.prepaymentPercent}>
+                      <td className="hidden px-2 py-3.5 text-slate-500 lg:table-cell lg:px-5">{row.category}</td>
+                      <td className="hidden px-2 py-3.5 text-slate-500 sm:table-cell sm:px-5">{durationLabel(row.durationMinutes)}</td>
+                      <td className="px-2 py-3.5 sm:px-5 font-medium text-slate-700">{formatRub(row.price)}</td>
+                      <td className="hidden px-2 py-3.5 lg:table-cell lg:px-5" data-prepayment={row.prepaymentPercent}>
                         {row.prepaymentPercent > 0 ? (
                           <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-600">
                             {row.prepaymentPercent}% ·{" "}
@@ -387,7 +388,7 @@ export function ServicesPage() {
                           <span className="text-xs text-slate-400">без предоплаты</span>
                         )}
                       </td>
-                      <td className="px-5 py-3.5">
+                      <td className="px-2 py-3.5 sm:px-5">
                         <button
                           type="button"
                           disabled={!live || busy}
@@ -398,8 +399,8 @@ export function ServicesPage() {
                           <Chip tone={row.active ? "green" : "gray"}>{row.active ? "Активна" : "Скрыта"}</Chip>
                         </button>
                       </td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center justify-end gap-1.5">
+                      <td className="px-2 py-3.5 sm:px-5">
+                        <div className="flex flex-col items-end justify-center gap-1 sm:flex-row sm:gap-1.5">
                           <button
                             type="button"
                             disabled={!live || busy}

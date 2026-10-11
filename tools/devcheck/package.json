@@ -15,6 +15,7 @@
     "reviews": "node reviews.mjs",
     "reschedule": "node reschedule.mjs",
     "roles": "node roles.mjs",
+    "mobile-layout": "node mobile-layout.mjs",
     "city": "node city.mjs",
     "services": "node services.mjs",
     "favorites": "node favorites.mjs",

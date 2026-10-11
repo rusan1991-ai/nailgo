@@ -146,7 +146,7 @@ export function SettingsPage() {
               value={name}
               onChange={(event) => setName(event.target.value)}
               data-field="client-name"
-              className="min-w-[220px] flex-1 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm outline-none focus:border-pink-300"
+              className="w-full min-w-0 flex-1 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm outline-none focus:border-pink-300 md:w-auto"
               placeholder="Ваше имя"
             />
             <button
@@ -241,7 +241,7 @@ export function SettingsPage() {
               onChange={(event) => setConfirmText(event.target.value)}
               data-field="delete-confirm"
               placeholder="Напишите УДАЛИТЬ"
-              className="min-w-[200px] flex-1 rounded-xl border border-rose-200 px-3 py-2 text-sm outline-none focus:border-rose-400"
+              className="w-full min-w-0 flex-1 rounded-xl border border-rose-200 px-3 py-2 text-sm outline-none focus:border-rose-400 md:w-auto"
             />
             <button
               type="button"

@@ -81,7 +81,7 @@ assert(
   `${oldCode.status}/${oldCode.data?.error}`,
 );
 
-const newCode = await verifyCode(PHONE, second.data.devCode, { name: "Клиент Кодов" });
+const newCode = await verifyCode(PHONE, second.data.devCode, { name: "Клиент Кодов", mode: "dev_login", role: "client" });
 assert("последний код входит", newCode.status === 200 && newCode.data.user.role === "client", `status=${newCode.status}`);
 
 const reused = await verifyCode(PHONE, second.data.devCode, { name: "Клиент Кодов" });
@@ -120,7 +120,7 @@ assert(
 );
 
 // Успешный вход должен очистить окно: иначе следующая опечатка закрыла бы вход.
-const rightAfterMisses = await verifyCode(LIMITED_PHONE, code, { name: "Клиент Лимитов" });
+const rightAfterMisses = await verifyCode(LIMITED_PHONE, code, { name: "Клиент Лимитов", mode: "dev_login", role: "client" });
 assert("верный код проходит после опечаток", rightAfterMisses.status === 200, `status=${rightAfterMisses.status}`);
 
 const afterReset = await readLimits();
@@ -196,7 +196,7 @@ await resetWindow("all");
 const backToNormal = await requestCode("+79990001969");
 assert("после сброса запрос кода снова проходит", backToNormal.status === 200, `status=${backToNormal.status}`);
 
-const finalVerify = await verifyCode("+79990001969", backToNormal.data.devCode, { name: "Клиент Кодов" });
+const finalVerify = await verifyCode("+79990001969", backToNormal.data.devCode, { name: "Клиент Кодов", mode: "dev_login", role: "client" });
 assert("вход по коду снова работает", finalVerify.status === 200, `status=${finalVerify.status}`);
 
 if (failures === 0) {

@@ -151,16 +151,16 @@ export function MasterLayout() {
   const profileName = layoutProfile?.profile.name ?? user?.name ?? "Мастер";
 
   return (
-    <div className="min-h-screen bg-[#f5f6f8] text-slate-800">
-      <div className="flex min-h-screen">
-        <aside className="sticky top-0 hidden h-screen w-[236px] shrink-0 bg-[#0d1b2e] lg:block">
+    <div className="min-h-dvh w-full max-w-full overflow-x-hidden bg-[#f5f6f8] text-slate-800">
+      <div className="flex min-h-dvh min-w-0">
+        <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 bg-[#0d1b2e] lg:block">
           <SidebarContent />
         </aside>
 
         {mobileOpen && (
           <div className="fixed inset-0 z-40 lg:hidden">
             <div className="absolute inset-0 bg-slate-900/50" onClick={() => setMobileOpen(false)} />
-            <aside className="absolute inset-y-0 left-0 w-[260px] bg-[#0d1b2e]">
+            <aside className="absolute inset-y-0 left-0 w-72 max-w-[90vw] bg-[#0d1b2e]">
               <SidebarContent onNavigate={() => setMobileOpen(false)} />
             </aside>
           </div>
@@ -188,7 +188,7 @@ export function MasterLayout() {
             </div>
           )}
 
-          <main key={`${user?.id ?? "anonymous"}:${pathname}`} className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <main key={`${user?.id ?? "anonymous"}:${pathname}`} className="min-w-0 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             {/* Решение площадки видно сразу: снятый с публикации профиль не
                 показывается клиентам, и мастер должен понимать, почему. */}
             <ModerationBanner />

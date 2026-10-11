@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow-x: hidden;
+}
+
 @keyframes n2g-soft-pulse {
   0%, 100% { transform: scale(1); filter: drop-shadow(0 5px 14px rgba(191, 93, 132, 0.12)); }
   50% { transform: scale(1.07); filter: drop-shadow(0 10px 24px rgba(191, 93, 132, 0.28)); }

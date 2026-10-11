@@ -22,6 +22,7 @@ const stamp = String(Date.now()).slice(-6);
 const MASTER_PHONE = `+7999${stamp}`;
 const CLIENT_PHONE = `+7998${stamp}`;
 const ADMIN_FORM_PHONE = `+7997${stamp}`;
+const DEFAULT_MODE_PHONE = `+7991${stamp}`;
 
 const demoMaster = await loginMaster();
 await resetDemo(demoMaster);
@@ -45,9 +46,49 @@ const notRegistered = await api("/auth/verify-otp", {
   body: { phone: ADMIN_FORM_PHONE, code: unknownCode, mode: "login", role: "client" },
 });
 assert(
-  "вход незарегистрированным номером отклоняется",
+  "обычный вход незарегистрированным номером отклоняется",
   notRegistered.status === 404 && notRegistered.data.error === "not_registered",
   `status=${notRegistered.status} ${notRegistered.data?.error}`,
+);
+
+const defaultModeCode = await codeFor(DEFAULT_MODE_PHONE);
+const defaultModeLogin = await api("/auth/verify-otp", {
+  method: "POST",
+  body: { phone: DEFAULT_MODE_PHONE, code: defaultModeCode, role: "client" },
+});
+assert(
+  "режим API по умолчанию не создаёт аккаунт для неизвестного номера",
+  defaultModeLogin.status === 404 && defaultModeLogin.data.error === "not_registered",
+  `status=${defaultModeLogin.status} ${defaultModeLogin.data?.error}`,
+);
+
+const explicitAutoCode = await codeFor(DEFAULT_MODE_PHONE);
+const explicitAuto = await api("/auth/verify-otp", {
+  method: "POST",
+  body: { phone: DEFAULT_MODE_PHONE, code: explicitAutoCode, mode: "auto", role: "client" },
+});
+assert(
+  "legacy auto-режим не обходит запрет создания аккаунта",
+  explicitAuto.status === 404 && explicitAuto.data.error === "not_registered",
+  `status=${explicitAuto.status} ${explicitAuto.data?.error}`,
+);
+
+const providers = await api("/auth/providers");
+const devPhoneProvider = providers.data.items.find((item) => item.provider === "phone");
+assert(
+  "провайдер тестового кода доступен только в dev-конфигурации",
+  providers.status === 200 && devPhoneProvider?.available === true,
+  `status=${providers.status}, available=${devPhoneProvider?.available}`,
+);
+
+const devUnknown = await api("/auth/verify-otp", {
+  method: "POST",
+  body: { phone: ADMIN_FORM_PHONE, code: await codeFor(ADMIN_FORM_PHONE), mode: "dev_login", role: "client" },
+});
+assert(
+  "разрешённый dev-вход создаёт неизвестный номер как клиента",
+  devUnknown.status === 200 && devUnknown.data.user?.role === "client",
+  `status=${devUnknown.status}, role=${devUnknown.data?.user?.role}`,
 );
 
 /* --- API: регистрация мастера и клиента --- */
@@ -264,19 +305,43 @@ assert(
   clientPage.dom.window.location.pathname,
 );
 
-/* --- Экран входа: незарегистрированный номер не пускает, а предлагает регистрацию --- */
+/* --- Экран входа: явный dev-поток создаёт тестовый клиент без SMS --- */
 const freshLogin = makeDom("/login", { session: null });
 await wait(1100);
 const neverPhone = `+7994${stamp}`;
 setField(freshLogin.dom, "Телефон +79991234567", neverPhone);
 click(freshLogin.dom, "Получить код (тестовый режим)");
 await wait(900);
-click(freshLogin.dom, "Войти");
-await wait(1200);
+const devCodeInput = freshLogin.dom.window.document.querySelector('[data-field="code"]');
+const displayedDevCode = rootText(freshLogin.dom).includes(`код ${devCodeInput?.value}`);
 assert(
-  "вход незарегистрированным номером показывает ошибку",
-  rootText(freshLogin.dom).includes("не зарегистрирован"),
-  rootText(freshLogin.dom).match(/Номер не зарегистрирован[^А-Я]*/)?.[0] ?? "ошибки нет",
+  "dev OTP автоматически подставлен и ясно показан без SMS",
+  /^\d{4}$/.test(devCodeInput?.value ?? "") && displayedDevCode,
+  `код установлен=${Boolean(devCodeInput?.value)}, текст показан=${displayedDevCode}`,
+);
+click(freshLogin.dom, "Войти");
+await wait(1500);
+assert(
+  "новый номер из тестового потока входит в кабинет клиента",
+  freshLogin.dom.window.location.pathname === "/account" && rootText(freshLogin.dom).includes("Мои визиты"),
+  `${freshLogin.dom.window.location.pathname}: ${rootText(freshLogin.dom).slice(0, 90)}`,
+);
+
+/* --- Экран входа: явный dev-поток также открывает выбранный кабинет мастера --- */
+const freshMasterLogin = makeDom("/login", { session: null });
+await wait(1100);
+const neverMasterPhone = `+7993${stamp}`;
+click(freshMasterLogin.dom, "Я мастер");
+await wait(120);
+setField(freshMasterLogin.dom, "Телефон +79991234567", neverMasterPhone);
+click(freshMasterLogin.dom, "Получить код (тестовый режим)");
+await wait(900);
+click(freshMasterLogin.dom, "Войти");
+await wait(1800);
+assert(
+  "новый номер из тестового потока входит в выбранный кабинет мастера",
+  freshMasterLogin.dom.window.location.pathname === "/pro" && rootText(freshMasterLogin.dom).includes("Расписание"),
+  `${freshMasterLogin.dom.window.location.pathname}: ${rootText(freshMasterLogin.dom).slice(0, 90)}`,
 );
 
 /* --- Экран входа: клиент, выбирающий кабинет мастера, получает отказ --- */

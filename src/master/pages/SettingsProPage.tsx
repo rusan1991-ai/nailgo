@@ -233,7 +233,7 @@ export function SettingsProPage() {
                             setCopied(false);
                           }}
                           placeholder="any_nails"
-                          className="min-w-[200px] flex-1 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-pink-400"
+                          className="w-full min-w-0 flex-1 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-pink-400 md:w-auto"
                         />
                         <button
                           type="button"

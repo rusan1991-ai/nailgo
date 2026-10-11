@@ -22,8 +22,8 @@ export function ClientShell({ title, children }: { title: string; children: Reac
   const { user } = useAuth();
 
   return (
-    <main className="min-h-screen bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
-      <div className="mx-auto grid max-w-[1450px] gap-4 lg:grid-cols-[220px_1fr]">
+    <main className="min-h-dvh w-full max-w-full overflow-x-hidden bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
+      <div className="mx-auto grid w-full min-w-0 max-w-[1450px] gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="rounded-3xl border border-[#f1dde6] bg-white p-5">
           <Link to="/" className="flex items-center gap-2 text-3xl font-semibold">
             <span className="text-pink-500">Nail</span>
@@ -57,13 +57,13 @@ export function ClientShell({ title, children }: { title: string; children: Reac
           </div>
         </aside>
 
-        <section className="rounded-3xl border border-[#f1dde6] bg-white p-5 sm:p-7">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#f6e7ed] pb-4">
-            <h1 className="text-3xl font-semibold">{title}</h1>
-            <div className="flex items-center gap-2">
-              <CityPicker />
+        <section className="min-w-0 rounded-3xl border border-[#f1dde6] bg-white p-5 sm:p-7">
+          <div className="flex min-w-0 flex-col gap-3 border-b border-[#f6e7ed] pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <h1 className="break-words text-3xl font-semibold">{title}</h1>
+            <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
+              <CityPicker className="max-w-full" />
               <input
-                className="w-52 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm outline-none transition focus:border-pink-300"
+                className="w-full min-w-0 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm outline-none transition focus:border-pink-300 sm:w-auto"
                 placeholder="Поиск"
               />
             </div>

@@ -71,7 +71,7 @@ export function AuthCard({
   footer?: React.ReactNode;
 }) {
   return (
-    <main className="grid min-h-screen place-items-center bg-[#fff7fa] p-4">
+    <main className="grid min-h-dvh place-items-center bg-[#fff7fa] p-4">
       <section className="w-full max-w-[520px] rounded-3xl border border-[#f6dce7] bg-white p-7 shadow-[0_26px_70px_-45px_rgba(236,72,153,0.65)]">
         <p className="text-sm uppercase tracking-[0.22em] text-pink-500">Nail 2 Go</p>
         <h1 className="mt-3 text-3xl font-semibold text-slate-900">{title}</h1>
@@ -161,6 +161,7 @@ export function useAuthScreen(mode: "login" | "register", initialRole: LoginRole
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [devCode, setDevCode] = useState<string | null>(null);
+  const [devLogin, setDevLogin] = useState(false);
   const [hint, setHint] = useState("");
   const [error, setError] = useState("");
 
@@ -171,9 +172,12 @@ export function useAuthScreen(mode: "login" | "register", initialRole: LoginRole
     if (user) navigate(destination, { replace: true });
   }, [destination, navigate, user]);
 
-  const askCode = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const requestCodeStep = async (forDevLogin: boolean) => {
     setError("");
+    setDevCode(null);
+    setHint("");
+    setCode("");
+    setDevLogin(forDevLogin && mode === "login");
 
     const digits = phone.replace(/\D/g, "");
     if (digits.length < 10) {
@@ -196,6 +200,16 @@ export function useAuthScreen(mode: "login" | "register", initialRole: LoginRole
     }
   };
 
+  const askCode = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await requestCodeStep(false);
+  };
+
+  const askDevCode = async () => {
+    if (mode !== "login") return;
+    await requestCodeStep(true);
+  };
+
   const confirmCode = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
@@ -209,7 +223,7 @@ export function useAuthScreen(mode: "login" | "register", initialRole: LoginRole
         code: code.trim(),
         name: name.trim() || undefined,
         role,
-        mode,
+        mode: devLogin && mode === "login" ? "dev_login" : mode,
       });
       navigate(returnTo ?? homePath(loggedIn), { replace: true });
     } catch (caught) {
@@ -233,11 +247,13 @@ export function useAuthScreen(mode: "login" | "register", initialRole: LoginRole
     error: error || authError || "",
     pending,
     askCode,
+    askDevCode,
     /** Шаг кода отправляет та же форма: `submit` — обработчик подтверждения. */
     submit: confirmCode,
     back: () => {
       setStep("phone");
       setCode("");
+      setDevLogin(false);
       setError("");
     },
     returnTo,

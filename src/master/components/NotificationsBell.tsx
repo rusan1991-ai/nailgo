@@ -62,7 +62,7 @@ export function NotificationsBell({ tone = "dark" }: { tone?: "dark" | "light" }
       {open && (
         <div
           className={cn(
-            "absolute z-30 w-[320px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl",
+            "absolute z-30 w-80 max-w-[calc(100vw-1rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl",
             tone === "dark" ? "bottom-full left-0 mb-2" : "right-0 top-11",
           )}
         >

@@ -16,7 +16,7 @@ export function Card({
     <section
       {...sectionProps}
       className={cn(
-        "rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
+        "min-w-0 rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
         padded && "p-5",
         className,
       )}
@@ -28,7 +28,7 @@ export function Card({
 
 export function CardTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="mb-4 flex items-center justify-between gap-3">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
       <h2 className="text-[15px] font-semibold text-slate-900">{children}</h2>
       {action}
     </div>
@@ -149,7 +149,7 @@ const chipTones: Record<ChipTone, string> = {
 
 export function Chip({ tone = "gray", children }: { tone?: ChipTone; children: ReactNode }) {
   return (
-    <span className={cn("inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-medium", chipTones[tone])}>
+    <span className={cn("inline-flex max-w-full items-center whitespace-normal rounded-lg px-2.5 py-1 text-xs font-medium", chipTones[tone])}>
       {children}
     </span>
   );

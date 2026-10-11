@@ -42,7 +42,7 @@ import { MediaPage } from "./master/pages/MediaPage";
 
 function NotFoundPage() {
   return (
-    <main className="grid min-h-screen place-items-center bg-[#fff7fa] px-6 text-center">
+    <main className="grid min-h-dvh place-items-center bg-[#fff7fa] px-6 text-center">
       <div>
         <p className="text-sm uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
         <h1 className="mt-3 text-4xl font-semibold text-slate-900">Страница не найдена</h1>
@@ -79,7 +79,7 @@ function RequireAuth({
 
   if (adminOnly && user.role !== "admin") {
     return (
-      <main className="grid min-h-screen place-items-center bg-[#fff7fa] px-6 text-center text-slate-600">
+      <main className="grid min-h-dvh place-items-center bg-[#fff7fa] px-6 text-center text-slate-600">
         <div className="max-w-md">
           <p className="text-sm uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
           <h1 className="mt-3 text-3xl font-semibold text-slate-900">Раздел доступен администратору</h1>
@@ -105,7 +105,7 @@ function RequireAuth({
 
   if (masterOnly && !isMaster(user)) {
     return (
-      <main className="grid min-h-screen place-items-center bg-[#fff7fa] px-6 text-center text-slate-600">
+      <main className="grid min-h-dvh place-items-center bg-[#fff7fa] px-6 text-center text-slate-600">
         <div className="max-w-md">
           <p className="text-sm uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
           <h1 className="mt-3 text-3xl font-semibold text-slate-900">Кабинет доступен мастерам</h1>
@@ -137,7 +137,8 @@ export default function App() {
       <CityProvider>
         <BookingProvider>
           <BrowserRouter>
-          <Routes>
+            <div data-mobile-root className="min-h-dvh w-full max-w-full overflow-x-hidden">
+              <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/search" element={<SearchMapPage />} />
             <Route path="/last-minute" element={<Navigate to="/last-minute/moskva" replace />} />
@@ -272,7 +273,8 @@ export default function App() {
             {/* Короткая ссылка мастера в корне: /any_nails */}
             <Route path="/:username" element={<ShortLinkPage />} />
             <Route path="*" element={<NotFoundPage />} />
-            </Routes>
+              </Routes>
+            </div>
           </BrowserRouter>
         </BookingProvider>
       </CityProvider>

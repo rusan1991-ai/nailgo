@@ -43,7 +43,7 @@ export function MessengerBanner({ settingsTo, className = "" }: MessengerBannerP
       <span className="grid h-9 w-9 place-items-center rounded-full bg-white text-lg" aria-hidden>
         🔔
       </span>
-      <p className="min-w-[220px] flex-1">
+      <p className="min-w-0 flex-1">
         <span className="font-semibold">Привяжите Telegram или Max</span>, чтобы бесплатно получать напоминания о записях.
         SMS не отправляем — без мессенджера напоминание останется только в журнале.
       </p>

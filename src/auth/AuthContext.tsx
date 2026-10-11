@@ -32,8 +32,10 @@ export function isMaster(user: AuthUser | null): boolean {
  */
 export type LoginRole = "client" | "master" | "admin";
 
-/** Что делает экран: вход в существующий аккаунт или создание нового. */
+/** Что делает экран: обычный вход или создание нового аккаунта. */
 export type AuthMode = "login" | "register";
+/** Отдельный, серверно закрытый режим входа для тестовых dev-аккаунтов. */
+export type VerifyOtpMode = AuthMode | "dev_login";
 
 /**
  * Куда ведём после входа: у каждой роли свой кабинет.
@@ -77,8 +79,8 @@ type AuthContextValue = {
     code: string;
     name?: string;
     role?: LoginRole;
-    /** `login` — вход (номер должен существовать), `register` — создание аккаунта. */
-    mode?: AuthMode;
+    /** `login` — строгий вход, `register` — создание аккаунта, `dev_login` — только закрытый dev OTP-поток. */
+    mode?: VerifyOtpMode;
   }) => Promise<AuthUser>;
   /** Обновить данные пользователя в сессии (например, после правки имени). */
   updateUser: (patch: Partial<AuthUser>) => void;

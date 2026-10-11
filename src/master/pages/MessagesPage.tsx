@@ -130,11 +130,11 @@ export function MessagesPage() {
 
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-5 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Сообщения</h1>
         <div className="flex flex-wrap items-center gap-2">
           <SearchInput
-            className="w-[240px]"
+            className="w-full md:w-auto"
             placeholder="Поиск по клиентам..."
             value={search}
             onChange={setSearch}
@@ -150,7 +150,7 @@ export function MessagesPage() {
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
-      <div className="mt-5 grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)_290px]">
+      <div className="mt-5 grid min-w-0 gap-4 xl:grid-cols-[300px_minmax(0,1fr)_290px]">
         <Card padded={false} className="overflow-hidden">
           {list.length === 0 ? (
             <div className="px-4 py-10 text-center text-sm text-slate-500">

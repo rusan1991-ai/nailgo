@@ -36,6 +36,11 @@ const nginx = `${read("infrastructure/nginx/bootstrap.conf.template")}\n${read("
 assert.match(nginx, /nailgo-backend:4000/);
 assert.match(nginx, /\.well-known\/acme-challenge/);
 assert.match(nginx, /listen 443 ssl/);
+assert.equal((nginx.match(/include \/etc\/nginx\/mime\.types;/g) ?? []).length, 3, "every Nginx server explicitly loads standard MIME types");
+assert.equal((nginx.match(/default_type application\/octet-stream;/g) ?? []).length, 3, "each Nginx server has a safe default content type");
+assert.equal((nginx.match(/location \^~ \/assets\//g) ?? []).length, 2, "both static-serving configs handle fingerprinted assets");
+assert.equal((nginx.match(/expires 1y;/g) ?? []).length, 2, "fingerprinted assets are cached for one year");
+assert.equal((nginx.match(/add_header Cache-Control "public, no-transform";/g) ?? []).length, 2, "asset cache policy is explicit");
 assert.match(read("infrastructure/nginx/start-nginx.sh"), /tls\.conf\.template/);
 
 const envExample = read(".env.production.example");

@@ -3,6 +3,10 @@ server {
     listen [::]:80 default_server;
     server_name __APP_DOMAIN__;
 
+    # Explicit MIME map for static assets (also present in nginx:stable-alpine's http config).
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
     root /usr/share/nginx/html;
     client_max_body_size 8m;
 
@@ -35,6 +39,14 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_connect_timeout 5s;
         proxy_read_timeout 60s;
+    }
+
+    # Vite's fingerprinted assets are immutable static files, never an SPA fallback.
+    location ^~ /assets/ {
+        root /usr/share/nginx/html;
+        expires 1y;
+        add_header Cache-Control "public, no-transform";
+        try_files $uri =404;
     }
 
     location / {

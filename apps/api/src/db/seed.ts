@@ -23,6 +23,7 @@ import {
   bookings,
   conversations,
   deliveries,
+  clientFavoriteMasters,
   favorites,
   identities,
   locations,
@@ -303,6 +304,7 @@ export async function seed() {
   // предсказуемый старт (иначе антиспам «не чаще раза в 6 часов» находил бы
   // уведомления прошлых прогонов).
   await db.delete(notifications);
+  await db.delete(clientFavoriteMasters);
   await db.delete(favorites);
   // Очередь доставки — тоже демо-состояние: после сброса она пустая,
   // а настройки провайдера (таблица settings) остаются.
@@ -360,6 +362,8 @@ export async function seed() {
     .values({ phone: DEMO_ADMIN_PHONE, name: "Администратор Nail 2 Go", role: "admin" })
     .onConflictDoUpdate({ target: users.phone, set: { role: "admin", name: "Администратор Nail 2 Go" } });
   const masterBySlug = new Map(masterRows.map((row) => [row.slug, row.id]));
+  const categoryRows = await db.select({ id: serviceCategories.id, masterId: serviceCategories.masterId, name: serviceCategories.name }).from(serviceCategories);
+  const categoryIdByMasterName = new Map(categoryRows.map((category) => [`${category.masterId}:${category.name}`, category.id]));
 
   // Услуги копируются каждому мастеру; id читаемые — «anna-smirnova-s2»,
   // по ним записи и проверки находят услугу мастера.
@@ -372,6 +376,7 @@ export async function seed() {
           masterId: master.id,
           name: service.name,
           category: service.category,
+          categoryId: categoryIdByMasterName.get(`${master.id}:${service.category}`) ?? null,
           durationMinutes: service.durationMinutes,
           price: service.price,
           prepaymentPercent: service.prepaymentPercent ?? 0,
@@ -558,6 +563,7 @@ export async function seedOnEmptyDatabase(): Promise<
       db.select({ id: conversations.id }).from(conversations).limit(1),
       db.select({ id: messages.id }).from(messages).limit(1),
       db.select({ id: notifications.id }).from(notifications).limit(1),
+      db.select({ id: clientFavoriteMasters.id }).from(clientFavoriteMasters).limit(1),
       db.select({ id: favorites.id }).from(favorites).limit(1),
       db.select({ key: settings.key }).from(settings).limit(1),
       db.select({ id: deliveries.id }).from(deliveries).limit(1),

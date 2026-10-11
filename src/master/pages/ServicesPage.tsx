@@ -108,12 +108,17 @@ export function ServicesPage() {
     [services, query],
   );
 
-  /** Категории — собственные записи мастера; сервисы добавляем для старых данных. */
-  const categoryOptions = useMemo(
-    () =>
-      [...new Set(data?.categories ?? services.map((service) => service.category))].sort((a, b) => a.localeCompare(b, "ru")),
-    [data?.categories, services],
-  );
+  /** Выбирать можно только сохранённые категории текущего мастера.
+   * Системный раздел «Без категории» доступен лишь при редактировании уже
+   * перенесённой услуги, но не для создания новой. */
+  const categoryOptions = useMemo(() => {
+    const saved = data?.categoryItems?.map((category) => category.name) ?? [];
+    const legacy = services.filter((service) => service.categoryId !== null).map((service) => service.category);
+    const uncategorizedEdit = editor?.mode === "edit" && editor.service.categoryId === null
+      ? [editor.service.category]
+      : [];
+    return [...new Set([...saved, ...legacy, ...uncategorizedEdit])].sort((a, b) => a.localeCompare(b, "ru"));
+  }, [data?.categoryItems, editor, services]);
   const categories = useMemo(() => {
     const counts = new Map<string, { count: number; active: number; lead: string }>();
     const idsByName = new Map((data?.categoryItems ?? []).map((category) => [category.name, category.id] as const));
@@ -124,12 +129,16 @@ export function ServicesPage() {
       entry.lead = entry.lead || durationLabel(service.durationMinutes);
       counts.set(service.category, entry);
     }
-    return categoryOptions.map((name) => ({
+    const visibleNames = [...new Set([
+      ...(data?.categoryItems ?? []).map((category) => category.name),
+      ...services.filter((service) => service.categoryId === null).map((service) => service.category),
+    ])].sort((a, b) => a.localeCompare(b, "ru"));
+    return visibleNames.map((name) => ({
       id: idsByName.get(name) ?? null,
       name,
       ...(counts.get(name) ?? { count: 0, active: 0, lead: "" }),
     }));
-  }, [categoryOptions, data?.categoryItems, services]);
+  }, [data?.categoryItems, services]);
 
   const openCreateService = () => {
     setActionError(null);
@@ -207,12 +216,16 @@ export function ServicesPage() {
     }
   };
 
-  const removeCategory = async () => {
+  const categoryDeleteServices = categoryDeleteTarget
+    ? services.filter((service) => service.categoryId === categoryDeleteTarget.id || service.category === categoryDeleteTarget.name)
+    : [];
+
+  const removeCategory = async (action?: "move" | "delete") => {
     if (!categoryDeleteTarget) return;
     setCategoryDeleting(true);
     setCategoryDeleteError(null);
     try {
-      await deleteServiceCategory(categoryDeleteTarget.id);
+      await deleteServiceCategory(categoryDeleteTarget.id, action);
       setCategoryDeleteTarget(null);
       reload();
     } catch (caught) {
@@ -664,15 +677,17 @@ export function ServicesPage() {
         width="max-w-md"
         footer={
           <>
-            <button
-              type="button"
-              onClick={() => void removeCategory()}
-              disabled={categoryDeleting}
-              data-action="confirm-delete-category"
-              className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-700 disabled:opacity-60"
-            >
-              {categoryDeleting ? "Удаляем…" : "Удалить категорию"}
-            </button>
+            {categoryDeleteServices.length === 0 && (
+              <button
+                type="button"
+                onClick={() => void removeCategory()}
+                disabled={categoryDeleting}
+                data-action="confirm-delete-category"
+                className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-700 disabled:opacity-60"
+              >
+                {categoryDeleting ? "Удаляем…" : "Удалить категорию"}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -688,8 +703,40 @@ export function ServicesPage() {
           </>
         }
       >
-        <div className="space-y-2 text-sm text-slate-600">
-          <p>Удалить можно только пустую категорию. Сначала перенесите или удалите связанные услуги.</p>
+        <div className="space-y-3 text-sm text-slate-600">
+          {categoryDeleteServices.length > 0 ? (
+            <>
+              <p>
+                В этой категории есть услуги: <span className="font-medium text-slate-800">{categoryDeleteServices.map((service) => service.name).join(", ")}</span>.
+                Перенести их в раздел «Без категории» или удалить вместе с категорией?
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => void removeCategory("move")}
+                  disabled={categoryDeleting}
+                  data-action="move-category-services"
+                  className="rounded-xl border border-pink-200 px-3 py-2.5 text-sm font-medium text-pink-700 hover:bg-pink-50 disabled:opacity-60"
+                >
+                  {categoryDeleting ? "Сохраняем…" : "Перенести в «Без категории»"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void removeCategory("delete")}
+                  disabled={categoryDeleting}
+                  data-action="delete-category-with-services"
+                  className="rounded-xl bg-rose-600 px-3 py-2.5 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-60"
+                >
+                  {categoryDeleting ? "Удаляем…" : "Удалить вместе с категорией"}
+                </button>
+              </div>
+              {categoryDeleteServices.some((service) => service.bookingsCount > 0) && (
+                <p className="text-xs text-slate-400">Услуги с визитами будут скрыты и отвязаны, чтобы сохранить историю записей.</p>
+              )}
+            </>
+          ) : (
+            <p>Категория не содержит услуг и будет удалена без изменений прайса.</p>
+          )}
           {categoryDeleteError && <p role="alert" data-category-delete-error className="rounded-lg bg-rose-50 px-3 py-2 text-rose-700">{categoryDeleteError}</p>}
         </div>
       </Modal>

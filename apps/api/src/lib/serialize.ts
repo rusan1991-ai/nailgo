@@ -1,5 +1,5 @@
 import type { Booking, Master, Service } from "../db/schema.js";
-import { env } from "../env.js";
+import { CLIENT_CANCEL_FREE_HOURS } from "./booking-policy.js";
 import { minutesOfDay, toISODate, zoneLabel, zoneOffsetMinutes } from "./time.js";
 
 /**
@@ -13,7 +13,7 @@ import { minutesOfDay, toISODate, zoneLabel, zoneOffsetMinutes } from "./time.js
 export function serializeBooking(booking: Booking, master: Master, service: Service) {
   const active = booking.status === "pending" || booking.status === "confirmed";
   const now = Date.now();
-  const freeUntil = booking.startAt.getTime() - env.cancelFreeHours * 60 * 60 * 1000;
+  const freeUntil = booking.startAt.getTime() - CLIENT_CANCEL_FREE_HOURS * 60 * 60 * 1000;
   const started = booking.startAt.getTime() <= now;
 
   return {
@@ -42,14 +42,14 @@ export function serializeBooking(booking: Booking, master: Master, service: Serv
     status: booking.status,
     source: booking.source,
     /** За сколько часов до визита отмена ещё бесплатная (и доступна онлайн). */
-    cancelFreeHours: env.cancelFreeHours,
+    cancelFreeHours: CLIENT_CANCEL_FREE_HOURS,
     canCancel: active && !started && now < freeUntil,
     cancelBlockedReason: !active
       ? null
       : started
         ? "Визит уже начался — отмена онлайн недоступна, свяжитесь с мастером"
         : now >= freeUntil
-          ? `До визита меньше ${env.cancelFreeHours} ч — онлайн-отмена закрыта. Свяжитесь с мастером.`
+          ? `До визита 6 часов или меньше — онлайн-отмена закрыта. Свяжитесь с мастером.`
           : null,
     createdAt: booking.createdAt.toISOString(),
     address: master.address ?? master.metro,

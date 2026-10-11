@@ -13,6 +13,7 @@ import {
   api,
   apiAs,
   check,
+  isoMoment,
   click,
   login,
   loginMaster,
@@ -136,7 +137,10 @@ const booked = await apiAs(actor, "/bookings", {
 });
 assert("второй клиент занял окно", booked.status === 201, `status=${booked.status}`);
 
-await apiAs(actor, `/bookings/${booked.data.booking.id}/cancel`, { method: "POST" });
+await apiAs(actor, `/bookings/${booked.data.booking.id}/cancel`, {
+  method: "POST",
+  body: { now: isoMoment(offer.dateISO, offer.startMinutes - 600) },
+});
 const newsOff = await apiAs(client, "/notifications");
 assert(
   "выключенные «акции и окна» не приходят",
@@ -157,7 +161,10 @@ const again = await apiAs(actor, "/bookings", {
     clientPhone: ACTOR_PHONE,
   },
 });
-await apiAs(actor, `/bookings/${again.data.booking.id}/cancel`, { method: "POST" });
+await apiAs(actor, `/bookings/${again.data.booking.id}/cancel`, {
+  method: "POST",
+  body: { now: isoMoment(offer.dateISO, offer.startMinutes - 600) },
+});
 const newsOn = await apiAs(client, "/notifications");
 assert(
   "после включения окно снова предлагают",

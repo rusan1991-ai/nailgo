@@ -189,6 +189,22 @@ assert(
   loginText.includes("SMS не отправляем"),
   loginText.slice(0, 220),
 );
+assert(
+  "на форме есть отдельная кнопка получения кода Telegram",
+  Boolean(loginDom.window.document.querySelector("[data-action='request-telegram-code']")),
+);
+const otpPhone = `+7997${String(Date.now()).slice(-6)}`;
+const telegramOtp = await api("/auth/request-telegram-otp", { method: "POST", body: { phone: otpPhone } });
+assert(
+  "Telegram OTP либо создаёт диплинк, либо честно сообщает о не настроенном боте",
+  (telegramOtp.status === 200 && typeof telegramOtp.data.deepLink === "string") ||
+    (telegramOtp.status === 503 && telegramOtp.data.error === "telegram_not_configured"),
+  `${telegramOtp.status}/${telegramOtp.data?.error ?? telegramOtp.data?.deepLink}`,
+);
+if (telegramOtp.status === 200) {
+  const status = await api(`/auth/telegram-otp/status?token=${encodeURIComponent(telegramOtp.data.token)}`);
+  assert("сайт видит только ожидание бота, а не OTP-код", status.status === 200 && status.data.status === "pending" && !("code" in status.data) && !("otp" in status.data), JSON.stringify(status.data));
+}
 
 console.log(failures === 0 ? "\nМессенджеры: все проверки пройдены" : `\nМессенджеры: провалов ${failures}`);
 process.exit(failures === 0 ? 0 : 1);

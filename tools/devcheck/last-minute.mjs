@@ -9,7 +9,7 @@
  * Запуск (при живых Vite и API):
  *   cd tools/devcheck && npm run last-minute
  */
-import { api, apiAs, check, login, loginMaster, makeDom, resetDemo, rootText, wait } from "./harness.mjs";
+import { api, apiAs, check, isoMoment, login, loginMaster, makeDom, resetDemo, rootText, wait } from "./harness.mjs";
 
 let failures = 0;
 const assert = (label, ok, extra = "") => {
@@ -82,7 +82,10 @@ assert("занятое окно пропало из витрины", !sameWindow
 /* --- Отмена возвращает окно на витрину --- */
 // Отменяет сам клиент: окно занимал он, у мастера отменять чужую запись прав нет.
 const client = await login("+79990001555", "Горящий Клиент");
-const cancelled = await apiAs(client, `/bookings/${booking.data.booking.id}/cancel`, { method: "POST" });
+const cancelled = await apiAs(client, `/bookings/${booking.data.booking.id}/cancel`, {
+  method: "POST",
+  body: { now: isoMoment(offer.dateISO, offer.startMinutes - 600) },
+});
 assert("клиент отменил свою запись", cancelled.status === 200, `status=${cancelled.status}`);
 const afterCancel = await api(`/last-minute?days=7&limit=30`);
 const backAgain = afterCancel.data.items.some(

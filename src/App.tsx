@@ -177,6 +177,7 @@ export default function App() {
               {/* `/pro/dashboard` — тот же обзор: адрес из документации этапа. */}
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="schedule" element={<SchedulePage />} />
+              <Route path="scheduler" element={<SchedulePage />} />
               <Route path="bookings" element={<BookingsPage />} />
               <Route path="clients" element={<ClientsPage />} />
               <Route path="services" element={<ServicesPage />} />

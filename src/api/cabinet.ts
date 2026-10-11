@@ -30,6 +30,33 @@ export type CabinetStats = {
   funnel: { label: string; value: number; percent: string | null }[];
 };
 
+export type RevenuePeriod = "today" | "week" | "month";
+
+export type CabinetAnalytics = {
+  period: RevenuePeriod;
+  fromISO: string;
+  toISO: string;
+  timezone: string;
+  completedBookings: number;
+  netRevenue: number;
+  byService: {
+    serviceId: string;
+    serviceName: string;
+    categoryId: string | null;
+    categoryName: string;
+    bookings: number;
+    revenue: number;
+    sharePercent: number;
+  }[];
+  byCategory: {
+    categoryId: string | null;
+    categoryName: string;
+    bookings: number;
+    revenue: number;
+    sharePercent: number;
+  }[];
+};
+
 export type CabinetClient = {
   name: string;
   /** Телефона может не быть: клиент из блокнота мог оставить только мессенджер. */
@@ -152,6 +179,10 @@ export type CabinetReviews = {
 /** Сводка кабинета. `month` в формате YYYY-MM — иначе берётся текущий месяц. */
 export function useCabinetStats(month?: string): Resource<CabinetStats> {
   return useApiResource<CabinetStats>(`/cabinet/stats${month ? `?month=${month}` : ""}`);
+}
+
+export function useCabinetAnalytics(period: RevenuePeriod): Resource<CabinetAnalytics> {
+  return useApiResource<CabinetAnalytics>(`/cabinet/analytics?period=${period}`);
 }
 
 export function useCabinetClients(): Resource<{ items: CabinetClient[]; total: number }> {

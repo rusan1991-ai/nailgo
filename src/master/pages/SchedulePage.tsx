@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock, Coffee, Plus, Settings2, Trash2, UserX, X } from "lucide-react";
 import {
   Card,
@@ -360,7 +360,9 @@ export function SchedulePage() {
   const [blockDate, setBlockDate] = useState(TODAY_ISO);
   const [blockStart, setBlockStart] = useState("13:00");
   const [blockEnd, setBlockEnd] = useState("14:00");
-  const [blockReason, setBlockReason] = useState("Обед");
+  const [blockReason, setBlockReason] = useState("Перерыв");
+  const [blockSelection, setBlockSelection] = useState<{ dateISO: string; startMinutes: number; endMinutes: number } | null>(null);
+  const selectionAnchorRef = useRef<number | null>(null);
   const [blockState, setBlockState] = useState<{ saving: boolean; error: string | null }>({
     saving: false,
     error: null,
@@ -435,9 +437,60 @@ export function SchedulePage() {
   };
 
   const blocksOfDay = (dateISO: string) => blocks.filter((block) => block.dateISO === dateISO);
-  const openBlockModal = () => {
-    setBlockDate(selectedDayISO);
+  const openBlockModal = (range?: { dateISO: string; startMinutes: number; endMinutes: number }) => {
+    setBlockDate(range?.dateISO ?? selectedDayISO);
+    if (range) {
+      setBlockStart(formatMinutes(range.startMinutes));
+      setBlockEnd(formatMinutes(range.endMinutes));
+      setBlockReason("Перерыв");
+    }
     setBlockOpen(true);
+  };
+
+  const minuteAtPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const rawMinute = dayStartHour * 60 + ((event.clientY - rect.top) / hourHeight) * 60;
+    const snapped = Math.floor(rawMinute / 15) * 15;
+    return Math.max(dayStartHour * 60, Math.min(dayEndHour * 60 - 15, snapped));
+  };
+
+  const selectionRange = (dateISO: string, anchor: number, cursor: number) => {
+    const startMinutes = Math.min(anchor, cursor);
+    const endMinutes = Math.min(
+      dayEndHour * 60,
+      Math.max(anchor, cursor) + (cursor < anchor ? 15 : cursor === anchor ? 15 : 0),
+    );
+    return { dateISO, startMinutes, endMinutes };
+  };
+
+  const startBlockSelection = (dateISO: string, event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || (event.target instanceof HTMLElement && event.target.closest("[data-appointment-id], [data-time-block]"))) return;
+    const anchor = minuteAtPointer(event);
+    selectionAnchorRef.current = anchor;
+    setBlockSelection(selectionRange(dateISO, anchor, anchor));
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  const updateBlockSelection = (dateISO: string, event: ReactPointerEvent<HTMLDivElement>) => {
+    const anchor = selectionAnchorRef.current;
+    if (anchor === null) return;
+    setBlockSelection(selectionRange(dateISO, anchor, minuteAtPointer(event)));
+    event.preventDefault();
+  };
+
+  const finishBlockSelection = (dateISO: string, event: ReactPointerEvent<HTMLDivElement>) => {
+    const anchor = selectionAnchorRef.current;
+    if (anchor === null) return;
+    const range = selectionRange(dateISO, anchor, minuteAtPointer(event));
+    selectionAnchorRef.current = null;
+    setBlockSelection(null);
+    if (range.endMinutes > range.startMinutes) openBlockModal(range);
+  };
+
+  const cancelBlockSelection = () => {
+    selectionAnchorRef.current = null;
+    setBlockSelection(null);
   };
 
   const hours = Array.from({ length: dayEndHour - dayStartHour }, (_, index) => dayStartHour + index);
@@ -456,7 +509,10 @@ export function SchedulePage() {
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Расписание</h1>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Расписание</h1>
+          <p className="mt-1 text-xs text-slate-500">Выделите интервал в сетке, чтобы закрыть его для записи как перерыв или личные дела.</p>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <GhostButton onClick={() => chooseDate(TODAY_ISO)}>Сегодня</GhostButton>
           <div className="flex items-center gap-1">
@@ -482,7 +538,7 @@ export function SchedulePage() {
           </span>
           <SegmentedControl options={["День", "Неделя", "Месяц"]} value={view} onChange={setView} />
           {/* Перерыв закрывает время для клиентов; запись мастер вносит вручную. */}
-          <GhostButton dataAction="block-time" onClick={openBlockModal}>
+          <GhostButton dataAction="block-time" onClick={() => openBlockModal()}>
             <Coffee className="h-4 w-4" />
             Перерыв
           </GhostButton>
@@ -651,12 +707,27 @@ export function SchedulePage() {
                   {dayColumns.map((day) => (
                     <div
                       key={day.iso}
-                      className={cn("relative border-l border-slate-100", day.iso === selectedDayISO && "bg-rose-50/20")}
+                      data-scheduler-day={day.iso}
+                      className={cn("relative touch-none border-l border-slate-100", day.iso === selectedDayISO && "bg-rose-50/20")}
                       style={{ height: hours.length * hourHeight }}
+                      onPointerDown={(event) => startBlockSelection(day.iso, event)}
+                      onPointerMove={(event) => updateBlockSelection(day.iso, event)}
+                      onPointerUp={(event) => finishBlockSelection(day.iso, event)}
+                      onPointerCancel={cancelBlockSelection}
                     >
                       {hours.map((hour) => (
                         <div key={hour} className="border-b border-slate-50" style={{ height: hourHeight }} />
                       ))}
+                      {blockSelection?.dateISO === day.iso && (
+                        <div
+                          data-block-selection
+                          className="pointer-events-none absolute inset-x-1 z-10 rounded-lg border border-pink-400 bg-pink-200/60"
+                          style={{
+                            top: ((blockSelection.startMinutes - dayStartHour * 60) / 60) * hourHeight,
+                            height: ((blockSelection.endMinutes - blockSelection.startMinutes) / 60) * hourHeight,
+                          }}
+                        />
+                      )}
                       {blocksOfDay(day.iso).map((block) => (
                         <TimeBlockCell
                           key={block.id}
@@ -751,12 +822,12 @@ export function SchedulePage() {
           <div>
             <p className="text-sm font-semibold text-slate-900">Технические перерывы недели</p>
             <p className="mt-1 text-xs text-slate-500">
-              Обед и личные дела: время закрыто для клиентов, в статистику и деньги не попадает.
+              Перерыв и личные дела: время закрыто для клиентов, в статистику и деньги не попадает.
             </p>
           </div>
-          <GhostButton dataAction="block-time-list" onClick={openBlockModal}>
+          <GhostButton dataAction="block-time-list" onClick={() => openBlockModal()}>
             <Coffee className="h-4 w-4" />
-            Поставить перерыв
+            Заблокировать время
           </GhostButton>
         </div>
         {blocks.length === 0 ? (
@@ -794,18 +865,17 @@ export function SchedulePage() {
 
       <AppointmentModal open={modalOpen} onClose={() => setModalOpen(false)} />
 
-      {/* Форма перерыва: дата, время и подпись. Пересечение с записью сервер
-          не примет — клиента сначала нужно перенести. */}
+      {/* Интервал выбирается прямо на сетке; сервер не примет блок поверх записи. */}
       <Modal
         open={blockOpen}
         onClose={() => setBlockOpen(false)}
-        title="Технический перерыв"
-        subtitle="Обед, дорога или личные дела: клиенты не смогут занять это время"
+        title="Заблокировать время"
+        subtitle="Выберите тип: перерыв или личные дела. Клиенты не смогут записаться на этот интервал."
         footer={
           <>
             <GhostButton onClick={() => setBlockOpen(false)}>Отмена</GhostButton>
             <PrimaryButton dataAction="block-save" onClick={() => void saveBlock()} disabled={blockState.saving}>
-              {blockState.saving ? "Сохраняем…" : "Закрыть время"}
+              {blockState.saving ? "Сохраняем…" : "Заблокировать время"}
             </PrimaryButton>
           </>
         }
@@ -822,11 +892,14 @@ export function SchedulePage() {
           <TextField label="Начало (ЧЧ:ММ)" value={blockStart} onChange={setBlockStart} placeholder="13:00" />
           <TextField label="Конец (ЧЧ:ММ)" value={blockEnd} onChange={setBlockEnd} placeholder="14:00" />
           <div className="sm:col-span-2">
-            <TextField
-              label="Причина (видно только вам)"
+            <p className="mb-1.5 text-xs font-medium text-slate-500">Тип технического блока</p>
+            <Select
               value={blockReason}
               onChange={setBlockReason}
-              placeholder="Обед"
+              options={[
+                { value: "Перерыв", label: "Перерыв" },
+                { value: "Личные дела", label: "Личные дела" },
+              ]}
             />
           </div>
           {blockState.error && (

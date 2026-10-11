@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Eye, TrendingUp, UserPlus, Wallet } from "lucide-react";
 import { Card, CardTitle, Chip, SegmentedControl, Select, Tabs } from "../components/ui";
 import { AreaLineChart, DonutChart, Funnel, MultiLineChart, Sparkline } from "../components/charts";
-import { useCabinetStats, useCabinetClients } from "../../api/cabinet";
+import { useCabinetAnalytics, useCabinetStats, useCabinetClients, type RevenuePeriod } from "../../api/cabinet";
 import { formatNumber, formatRub } from "../data";
 import { demoWeek } from "../../store/bookings";
 
@@ -53,8 +53,22 @@ function MetricList({ rows }: { rows: [string, string][] }) {
 export function StatsPage() {
   const [tab, setTab] = useState("overview");
   const [scale, setScale] = useState("По дням");
+  const [period, setPeriod] = useState<RevenuePeriod>("month");
+  const [revenueGroup, setRevenueGroup] = useState<"services" | "categories">("services");
+  const { data: analytics, error: analyticsError } = useCabinetAnalytics(period);
   const { data: stats, error: statsError } = useCabinetStats(STATS_MONTH);
   const { data: clients } = useCabinetClients();
+
+  const breakdown = revenueGroup === "services" ? analytics?.byService ?? [] : analytics?.byCategory ?? [];
+  const revenueColors = ["#e11d48", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899"];
+  const revenueDonut = breakdown
+    .filter((item) => item.revenue > 0)
+    .map((item, index) => ({
+      label: "serviceName" in item ? `${item.serviceName} · ${item.categoryName}` : item.categoryName,
+      value: item.revenue,
+      percent: item.sharePercent,
+      color: revenueColors[index % revenueColors.length]!,
+    }));
 
   /** Дни месяца из базы: график, подписи и мини-тренды в карточках. */
   const days = stats?.byDay ?? [];
@@ -116,10 +130,10 @@ export function StatsPage() {
       spark: monthly.map((month) => month.newClients),
     },
     {
-      label: "Выручка за месяц",
+      label: "Чистая выручка за месяц",
       value: stats ? formatRub(stats.incomeThisMonth) : "—",
       delta: stats?.incomeDeltaLabel ?? "",
-      caption: "по сравнению с прошлым месяцем",
+      caption: "завершённые визиты без возвратов; комиссия не вычтена",
       color: "#a855f7",
       spark: days.map((day) => day.revenue),
     },
@@ -127,7 +141,7 @@ export function StatsPage() {
       label: "Средний чек",
       value: stats && stats.byStatus.completed > 0 ? formatRub(stats.avgCheckThisMonth) : "—",
       delta: "",
-      caption: "выручка / завершённые визиты",
+      caption: "чистая выручка / завершённые визиты",
       color: "#f59e0b",
       spark: days.map((day) =>
         day.completedBookings > 0 ? Math.round(day.revenue / day.completedBookings) : 0,
@@ -169,6 +183,72 @@ export function StatsPage() {
           Не удалось загрузить цифры из базы: {statsError}
         </div>
       )}
+
+      <Card className="mb-5" data-block="revenue-analytics">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Выручка по выполненным визитам</h2>
+            <p className="mt-1 text-xs text-slate-500">В расчёт входят завершённые записи, полные возвраты исключаются; комиссия платформы не вычитается. Период считается по часовому поясу мастера.</p>
+          </div>
+          <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 p-1" role="tablist" aria-label="Период выручки">
+            {([
+              ["today", "Сегодня"],
+              ["week", "Неделя"],
+              ["month", "Месяц"],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={period === key}
+                data-analytics-period={key}
+                onClick={() => setPeriod(key)}
+                className={`rounded-lg px-3 py-2 text-sm transition ${period === key ? "bg-pink-500 font-medium text-white" : "text-slate-600 hover:bg-slate-50"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {analyticsError ? (
+          <p role="alert" className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">Не удалось загрузить аналитику: {analyticsError}</p>
+        ) : (
+          <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(220px,0.7fr)_minmax(0,1.3fr)]">
+            <div className="rounded-2xl bg-rose-50/70 p-4">
+              <p className="text-sm text-slate-500">Чистая выручка</p>
+              <p data-field="net-revenue" className="mt-1 text-3xl font-semibold tracking-tight text-slate-900">{analytics ? formatRub(analytics.netRevenue) : "—"}</p>
+              <p className="mt-2 text-xs text-slate-500">
+                {analytics ? `${analytics.completedBookings} завершённых визитов` : "Загрузка…"}
+                {analytics && ` · ${analytics.fromISO === analytics.toISO ? analytics.fromISO : `${analytics.fromISO} — ${analytics.toISO}`}`}
+              </p>
+            </div>
+            <div>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-800">Доли дохода</h3>
+                <SegmentedControl
+                  options={["По услугам", "По категориям"]}
+                  value={revenueGroup === "services" ? "По услугам" : "По категориям"}
+                  onChange={(value) => setRevenueGroup(value === "По категориям" ? "categories" : "services")}
+                />
+              </div>
+              {revenueDonut.length > 0 ? (
+                <DonutChart
+                  data={revenueDonut}
+                  centerValue={analytics ? formatRub(analytics.netRevenue) : "—"}
+                  centerLabel="чистая выручка"
+                  valueFormatter={formatRub}
+                  size={190}
+                />
+              ) : (
+                <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-400">
+                  За этот период завершённых визитов с выручкой пока нет.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </Card>
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 

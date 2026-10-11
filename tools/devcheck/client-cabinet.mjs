@@ -168,10 +168,12 @@ const cabinet = makeDom("/cabinet", { session: client });
 await wait(1900);
 const cabinetText = rootText(cabinet.dom);
 const cabinetBody = cabinet.dom.window.document.body;
-assert("кабинет клиента открылся на записях", cabinetText.includes("Мои записи"), cabinetText.slice(0, 120));
+assert("кабинет клиента открылся на записях", cabinetText.includes("Мои визиты"), cabinetText.slice(0, 120));
 assert(
   "вкладки активных и прошедших визитов на месте",
-  cabinetText.includes("Предстоящие") && cabinetText.includes("Прошедшие") && cabinetText.includes("Отмененные"),
+  cabinetText.includes("Предстоящие") && cabinetText.includes("Прошедшие") &&
+    Boolean(cabinet.dom.window.document.querySelector("[data-account-tab='upcoming']")) &&
+    Boolean(cabinet.dom.window.document.querySelector("[data-account-tab='past']")),
   "",
 );
 const cancelButtons = [...cabinetBody.querySelectorAll("[data-action='cancel-booking']")];
@@ -203,12 +205,27 @@ assert(
 const completed = await apiAs(master, `/cabinet/bookings/${pastBooking.data.booking.id}/complete`, { method: "POST" });
 assert("мастер завершил прошедший визит", completed.status === 200, `HTTP ${completed.status}`);
 
+const pastHistory = await apiAs(client, `/bookings/${pastBooking.data.booking.id}/history`);
+assert(
+  "клиенту доступна история своего визита",
+  pastHistory.status === 200 && pastHistory.data.items.some((item) => item.action === "completed"),
+  JSON.stringify(pastHistory.data?.items?.map((item) => item.action)),
+);
+
 const cabinet2 = makeDom("/cabinet", { session: client });
 await wait(1900);
 const body2 = cabinet2.dom.window.document.body;
 // Завершённый визит живёт во вкладке «Прошедшие» — открываем её.
 click(cabinet2.dom, "Прошедшие");
 await wait(500);
+const completedCard = body2.querySelector(`[data-booking-id='${pastBooking.data.booking.id}']`);
+const repeatLink = completedCard?.querySelector("[data-action='book-again']");
+assert(
+  "повторная запись ведёт к выбору времени с тем же мастером и услугой",
+  Boolean(repeatLink) && repeatLink.getAttribute("href")?.includes(`master=${masterSlug}`) &&
+    repeatLink.getAttribute("href")?.includes(`service=${service.id}`),
+  repeatLink?.getAttribute("href") ?? "кнопки нет",
+);
 const reviewButtons = [...body2.querySelectorAll("[data-action='review-open']")];
 assert(
   "кнопка отзыва появилась на завершённом визите",

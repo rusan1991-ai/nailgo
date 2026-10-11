@@ -29,7 +29,7 @@ export type BookingItem = {
   paymentStatus: "none" | "pending" | "paid" | "refunded";
   status: "upcoming" | "completed" | "cancelled" | "no_show";
   /**
-   * Можно ли отменить визит онлайн. Считает сервер: до визита меньше 6 часов —
+   * Можно ли отменить визит онлайн. Считает сервер: до визита 6 часов или меньше —
    * кнопка закрыта, а клиент видит причину и связывается с мастером.
    */
   canCancel: boolean;

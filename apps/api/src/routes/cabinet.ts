@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { and, asc, desc, eq, gt, gte, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { bookings, locations, masterClients, masters, reviews, services, timeBlocks, users, workingHours } from "../db/schema.js";
+import { bookings, locations, masterClients, masters, reviews, serviceCategories, services, timeBlocks, users, workingHours } from "../db/schema.js";
 import { env, isDev } from "../env.js";
 import {
   addDaysISO,
@@ -1047,7 +1047,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
     dateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата в формате YYYY-MM-DD"),
     startMinutes: z.number().int().min(0).max(24 * 60 - 1),
     endMinutes: z.number().int().min(1).max(24 * 60),
-    reason: z.string().trim().max(120).optional(),
+    reason: z.enum(["Перерыв", "Личные дела"]).optional(),
   });
 
   app.get("/cabinet/time-blocks", masterOnly, async (request, reply) => {
@@ -1307,6 +1307,109 @@ export async function cabinetRoutes(app: FastifyInstance) {
   });
 
   /**
+   * Выручка по фактически завершённым визитам за день, неделю или месяц.
+   * Скоуп мастера выводится только из авторизованной сессии; услуги и категории
+   * при группировке также ограничены текущим master.id.
+   */
+  app.get("/cabinet/analytics", masterOnly, async (request, reply) => {
+    const { period } = z.object({ period: z.enum(["today", "week", "month"]).default("today") }).parse(request.query ?? {});
+    const master = await currentMaster(request.currentUser?.id ?? null);
+    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+
+    const timezone = master.timezone;
+    const today = todayISO(timezone);
+    let fromISO = today;
+    let toISO = today;
+    let rangeStart: Date;
+    let rangeEnd: Date;
+
+    if (period === "today") {
+      const bounds = dayBounds(today, timezone);
+      rangeStart = bounds.start;
+      rangeEnd = bounds.end;
+    } else if (period === "week") {
+      fromISO = addDaysISO(today, -weekdayOfISODate(today));
+      toISO = addDaysISO(fromISO, 6);
+      rangeStart = dayBounds(fromISO, timezone).start;
+      rangeEnd = dayBounds(addDaysISO(toISO, 1), timezone).start;
+    } else {
+      const now = zoneParts(new Date(), timezone);
+      const bounds = monthBounds(now.year, now.month, timezone);
+      fromISO = bounds.monthISO + "-01";
+      toISO = addDaysISO(bounds.monthISO + "-01", new Date(Date.UTC(now.year, now.month, 0)).getUTCDate() - 1);
+      rangeStart = bounds.start;
+      rangeEnd = bounds.end;
+    }
+
+    const serviceRows = await db
+      .select({
+        id: services.id,
+        name: services.name,
+        categoryId: services.categoryId,
+        categoryName: serviceCategories.name,
+      })
+      .from(services)
+      .leftJoin(serviceCategories, eq(services.categoryId, serviceCategories.id))
+      .where(eq(services.masterId, master.id));
+    const serviceInfo = new Map(serviceRows.map((service) => [service.id, service] as const));
+    const completedRows = await db
+      .select()
+      .from(bookings)
+      .where(
+        and(
+          eq(bookings.masterId, master.id),
+          eq(bookings.status, "completed"),
+          gte(bookings.startAt, rangeStart),
+          lt(bookings.startAt, rangeEnd),
+        ),
+      );
+
+    const serviceTotals = new Map<string, { serviceId: string; serviceName: string; categoryId: string | null; categoryName: string; bookings: number; revenue: number }>();
+    const categoryTotals = new Map<string, { categoryId: string | null; categoryName: string; bookings: number; revenue: number }>();
+    for (const booking of completedRows) {
+      const service = serviceInfo.get(booking.serviceId);
+      const serviceName = service?.name ?? "Услуга";
+      const categoryId = service?.categoryId ?? null;
+      const categoryName = categoryId === null ? "Без категории" : service?.categoryName ?? "Без категории";
+      // Возврат по визиту не учитывается в чистой выручке; отменённые и
+      // незавершённые записи уже исключены фильтром status=completed.
+      const revenue = booking.paymentStatus === "refunded" ? 0 : booking.price;
+      const serviceTotal = serviceTotals.get(booking.serviceId) ?? {
+        serviceId: booking.serviceId,
+        serviceName,
+        categoryId,
+        categoryName,
+        bookings: 0,
+        revenue: 0,
+      };
+      serviceTotal.bookings += 1;
+      serviceTotal.revenue += revenue;
+      serviceTotals.set(booking.serviceId, serviceTotal);
+
+      const categoryKey = categoryId ?? "__uncategorized__";
+      const categoryTotal = categoryTotals.get(categoryKey) ?? { categoryId, categoryName, bookings: 0, revenue: 0 };
+      categoryTotal.bookings += 1;
+      categoryTotal.revenue += revenue;
+      categoryTotals.set(categoryKey, categoryTotal);
+    }
+
+    const netRevenue = completedRows.reduce((sum, booking) => sum + (booking.paymentStatus === "refunded" ? 0 : booking.price), 0);
+    const withShare = <T extends { revenue: number }>(items: T[]) =>
+      items.map((item) => ({ ...item, sharePercent: netRevenue > 0 ? Math.round((item.revenue / netRevenue) * 100) : 0 }));
+
+    return {
+      period,
+      fromISO,
+      toISO,
+      timezone,
+      completedBookings: completedRows.length,
+      netRevenue,
+      byService: withShare([...serviceTotals.values()].sort((a, b) => b.revenue - a.revenue)),
+      byCategory: withShare([...categoryTotals.values()].sort((a, b) => b.revenue - a.revenue)),
+    };
+  });
+
+  /**
    * Сводка для главной кабинета.
    *
    * По умолчанию — текущий месяц. Параметр `month=YYYY-MM` нужен демо-данным:
@@ -1338,13 +1441,15 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
     const thisMonth = active.filter((booking) => inRange(booking.startAt, monthStart));
     const prevMonthBookings = active.filter((booking) => inRange(booking.startAt, prevMonthStart, monthStart));
-    // Заработок — только по состоявшимся визитам. Подтверждённые записи
-    // попадут в доход лишь после перехода в `completed`.
+    // Чистая выручка — только завершённые визиты без полностью возвращённых оплат.
+    // Комиссия платформы не вычитается.
     const completedThisMonth = thisMonth.filter((booking) => booking.status === "completed");
     const completedPrevMonth = prevMonthBookings.filter((booking) => booking.status === "completed");
+    const revenueRows = (items: typeof completedThisMonth) =>
+      items.filter((booking) => booking.paymentStatus !== "refunded");
 
-    const income = completedThisMonth.reduce((sum, booking) => sum + booking.price, 0);
-    const prevIncome = completedPrevMonth.reduce((sum, booking) => sum + booking.price, 0);
+    const income = revenueRows(completedThisMonth).reduce((sum, booking) => sum + booking.price, 0);
+    const prevIncome = revenueRows(completedPrevMonth).reduce((sum, booking) => sum + booking.price, 0);
 
     const firstSeen = new Map<string, Date>();
     for (const booking of active) {
@@ -1360,16 +1465,19 @@ export async function cabinetRoutes(app: FastifyInstance) {
           : "0%"
         : `${current >= previous ? "+" : ""}${Math.round(((current - previous) / previous) * 100)}%`;
 
-    // Топ услуг считает все активные записи, но заработок только по завершённым визитам.
+    // Топ услуг считает все активные записи, выручку — по завершённым без полного возврата.
     const topServicesMap = new Map<string, { bookings: number; revenue: number }>();
     for (const booking of thisMonth) {
       const entry = topServicesMap.get(booking.serviceId) ?? { bookings: 0, revenue: 0 };
       entry.bookings += 1;
-      if (booking.status === "completed") entry.revenue += booking.price;
+      if (booking.status === "completed" && booking.paymentStatus !== "refunded") entry.revenue += booking.price;
       topServicesMap.set(booking.serviceId, entry);
     }
     const serviceNames = new Map<string, string>();
-    for (const row of await db.select({ id: services.id, name: services.name }).from(services)) {
+    for (const row of await db
+      .select({ id: services.id, name: services.name })
+      .from(services)
+      .where(eq(services.masterId, master.id))) {
       serviceNames.set(row.id, row.name);
     }
     const topServices = [...topServicesMap.entries()]
@@ -1400,7 +1508,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
         label: String(Number(cursor.slice(8, 10))),
         bookings: dayBookings.length,
         completedBookings: completedDayBookings.length,
-        revenue: completedDayBookings.reduce((sum, booking) => sum + booking.price, 0),
+        revenue: revenueRows(completedDayBookings).reduce((sum, booking) => sum + booking.price, 0),
       });
     }
 
@@ -1418,7 +1526,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
         label: monthShort[shifted.month - 1]!,
         bookings: monthBookings.length,
         completedBookings: completedMonthBookings.length,
-        revenue: completedMonthBookings.reduce((sum, booking) => sum + booking.price, 0),
+        revenue: revenueRows(completedMonthBookings).reduce((sum, booking) => sum + booking.price, 0),
         newClients: [...monthClients].filter((phone) => {
           const first = firstSeen.get(phone);
           return first ? inRange(first, start, end) : false;

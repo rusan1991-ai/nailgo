@@ -8,7 +8,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { bookings, masters, serviceCategories, services } from "../db/schema.js";
 import { requireAuth, requireMaster } from "../lib/auth.js";
@@ -39,12 +39,15 @@ const serviceInput = z.object({
 });
 
 const servicePatch = serviceInput.partial();
+const UNCATEGORIZED = "Без категории";
 const serviceCategoryInput = z.object({
   name: z.string().trim().min(2, "Название категории слишком короткое").max(60, "Максимум 60 символов"),
+}).refine((input) => normalizeCategoryName(input.name) !== normalizeCategoryName(UNCATEGORIZED), {
+  message: "Название «Без категории» зарезервировано системой",
+  path: ["name"],
 });
 
-const categoryInUseMessage =
-  "Нельзя удалить категорию, пока в ней есть услуги. Пожалуйста, удалите или перенесите услуги в другие разделы";
+const categoryDeleteInput = z.object({ action: z.enum(["move", "delete"]).optional() });
 
 function normalizeCategoryName(name: string): string {
   return name.trim().toLocaleLowerCase("ru-RU");
@@ -55,6 +58,11 @@ async function currentMaster(userId: string | null) {
   if (!userId) return null;
   const [master] = await db.select().from(masters).where(eq(masters.userId, userId)).limit(1);
   return master ?? null;
+}
+
+async function ownedCategory(masterId: string, name: string) {
+  const rows = await db.select().from(serviceCategories).where(eq(serviceCategories.masterId, masterId));
+  return rows.find((category) => normalizeCategoryName(category.name) === normalizeCategoryName(name)) ?? null;
 }
 
 export async function serviceRoutes(app: FastifyInstance) {
@@ -91,8 +99,10 @@ export async function serviceRoutes(app: FastifyInstance) {
       .orderBy(asc(serviceCategories.name));
     // Категории существующих услуг включаем для обратной совместимости с теми,
     // кто обновляет приложение после создания собственного прайса.
-    const categories = [...new Set([...categoryItems.map((item) => item.name), ...rows.map((item) => item.category)])]
-      .sort((a, b) => a.localeCompare(b, "ru"));
+    const categories = [...new Set([
+      ...categoryItems.map((item) => item.name),
+      ...rows.filter((item) => item.categoryId === null).map((item) => item.category),
+    ])].sort((a, b) => a.localeCompare(b, "ru"));
 
     return {
       categories,
@@ -101,6 +111,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         id: service.id,
         name: service.name,
         category: service.category,
+        categoryId: service.categoryId,
         durationMinutes: service.durationMinutes,
         price: service.price,
         prepaymentPercent: service.prepaymentPercent,
@@ -190,8 +201,14 @@ export async function serviceRoutes(app: FastifyInstance) {
 
       await tx
         .update(services)
-        .set({ category: name })
-        .where(and(eq(services.masterId, master.id), eq(services.category, category.name)));
+        .set({ category: name, categoryId: category.id })
+        .where(and(
+          eq(services.masterId, master.id),
+          or(
+            eq(services.categoryId, category.id),
+            and(isNull(services.categoryId), eq(services.category, category.name)),
+          ),
+        ));
       return updated;
     });
     if (!updatedCategory) return reply.code(404).send({ error: "not_found", message: "Категория не найдена" });
@@ -200,36 +217,96 @@ export async function serviceRoutes(app: FastifyInstance) {
   });
 
   /**
-   * Удалять можно только пустую категорию. Скрытые услуги тоже остаются в
-   * кабинете и ссылаются на неё, поэтому проверяем все услуги мастера.
+   * Удаление категории с выбором судьбы её услуг. История записей сохраняется:
+   * при выборе «удалить вместе» услуги без записей удаляются, а использованные
+   * в визитах архивируются и отвязываются от категории.
    */
   app.delete("/cabinet/services/categories/:id", masterOnly, async (request, reply) => {
     const { id } = request.params as { id: string };
     const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+    const { action } = categoryDeleteInput.parse(request.body ?? {});
 
-    const [category] = await db.select().from(serviceCategories).where(eq(serviceCategories.id, id)).limit(1);
-    if (!category) return reply.code(404).send({ error: "not_found", message: "Категория не найдена" });
-    if (category.masterId !== master.id) {
-      return reply.code(403).send({ error: "forbidden", message: "Это категория другого мастера" });
+    const outcome = await db.transaction(async (tx) => {
+      const [category] = await tx
+        .select()
+        .from(serviceCategories)
+        .where(and(eq(serviceCategories.id, id), eq(serviceCategories.masterId, master.id)))
+        .limit(1);
+      if (!category) return { kind: "not_found" as const };
+
+      const attached = await tx
+        .select({ id: services.id, name: services.name })
+        .from(services)
+        .where(and(
+          eq(services.masterId, master.id),
+          or(
+            eq(services.categoryId, category.id),
+            and(isNull(services.categoryId), eq(services.category, category.name)),
+          ),
+        ));
+      if (attached.length > 0 && !action) {
+        return { kind: "in_use" as const, category: category.name, services: attached };
+      }
+
+      const serviceIds = attached.map((service) => service.id);
+      let removedServices = 0;
+      let archivedServices = 0;
+      if (serviceIds.length > 0 && action === "move") {
+        await tx
+          .update(services)
+          .set({ categoryId: null, category: UNCATEGORIZED })
+          .where(and(eq(services.masterId, master.id), inArray(services.id, serviceIds)));
+      } else if (serviceIds.length > 0 && action === "delete") {
+        const usedRows = await tx
+          .select({ serviceId: bookings.serviceId })
+          .from(bookings)
+          .where(inArray(bookings.serviceId, serviceIds));
+        const usedIds = new Set(usedRows.map((row) => row.serviceId));
+        const removableIds = serviceIds.filter((serviceId) => !usedIds.has(serviceId));
+        const archivedIds = serviceIds.filter((serviceId) => usedIds.has(serviceId));
+        if (removableIds.length > 0) {
+          const deleted = await tx
+            .delete(services)
+            .where(and(eq(services.masterId, master.id), inArray(services.id, removableIds)))
+            .returning({ id: services.id });
+          removedServices = deleted.length;
+        }
+        if (archivedIds.length > 0) {
+          const archived = await tx
+            .update(services)
+            .set({ categoryId: null, category: UNCATEGORIZED, active: false })
+            .where(and(eq(services.masterId, master.id), inArray(services.id, archivedIds)))
+            .returning({ id: services.id });
+          archivedServices = archived.length;
+        }
+      }
+
+      const [deleted] = await tx
+        .delete(serviceCategories)
+        .where(and(eq(serviceCategories.id, category.id), eq(serviceCategories.masterId, master.id)))
+        .returning({ id: serviceCategories.id });
+      if (!deleted) return { kind: "not_found" as const };
+      return { kind: "deleted" as const, id: deleted.id, movedServices: action === "move" ? serviceIds.length : 0, removedServices, archivedServices };
+    });
+
+    if (outcome.kind === "not_found") return reply.code(404).send({ error: "not_found", message: "Категория не найдена" });
+    if (outcome.kind === "in_use") {
+      const names = outcome.services.map((service) => service.name);
+      return reply.code(409).send({
+        error: "category_in_use",
+        category: outcome.category,
+        services: outcome.services,
+        message: `В этой категории есть услуги: ${names.join(", ")}. Перенесите их в раздел «Без категории» или удалите вместе с категорией.`,
+      });
     }
-
-    const [attachedService] = await db
-      .select({ id: services.id })
-      .from(services)
-      .where(and(eq(services.masterId, master.id), eq(services.category, category.name)))
-      .limit(1);
-    if (attachedService) {
-      return reply.code(409).send({ error: "category_in_use", message: categoryInUseMessage });
-    }
-
-    const [deleted] = await db
-      .delete(serviceCategories)
-      .where(and(eq(serviceCategories.id, category.id), eq(serviceCategories.masterId, master.id)))
-      .returning({ id: serviceCategories.id });
-    if (!deleted) return reply.code(404).send({ error: "not_found", message: "Категория не найдена" });
-
-    return { ok: true, id: deleted.id };
+    return {
+      ok: true,
+      id: outcome.id,
+      movedServices: outcome.movedServices,
+      removedServices: outcome.removedServices,
+      archivedServices: outcome.archivedServices,
+    };
   });
 
   /** Новая услуга: цена и длительность сразу влияют на запись и окна. */
@@ -238,12 +315,17 @@ export async function serviceRoutes(app: FastifyInstance) {
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const input = serviceInput.parse(request.body ?? {});
+    const category = await ownedCategory(master.id, input.category);
+    if (!category) {
+      return reply.code(400).send({ error: "category_not_found", message: "Выберите категорию, созданную в вашем кабинете" });
+    }
     const [created] = await db
       .insert(services)
       .values({
         masterId: master.id,
         name: input.name,
-        category: input.category,
+        category: category.name,
+        categoryId: category.id,
         durationMinutes: input.durationMinutes,
         price: input.price,
         prepaymentPercent: input.prepaymentPercent ?? 0,
@@ -256,6 +338,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         id: created!.id,
         name: created!.name,
         category: created!.category,
+        categoryId: created!.categoryId,
         durationMinutes: created!.durationMinutes,
         price: created!.price,
         prepaymentPercent: created!.prepaymentPercent,
@@ -278,11 +361,20 @@ export async function serviceRoutes(app: FastifyInstance) {
     }
 
     const input = servicePatch.parse(request.body ?? {});
+    const category = input.category === undefined
+      ? undefined
+      : normalizeCategoryName(input.category) === normalizeCategoryName(UNCATEGORIZED)
+        ? null
+        : await ownedCategory(master.id, input.category);
+    if (input.category !== undefined && category === undefined) {
+      return reply.code(400).send({ error: "category_not_found", message: "Выберите категорию, созданную в вашем кабинете" });
+    }
+
     const [updated] = await db
       .update(services)
       .set({
         ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.category !== undefined ? { category: input.category } : {}),
+        ...(input.category !== undefined ? { category: category?.name ?? UNCATEGORIZED, categoryId: category?.id ?? null } : {}),
         ...(input.durationMinutes !== undefined ? { durationMinutes: input.durationMinutes } : {}),
         ...(input.price !== undefined ? { price: input.price } : {}),
         ...(input.prepaymentPercent !== undefined ? { prepaymentPercent: input.prepaymentPercent } : {}),

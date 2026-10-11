@@ -252,11 +252,13 @@ export function DonutChart({
   centerValue,
   centerLabel,
   size = 200,
+  valueFormatter,
 }: {
   data: { label: string; percent: number; color: string; value?: number }[];
   centerValue: string;
   centerLabel: string;
   size?: number;
+  valueFormatter?: (value: number) => string;
 }) {
   const radius = 70;
   const circumference = 2 * Math.PI * radius;
@@ -306,7 +308,7 @@ export function DonutChart({
             <span className="whitespace-nowrap text-slate-500">
               {segment.percent}%{" "}
               {typeof segment.value === "number" ? (
-                <span className="text-slate-400">({segment.value})</span>
+                <span className="text-slate-400">({valueFormatter ? valueFormatter(segment.value) : segment.value})</span>
               ) : null}
             </span>
           </li>

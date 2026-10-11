@@ -9,7 +9,7 @@
  * Запуск (при живых Vite и API):
  *   cd tools/devcheck && npm run favorites
  */
-import { api, apiAs, check, login, loginMaster, makeDom, resetDemo, rootText, wait } from "./harness.mjs";
+import { api, apiAs, check, isoMoment, login, loginMaster, makeDom, resetDemo, rootText, wait } from "./harness.mjs";
 
 let failures = 0;
 const assert = (label, ok, extra = "") => {
@@ -69,6 +69,19 @@ assert(
   Boolean(favorite?.nextWindow?.label && favorite?.nextWindow?.serviceId && favorite?.nextWindow?.durationMinutes > 0),
   JSON.stringify(favorite?.nextWindow),
 );
+
+const account = makeDom("/account", { session: client });
+await wait(1600);
+const favoritesFirst = account.dom.window.document.querySelector("[data-block='client-favorite-masters']");
+const visitTabs = account.dom.window.document.querySelector("[data-block='visit-tabs']");
+assert(
+  "избранные мастера показаны в начале клиентского кабинета",
+  Boolean(favoritesFirst?.querySelector(`[data-client-favorite='${MASTER}']`)) &&
+    Boolean(visitTabs) && Boolean(favoritesFirst?.compareDocumentPosition(visitTabs) & 4),
+  rootText(account.dom).slice(0, 140),
+);
+assert("из кабинета клиента можно сразу записаться к избранному мастеру", Boolean(favoritesFirst?.querySelector("a[href^='/booking?']")));
+account.dom.window.close();
 
 /* --- Страница /favorites собирается из базы, сердечко активно --- */
 const page = makeDom("/favorites", { session: client });
@@ -138,7 +151,10 @@ const booked = await apiAs(actor, "/bookings", {
 assert("второй клиент занял окно", booked.status === 201, `status=${booked.status}`);
 
 const before = await apiAs(client, "/notifications");
-await apiAs(actor, `/bookings/${booked.data.booking.id}/cancel`, { method: "POST" });
+await apiAs(actor, `/bookings/${booked.data.booking.id}/cancel`, {
+  method: "POST",
+  body: { now: isoMoment(window.dateISO, window.startMinutes - 600) },
+});
 const after = await apiAs(client, "/notifications");
 const fresh = after.data.items.filter((item) => !before.data.items.some((seen) => seen.id === item.id));
 const slotNote = fresh.find((item) => item.type === "favorite_slot");
@@ -167,7 +183,10 @@ const second = await apiAs(actor, "/bookings", {
     clientPhone: "+79990001444",
   },
 });
-await apiAs(actor, `/bookings/${second.data.booking.id}/cancel`, { method: "POST" });
+await apiAs(actor, `/bookings/${second.data.booking.id}/cancel`, {
+  method: "POST",
+  body: { now: isoMoment(window.dateISO, window.startMinutes - 600) },
+});
 const third = await apiAs(client, "/notifications");
 const slots = third.data.items.filter((item) => item.type === "favorite_slot");
 assert("повторное освобождение окна не спамит", slots.length === 1, `уведомлений об окне=${slots.length}`);

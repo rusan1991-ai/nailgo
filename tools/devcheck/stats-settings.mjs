@@ -21,7 +21,7 @@ const s = stats.data;
 const bookingRows = await apiAs(master, "/cabinet/bookings");
 const monthBookings = bookingRows.data.items.filter((item) => item.dateISO.startsWith(demoMonthISO));
 const completedMonth = monthBookings.filter((item) => item.status === "completed");
-const completedRevenue = completedMonth.reduce((sum, item) => sum + item.price, 0);
+const completedRevenue = completedMonth.reduce((sum, item) => sum + (item.paymentStatus === "refunded" ? 0 : item.price), 0);
 assert(
   "доход месяца считает только завершённые визиты",
   s.incomeThisMonth === completedRevenue,
@@ -40,7 +40,9 @@ assert(
 const monthPoint = s.monthly.find((item) => item.monthISO === demoMonthISO);
 assert("месячная динамика показывает ту же выручку, только по completed", monthPoint?.revenue === completedRevenue, String(monthPoint?.revenue));
 const expectedServiceRevenue = new Map();
-for (const booking of completedMonth) expectedServiceRevenue.set(booking.serviceName, (expectedServiceRevenue.get(booking.serviceName) ?? 0) + booking.price);
+for (const booking of completedMonth) {
+  expectedServiceRevenue.set(booking.serviceName, (expectedServiceRevenue.get(booking.serviceName) ?? 0) + (booking.paymentStatus === "refunded" ? 0 : booking.price));
+}
 assert(
   "топ услуг суммирует выручку только завершённых визитов",
   [...expectedServiceRevenue].every(([name, revenue]) => s.topServices.find((item) => item.name === name)?.revenue === revenue),

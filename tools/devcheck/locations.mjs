@@ -256,6 +256,16 @@ assert(
   !homeWindow.document.body.textContent.includes("Ольга Кравцова"),
   "на Маяковской только Анна Смирнова",
 );
+const homeCatalogSlugs = [...homeWindow.document.querySelectorAll("[data-block='home-masters'] a[href^='/master/']")]
+  .map((node) => node.getAttribute("href")?.replace("/master/", ""));
+const homeMapSlugs = [...homeWindow.document.querySelectorAll("[data-city-map] [data-map-master]")]
+  .map((node) => node.getAttribute("data-map-master"));
+assert(
+  "выбор метро синхронно фильтрует карточки и карту",
+  homeCatalogSlugs.length > 0 && homeMapSlugs.length === homeCatalogSlugs.length &&
+    homeMapSlugs.every((slug) => homeCatalogSlugs.includes(slug)),
+  `карточки=${homeCatalogSlugs.join(",")}; карта=${homeMapSlugs.join(",")}`,
+);
 
 // Ссылка на витрину с местом: ?metro=… открывается тем же фильтром.
 const link = homeWindow.document.querySelector("[data-place='list-district:vsevolozhsk']");

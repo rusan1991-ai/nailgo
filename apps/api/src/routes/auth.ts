@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomInt } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { z } from "zod";
@@ -29,6 +29,7 @@ import { checkMagicLink, consumeMagicLink } from "../lib/magic.js";
 import { BRAND, firstName } from "../lib/greeting.js";
 import { DELIVERY_KINDS, enqueueDelivery } from "../lib/delivery/outbox.js";
 import { normalizePhone } from "../lib/phone.js";
+import { generateOtpCode, hashOtpCode } from "../lib/otp.js";
 import { BookingError, ERROR_CODES } from "../lib/errors.js";
 import {
   RATE_LIMIT_PREFIX,
@@ -93,26 +94,9 @@ async function issueSession(user: typeof users.$inferSelect) {
   };
 }
 
-function generateCode(): string {
-  // randomInt — криптостойкий источник: Math.random() предсказуем,
-  // для кодов входа это недопустимо.
-  return String(randomInt(1000, 10000));
-}
-
 /** Хеш refresh-токена: в базе лежит только он, сам токен — у клиента. */
 function refreshHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
-}
-
-/**
- * Хеш OTP-кода для базы: `sha256(code + OTP_PEPPER)`.
- *
- * Сам код живёт минуты и известен только человеку, а таблица `otp_codes`
- * доступна админу БД — открытые коды оттуда позволяли бы входить под кем угодно.
- * Соль-перец из окружения не даёт перебрать 4 цифры по дампу базы.
- */
-function codeHash(code: string): string {
-  return createHash("sha256").update(`${code}${env.otpPepper}`).digest("hex");
 }
 
 /** IP запроса — ключ лимита на отправку кодов. За прокси берём X-Forwarded-For. */
@@ -149,6 +133,105 @@ async function openSession(user: { id: string; phone: string | null; role: strin
 }
 
 export async function authRoutes(app: FastifyInstance) {
+  /**
+   * Начать выдачу бесплатного OTP через Telegram. Код будет отправлен только
+   * после команды боту и проверки, что Telegram ID уже привязан к аккаунту с
+   * указанным номером. Сам OTP возвращается только в Telegram, не браузеру.
+   */
+  app.post("/auth/request-telegram-otp", async (request, reply) => {
+    const { phone: rawPhone } = z.object({ phone: phoneSchema }).parse(request.body ?? {});
+    const phone = normalizePhone(rawPhone);
+    if (!/^\+?\d{10,15}$/.test(phone)) {
+      return reply.code(400).send({ error: "bad_phone", message: "Введите телефон полностью" });
+    }
+
+    if (!messengerConfigured("telegram")) {
+      return reply.code(503).send({
+        error: "telegram_not_configured",
+        message: "Вход по коду Telegram пока не настроен. Используйте Яндекс ID, VK ID или вход через Telegram.",
+      });
+    }
+
+    const token = `otp_${randomBytes(24).toString("base64url")}`;
+    const deepLink = messengerDeepLink("telegram", token);
+    if (!deepLink) {
+      return reply.code(503).send({
+        error: "telegram_not_configured",
+        message: "Ссылка на Telegram-бот не настроена. Используйте другой бесплатный способ входа.",
+      });
+    }
+
+    const ip = requestIp({ ip: request.ip, headers: request.headers as Record<string, unknown> });
+    for (const requestLimit of [
+      {
+        key: rateLimitKey(RATE_LIMIT_PREFIX.requestPerPhone, phone),
+        limit: await effectiveLimit(RATE_LIMIT_SETTINGS.requestPerPhone, env.otpRequestLimitPerPhone),
+        message: `Слишком много запросов кода. Попробуйте через`,
+      },
+      {
+        key: rateLimitKey(RATE_LIMIT_PREFIX.requestPerIp, ip),
+        limit: await effectiveLimit(RATE_LIMIT_SETTINGS.requestPerIp, env.otpRequestLimitPerIp),
+        message: "Слишком много запросов кода с этого устройства. Попробуйте позже.",
+      },
+    ]) {
+      const verdict = await hitRateLimit({ key: requestLimit.key, limit: requestLimit.limit, windowSeconds: env.otpWindowSeconds });
+      if (!verdict.allowed) {
+        const message = requestLimit.message.endsWith("через")
+          ? `${requestLimit.message} ${Math.ceil(verdict.retryAfterSeconds / 60)} мин.`
+          : requestLimit.message;
+        return reply
+          .header("retry-after", String(verdict.retryAfterSeconds))
+          .code(429)
+          .send({ error: ERROR_CODES.otpRateLimited, message, retryAfterSeconds: verdict.retryAfterSeconds });
+      }
+    }
+
+    // Новый запрос делает прежние неиспользованные Telegram-ссылки этого номера
+    // недействительными — только последний запрос может породить код.
+    await db
+      .update(authFlows)
+      .set({ status: "failed", error: "superseded" })
+      .where(and(
+        eq(authFlows.kind, "telegram_otp"),
+        eq(authFlows.provider, "telegram"),
+        eq(authFlows.returnTo, phone),
+        eq(authFlows.status, "pending"),
+      ));
+
+    const expiresAt = new Date(Date.now() + env.otpTtlSeconds * 1000);
+    await db.insert(authFlows).values({
+      kind: "telegram_otp",
+      provider: "telegram",
+      token,
+      returnTo: phone,
+      expiresAt,
+    });
+
+    return reply.code(200).send({
+      ok: true,
+      token,
+      deepLink,
+      expiresAt: expiresAt.toISOString(),
+      expiresInSeconds: env.otpTtlSeconds,
+      message: "Откройте бота и нажмите Start — после проверки он пришлёт четырёхзначный код сюда.",
+    });
+  });
+
+  /** Статус Telegram-запроса: сайт никогда не получает сам код. */
+  app.get("/auth/telegram-otp/status", async (request, reply) => {
+    const { token } = z.object({ token: z.string().trim().min(20).max(160) }).parse(request.query ?? {});
+    const flow = await findFlow(token);
+    if (!flow || flow.kind !== "telegram_otp" || flow.provider !== "telegram") {
+      return reply.code(404).send({ error: "flow_not_found", message: "Ссылка истекла — запросите код заново" });
+    }
+    if (flow.status === "pending" || flow.status === "processing") return { status: "pending" as const };
+    if (flow.status === "confirmed") return { status: "sent" as const };
+    return {
+      status: "failed" as const,
+      message: "Не удалось подтвердить Telegram. Проверьте привязку аккаунта к этому номеру или войдите другим способом.",
+    };
+  });
+
   /**
    * Запрос кода подтверждения.
    *
@@ -222,7 +305,7 @@ export async function authRoutes(app: FastifyInstance) {
         });
     }
 
-    const code = generateCode();
+    const code = generateOtpCode();
 
     // Прежние живые коды этого номера гасим: действующим должен быть ровно
     // один код — последний отправленный. Иначе старые «висят» до TTL.
@@ -233,7 +316,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     await db.insert(otpCodes).values({
       phone,
-      codeHash: codeHash(code),
+      codeHash: hashOtpCode(code),
       expiresAt: new Date(Date.now() + env.otpTtlSeconds * 1000),
     });
 
@@ -310,7 +393,7 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     // В базе только хеш: сравниваем хеш введённого кода с сохранённым.
-    const candidateHash = codeHash(code);
+    const candidateHash = hashOtpCode(code);
     const [otp] = await db
       .select()
       .from(otpCodes)

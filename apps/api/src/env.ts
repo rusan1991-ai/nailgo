@@ -89,15 +89,13 @@ export const env = {
    * неотвеченной: дальше система отменяет её сама.
    * `bookingAutocompleteHours` — через сколько часов после начала визита
    * запись закрывается автоматически, если мастер её не тронул.
-   * `cancelFreeHours` — бесплатная отмена: позже дедлайна клиент получает
-   * отметку «поздняя отмена» (см. «Правила отмены» в docs/ARCHITECTURE.md).
-   * `lateCancelLimit` и `noShowLimit` — сколько таких отметок допустимо до
+   * Онлайн-отмена клиента фиксирована: только строго более чем за 6 часов.
+   * `lateCancelLimit` и `noShowLimit` — исторические ограничения клиента до
    * требования полной предоплаты и до чёрного списка.
    */
   bookingMinLeadMinutes: num(process.env.BOOKING_MIN_LEAD_MINUTES, 60),
   bookingConfirmDeadlineMinutes: num(process.env.BOOKING_CONFIRM_DEADLINE_MINUTES, 120),
   bookingAutocompleteHours: num(process.env.BOOKING_AUTOCOMPLETE_HOURS, 24),
-  cancelFreeHours: num(process.env.CANCEL_FREE_HOURS, 6),
   lateCancelLimit: num(process.env.LATE_CANCEL_LIMIT, 3),
   noShowLimit: num(process.env.NO_SHOW_LIMIT, 2),
   /** Как часто планировщик закрывает просроченные записи, секунды (0 — выключен). */

@@ -6,8 +6,7 @@
  *
  * - мастер отмечает неявку только после начала визита и видит счётчик неявок;
  * - две неявки закрывают запись в чёрный список, снять его может только админ;
- * - позже бесплатного дедлайна отмена помечается поздней; после лимита клиенту
- *   нужна полная предоплата — сумма записи становится равна цене услуги;
+ * - сервер запрещает отмену менее чем за 6 часов до визита, даже при прямом API-запросе;
  * - каждая смена статуса остаётся в журнале `booking_events`: у записи видно,
  *   кто её подтвердил, отменил или отметил неявку (append-only история).
  *
@@ -122,60 +121,50 @@ assert(
 const stranger = await apiAs(master, `/admin/clients/${encodeURIComponent("+79990001999")}`);
 assert("мастеру админские ручки недоступны", stranger.status === 403, `status=${stranger.status}`);
 
-/* --- Поздняя отмена: считается, но наказывается не сразу --- */
+/* --- Серверное окно отмены: строго больше 6 часов --- */
 const lateBooking = await clientBooking();
 assert("запись создана", lateBooking.status === 201, `${lateBooking.status}/${JSON.stringify(lateBooking.data).slice(0, 100)}`);
 
+const boundaryCancel = await apiAs(client, `/bookings/${lateBooking.data.booking.id}/cancel`, {
+  method: "POST",
+  body: { now: isoMoment(firstDay, lateBooking.slot.startMinute - 360) },
+});
+assert(
+  "сервер запрещает отмену ровно за 6 часов",
+  boundaryCancel.status === 409 && boundaryCancel.data.error === "cancellation_window_closed",
+  `${boundaryCancel.status}/${boundaryCancel.data?.error}`,
+);
 const lateCancel = await apiAs(client, `/bookings/${lateBooking.data.booking.id}/cancel`, {
   method: "POST",
   body: { now: isoMoment(firstDay, lateBooking.slot.startMinute - 30) },
 });
 assert(
-  "отмена за 30 минут до визита помечена поздней",
-  lateCancel.status === 200 && lateCancel.data.late === true && lateCancel.data.discipline.lateCancellations === 1,
-  `late=${lateCancel.data?.late} count=${lateCancel.data?.discipline?.lateCancellations}`,
+  "сервер запрещает отмену за 30 минут, несмотря на прямой запрос",
+  lateCancel.status === 409 && lateCancel.data.error === "cancellation_window_closed",
+  `${lateCancel.status}/${lateCancel.data?.error}`,
+);
+const justOverSixHours = await clientBooking();
+const justOverCancel = await apiAs(client, `/bookings/${justOverSixHours.data.booking.id}/cancel`, {
+  method: "POST",
+  body: { now: isoMoment(firstDay, justOverSixHours.slot.startMinute - 361) },
+});
+assert(
+  "отмена за 6 часов и 1 минуту разрешена",
+  justOverCancel.status === 200 && justOverCancel.data.late === false,
+  `${justOverCancel.status}/${justOverCancel.data?.late}`,
 );
 
-/* --- Ранняя отмена счётчик не двигает --- */
+/* --- Ранняя отмена проходит, не затрагивая счётчик дисциплины --- */
 const earlyBooking = await clientBooking();
 const earlyCancel = await apiAs(client, `/bookings/${earlyBooking.data.booking.id}/cancel`, {
   method: "POST",
   body: { now: isoMoment(firstDay, earlyBooking.slot.startMinute - 600) },
 });
 assert(
-  "отмена за 10 часов до визита не считается поздней",
+  "отмена за 10 часов до визита разрешена сервером",
   earlyCancel.status === 200 && earlyCancel.data.late === false && earlyCancel.data.discipline === null,
   `late=${earlyCancel.data?.late}`,
 );
-
-/* --- Лимит поздних отмен: после него нужна полная предоплата --- */
-for (let attempt = 2; attempt <= 4; attempt += 1) {
-  const booked = await clientBooking();
-  const cancelled = await apiAs(client, `/bookings/${booked.data.booking.id}/cancel`, {
-    method: "POST",
-    body: { now: isoMoment(firstDay, booked.slot.startMinute - 30) },
-  });
-  if (attempt === 4) {
-    assert(
-      "после лимита поздних отмен нужна предоплата",
-      cancelled.data.discipline?.lateCancellations === 4 && cancelled.data.discipline?.prepaymentRequired === true,
-      JSON.stringify(cancelled.data?.discipline),
-    );
-  }
-}
-
-const prepaid = await clientBooking();
-assert(
-  "запись с ограничением требует полную предоплату",
-  prepaid.status === 201 &&
-    prepaid.data.booking.prepaymentAmount === prepaid.data.booking.price &&
-    prepaid.data.booking.prepaymentAmount > 0,
-  `предоплата=${prepaid.data?.booking?.prepaymentAmount} цена=${prepaid.data?.booking?.price}`,
-);
-await apiAs(client, `/bookings/${prepaid.data.booking.id}/cancel`, {
-  method: "POST",
-  body: { now: isoMoment(firstDay, prepaid.slot.startMinute - 600) },
-});
 
 /* --- Неявка: только после начала визита --- */
 const manual = async (dateISO, startMinutes, phone = CLIENT_PHONE) =>
@@ -297,7 +286,7 @@ assert(
   unlocked.status === 200 &&
     unlocked.data.policy.blacklisted === false &&
     unlocked.data.policy.noShowCount === 2 &&
-    unlocked.data.policy.lateCancellations === 4 &&
+    unlocked.data.policy.lateCancellations === 0 &&
     // Требование предоплаты — тоже ограничение, его админ снимает вместе с блокировкой.
     unlocked.data.policy.prepaymentRequired === false,
   JSON.stringify(unlocked.data?.policy),
@@ -330,7 +319,7 @@ const text = rootText(page.dom);
 assert("в кабинете мастера есть отметка неявки", text.includes("Неявка"), text.slice(0, 140));
 
 if (failures === 0) {
-  console.log("\nДисциплина клиента ведётся в базе: неявки, поздние отмены, чёрный список.");
+  console.log("\nОтмена строго ограничена серверным окном в 6 часов; неявки и чёрный список работают.");
 } else {
   console.log(`\nПровалено проверок: ${failures}`);
   process.exitCode = 1;

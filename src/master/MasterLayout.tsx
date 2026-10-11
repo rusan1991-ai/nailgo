@@ -26,7 +26,7 @@ import { MessengerBanner } from "../components/MessengerBanner";
 
 const navItems = [
   { to: "/pro", label: "Главная", icon: LayoutDashboard, end: true },
-  { to: "/pro/schedule", label: "Расписание", icon: CalendarDays },
+  { to: "/pro/scheduler", label: "Расписание", icon: CalendarDays },
   { to: "/pro/bookings", label: "Записи", icon: Table2 },
   { to: "/pro/clients", label: "Клиенты", icon: Users },
   { to: "/pro/services", label: "Услуги и цены", icon: CircleDollarSign },

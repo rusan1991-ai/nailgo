@@ -157,34 +157,6 @@ export const masters = pgTable("masters", {
   reviewsCount: integer("reviews_count").notNull().default(0),
 });
 
-/**
- * Услуга принадлежит мастеру: у каждого свой прайс, свои длительности и цены.
- * Общих услуг нет — иначе мастер, скрывая свою услугу, скрывал бы её всем.
- * `active = false` — услуга скрыта: её не видно в каталоге и нельзя записаться,
- * но записи и статистика по ней сохраняются.
- */
-export const services = pgTable(
-  "services",
-  {
-    id: id(),
-    masterId: text("master_id")
-      .notNull()
-      .references(() => masters.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    category: text("category").notNull(),
-    durationMinutes: integer("duration_minutes").notNull(),
-    price: integer("price").notNull(),
-    /**
-     * Предоплата по услуге в процентах от цены: 0 — платить не нужно.
-     * Мастер решает по каждой услуге отдельно: на дорогое наращивание просят
-     * предоплату, на короткий дизайн — нет.
-     */
-    prepaymentPercent: integer("prepayment_percent").notNull().default(0),
-    active: boolean("active").notNull().default(true),
-  },
-  (table) => [index("services_master").on(table.masterId)],
-);
-
 /** Категории услуг принадлежат мастеру и могут существовать до первой услуги. */
 export const serviceCategories = pgTable(
   "service_categories",
@@ -197,6 +169,36 @@ export const serviceCategories = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [uniqueIndex("service_categories_master_name").on(table.masterId, table.name)],
+);
+
+/**
+ * Услуга принадлежит мастеру: у каждого свой прайс, свои длительности и цены.
+ * Общих услуг нет — иначе мастер, скрывая свою услугу, скрывал бы её всем.
+ * `active = false` — услуга скрыта: её не видно в каталоге и нельзя записаться,
+ * но записи и статистика по ней сохраняются. `categoryId = null` означает
+ * системный раздел «Без категории».
+ */
+export const services = pgTable(
+  "services",
+  {
+    id: id(),
+    masterId: text("master_id")
+      .notNull()
+      .references(() => masters.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    category: text("category").notNull(),
+    categoryId: text("category_id").references(() => serviceCategories.id, { onDelete: "set null" }),
+    durationMinutes: integer("duration_minutes").notNull(),
+    price: integer("price").notNull(),
+    /**
+     * Предоплата по услуге в процентах от цены: 0 — платить не нужно.
+     * Мастер решает по каждой услуге отдельно: на дорогое наращивание просят
+     * предоплату, на короткий дизайн — нет.
+     */
+    prepaymentPercent: integer("prepayment_percent").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+  },
+  (table) => [index("services_master").on(table.masterId), index("services_category").on(table.categoryId)],
 );
 
 export const workingHours = pgTable(
@@ -403,8 +405,8 @@ export const favorites = pgTable(
   {
     id: id(),
     /**
-     * Владелец избранного: аккаунт и/или телефон. Аккаунт надёжнее (у человека
-     * может не быть номера вообще), телефон нужен для старых записей и гостей.
+     * Старая схема избранного, оставлена для совместимости при миграции.
+     * Новые записи и чтение идут только через `client_favorite_masters`.
      */
     userId: text("user_id"),
     clientPhone: text("client_phone"),
@@ -417,6 +419,25 @@ export const favorites = pgTable(
     uniqueIndex("favorites_client_master").on(table.clientPhone, table.masterId),
     uniqueIndex("favorites_user_master").on(table.userId, table.masterId),
     index("favorites_master").on(table.masterId),
+  ],
+);
+
+/** Избранные мастера конкретного аккаунта клиента — scope только по session user id. */
+export const clientFavoriteMasters = pgTable(
+  "client_favorite_masters",
+  {
+    id: id(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    masterId: text("master_id")
+      .notNull()
+      .references(() => masters.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("client_favorite_masters_client_master").on(table.clientId, table.masterId),
+    index("client_favorite_masters_master").on(table.masterId),
   ],
 );
 

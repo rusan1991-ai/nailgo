@@ -7,13 +7,15 @@ import { ReschedulePanel } from "../components/ReschedulePanel";
 import { ClientShell } from "../components/ClientShell";
 import { Avatar } from "../components/NailUi";
 import { formatRub } from "../data/mock";
+import { useFavoritesList } from "../api/favorites";
 
 export function AccountPage() {
   const { bookings, cancelBooking, error, reload } = useBookings();
   const { user } = useAuth();
   const [params] = useSearchParams();
   const magicBookingId = params.get("booking");
-  const [tab, setTab] = useState<"upcoming" | "completed" | "cancelled">("upcoming");
+  const [tab, setTab] = useState<"upcoming" | "past">("upcoming");
+  const favorites = useFavoritesList();
   const [movingId, setMovingId] = useState<string | null>(null);
 
   // Magic-link приводит клиента не просто в кабинет, а к карточке именно той
@@ -23,7 +25,7 @@ export function AccountPage() {
     if (!magicBookingId) return;
     const booking = bookings.find((item) => item.id === magicBookingId);
     if (!booking) return;
-    setTab(booking.status === "completed" ? "completed" : booking.status === "cancelled" || booking.status === "no_show" ? "cancelled" : "upcoming");
+    setTab(booking.status === "upcoming" ? "upcoming" : "past");
     window.requestAnimationFrame(() => {
       const card = [...document.querySelectorAll<HTMLElement>("[data-booking-id]")]
         .find((element) => element.dataset.bookingId === magicBookingId);
@@ -35,23 +37,56 @@ export function AccountPage() {
 
   // Неявка — тот же раздел, что и отмены: визит не состоялся.
   const filtered = useMemo(
-    () => bookings.filter((item) => (tab === "cancelled" ? item.status === "cancelled" || item.status === "no_show" : item.status === tab)),
+    () => bookings.filter((item) => (tab === "upcoming" ? item.status === "upcoming" : item.status !== "upcoming")),
     [bookings, tab],
   );
 
   return (
-    <ClientShell title="Мои записи">
+    <ClientShell title="Мои визиты">
       <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
         <div>
-          <div className="mb-3 inline-flex rounded-xl border border-[#f1dde6] p-1 text-sm">
+          {favorites.data && favorites.data.items.length > 0 && (
+            <section className="mb-5 rounded-2xl border border-[#f1dde6] bg-[#fffafd] p-4" data-block="client-favorite-masters">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-semibold text-slate-800">Избранные мастера</h2>
+                  <p className="text-xs text-slate-500">Ваши мастера — в начале кабинета</p>
+                </div>
+                <Link to="/favorites" className="text-sm font-medium text-pink-600 hover:text-pink-700">Все избранное</Link>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {favorites.data.items.map((master) => (
+                  <article key={master.slug} data-client-favorite={master.slug} className="flex items-center justify-between gap-3 rounded-xl border border-[#f4e4eb] bg-white px-3 py-2">
+                    <Link to={`/master/${master.slug}`} className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-slate-800">{master.name}</span>
+                      <span className="block truncate text-xs text-slate-500">{master.metro}</span>
+                    </Link>
+                    {master.nextWindow ? (
+                      <Link
+                        to={`/booking?master=${encodeURIComponent(master.slug)}&service=${encodeURIComponent(master.nextWindow.serviceId)}&date=${master.nextWindow.dateISO}&slot=${encodeURIComponent(master.nextWindow.label)}`}
+                        className="shrink-0 rounded-lg bg-pink-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-pink-600"
+                      >
+                        Записаться
+                      </Link>
+                    ) : (
+                      <span className="shrink-0 text-xs text-slate-400">Нет окон</span>
+                    )}
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <div className="mb-3 inline-flex rounded-xl border border-[#f1dde6] p-1 text-sm" data-block="visit-tabs">
             {[
               ["upcoming", "Предстоящие"],
-              ["completed", "Прошедшие"],
-              ["cancelled", "Отмененные"],
+              ["past", "Прошедшие"],
             ].map(([key, label]) => (
               <button
                 key={key}
-                onClick={() => setTab(key as "upcoming" | "completed" | "cancelled")}
+                type="button"
+                data-account-tab={key}
+                onClick={() => setTab(key as "upcoming" | "past")}
                 className={`rounded-lg px-3 py-2 transition ${tab === key ? "bg-pink-500 text-white" : "text-slate-600"}`}
               >
                 {label}
@@ -130,6 +165,15 @@ export function AccountPage() {
                         className="mt-2 block rounded-lg bg-pink-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-pink-600"
                       >
                         Оплатить предоплату
+                      </Link>
+                    )}
+                    {booking.status === "completed" && (
+                      <Link
+                        to={`/booking?master=${encodeURIComponent(booking.masterSlug)}&service=${encodeURIComponent(booking.serviceId)}`}
+                        data-action="book-again"
+                        className="mt-3 block rounded-lg bg-pink-500 px-3 py-1.5 text-center text-sm font-medium text-white hover:bg-pink-600"
+                      >
+                        Записаться снова
                       </Link>
                     )}
                     {booking.status === "upcoming" && (

@@ -4,10 +4,9 @@
  * Nail 2 Go — агрегатор: платформа не списывает деньги, поэтому «штраф» — это
  * учёт, а не списание. Правила такие:
  *
- * - клиент отменяет раньше `CANCEL_FREE_HOURS` до визита — ничего не меняется;
- * - позже — получает отметку «поздняя отмена». Их больше `LATE_CANCEL_LIMIT` —
- *   записываться можно только с полной предоплатой (услуга считается
- *   оплаченной вперёд, даже если мастер предоплату не просил);
+ * - клиент может отменить онлайн только строго более чем за 6 часов до визита;
+ *   внутри этого окна он обращается напрямую к мастеру;
+ * - исторические поздние отмены, если они есть, могут требовать полной предоплаты;
  * - мастер отметил неявку (`no_show`) — клиенту счётчик неявок. Их набралось
  *   `NO_SHOW_LIMIT` — аккаунт уходит в чёрный список: запись закрыта, снять
  *   ограничение может только администратор.
@@ -22,13 +21,15 @@ import { env } from "../env.js";
 import { normalizePhone } from "./phone.js";
 import { BookingError } from "./errors.js";
 
+export const CLIENT_CANCEL_FREE_HOURS = 6;
+
 export type ClientPolicy = {
   phone: string;
   /** Есть ли в базе аккаунт с этим номером: у незнакомца ограничений нет. */
   found: boolean;
   lateCancellations: number;
   noShowCount: number;
-  /** Нужна полная предоплата: накопились поздние отмены. */
+  /** Нужна полная предоплата: в истории аккаунта накопились поздние отмены. */
   prepaymentRequired: boolean;
   /** Чёрный список: неявки. Запись полностью закрыта до решения админа. */
   blacklisted: boolean;
@@ -80,7 +81,7 @@ export async function assertClientCanBook(phone: string): Promise<ClientPolicy> 
 
 /** Отмена позже бесплатного дедлайна — «поздняя»: клиент подвёл мастера. */
 export function isLateCancellation(booking: Pick<Booking, "startAt">, now = new Date()): boolean {
-  const freeUntil = booking.startAt.getTime() - env.cancelFreeHours * 60 * 60 * 1000;
+  const freeUntil = booking.startAt.getTime() - CLIENT_CANCEL_FREE_HOURS * 60 * 60 * 1000;
   return now.getTime() > freeUntil;
 }
 

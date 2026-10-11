@@ -7,6 +7,7 @@ import { optionalUserId, ownsBooking, requireAuth } from "../lib/auth.js";
 import { applyBookingStatus, bookingHistory, logBookingEvent } from "../lib/booking-status.js";
 import {
   assertClientCanBook,
+  CLIENT_CANCEL_FREE_HOURS,
   isLateCancellation,
   registerLateCancellation,
   type ClientPolicy,
@@ -555,11 +556,20 @@ export async function bookingRoutes(app: FastifyInstance) {
       return reply.code(403).send({ error: "forbidden", message: "Это не ваша запись" });
     }
     if (booking.status === "cancelled") return { ok: true, late: false };
+    if (booking.status !== "pending" && booking.status !== "confirmed") {
+      return reply.code(409).send({ error: "booking_not_cancellable", message: "Этот визит уже нельзя отменить" });
+    }
 
-    // Поздняя отмена — позже бесплатного дедлайна. Штрафовать деньгами площадка
-    // не может (мы агрегатор), поэтому считаем: после LATE_CANCEL_LIMIT отмен
-    // клиент записывается только с полной предоплатой.
+    // Окно рассчитывается на сервере и не зависит от клиентского canCancel.
+    // Отмена разрешена только если до начала визита строго больше 6 часов.
     const now = devNow((request.body as { now?: string } | undefined)?.now);
+    const cancelDeadline = booking.startAt.getTime() - CLIENT_CANCEL_FREE_HOURS * 60 * 60 * 1000;
+    if (now.getTime() >= cancelDeadline) {
+      return reply.code(409).send({
+        error: "cancellation_window_closed",
+        message: `Онлайн-отмена доступна только более чем за ${CLIENT_CANCEL_FREE_HOURS} часов до визита. Свяжитесь с мастером.`,
+      });
+    }
     const late = isLateCancellation(booking, now);
     const change = await applyBookingStatus(booking, "cancelled", { role: "client", userId: me.id }, {
       reason: late ? "поздняя отмена клиентом" : "отмена клиентом",

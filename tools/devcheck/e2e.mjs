@@ -255,9 +255,13 @@ cancelButton?.click();
 await wait(1500);
 const stillUpcoming = [...account.dom.window.document.querySelectorAll("article")].some(sameBooking);
 assert("отменённая запись ушла из «Предстоящих»", !stillUpcoming);
-click(account.dom, "Отмененные");
+click(account.dom, "Прошедшие");
 await wait(600);
-assert("карточка появилась во вкладке «Отмененные»", rootText(account.dom).includes("Отменено"));
+const cancelledCard = account.dom.window.document.querySelector(`[data-booking-id='${requested.data.booking.id}']`);
+assert(
+  "отменённая карточка появилась в истории «Прошедшие»",
+  Boolean(cancelledCard) && (cancelledCard.textContent ?? "").includes("Отменено"),
+);
 account.dom.window.close();
 
 const afterCancel = await apiAs(session, `/bookings?phone=${encodeURIComponent(PHONE)}`);

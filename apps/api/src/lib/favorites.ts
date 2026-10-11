@@ -9,7 +9,7 @@
  */
 import { and, desc, eq, gt, gte, inArray, or } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { bookings, favorites, masters, notifications, services } from "../db/schema.js";
+import { bookings, clientFavoriteMasters, masters, notifications, services, users } from "../db/schema.js";
 import { notifyClient } from "./notifications.js";
 import { normalizePhone } from "./phone.js";
 import { formatMinutes } from "./time.js";
@@ -30,11 +30,12 @@ export function windowText(dateISO: string, startMinutes: number): string {
  * мессенджер), но уведомление об окне всё равно нужно доставить — тогда
  * адресатом становится аккаунт клиента.
  */
-export async function favoriteOwners(masterId: string): Promise<{ userId: string | null; phone: string | null }[]> {
+export async function favoriteOwners(masterId: string): Promise<{ userId: string; phone: string | null }[]> {
   const rows = await db
-    .select({ userId: favorites.userId, phone: favorites.clientPhone })
-    .from(favorites)
-    .where(eq(favorites.masterId, masterId));
+    .select({ userId: clientFavoriteMasters.clientId, phone: users.phone })
+    .from(clientFavoriteMasters)
+    .leftJoin(users, eq(clientFavoriteMasters.clientId, users.id))
+    .where(eq(clientFavoriteMasters.masterId, masterId));
   return rows;
 }
 

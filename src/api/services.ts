@@ -9,6 +9,8 @@ export type CabinetService = {
   id: string;
   name: string;
   category: string;
+  /** null — системный раздел «Без категории», иначе id категории мастера. */
+  categoryId: string | null;
   durationMinutes: number;
   price: number;
   /** Предоплата в процентах от цены: 0 — платить не нужно. */
@@ -61,8 +63,8 @@ export async function updateServiceCategory(id: string, name: string): Promise<C
   return response.category;
 }
 
-export async function deleteServiceCategory(id: string): Promise<void> {
-  await api.delete(`/cabinet/services/categories/${encodeURIComponent(id)}`);
+export async function deleteServiceCategory(id: string, action?: "move" | "delete"): Promise<void> {
+  await api.delete(`/cabinet/services/categories/${encodeURIComponent(id)}`, action ? { body: { action } } : undefined);
 }
 
 export async function createService(input: ServiceInput): Promise<CabinetService> {

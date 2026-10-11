@@ -179,7 +179,7 @@ const foreignCategoryUpdate = await apiAs(rivalMaster, `/cabinet/services/catego
 });
 const foreignCategoryDelete = await apiAs(rivalMaster, `/cabinet/services/categories/${createdCategory?.id}`, { method: "DELETE" });
 assert("другой мастер не может переименовать категорию", foreignCategoryUpdate.status === 403, `status=${foreignCategoryUpdate.status}`);
-assert("другой мастер не может удалить категорию", foreignCategoryDelete.status === 403, `status=${foreignCategoryDelete.status}`);
+assert("другой мастер не может удалить категорию", foreignCategoryDelete.status === 404, `status=${foreignCategoryDelete.status}`);
 
 const duplicateCategory = await apiAs(master, "/cabinet/service-categories", {
   method: "POST",
@@ -219,7 +219,7 @@ assert(
   uiCreated ? `${uiCreated.category} / ${uiCreated.price} ₽ / ${uiCreated.durationMinutes} мин` : "не найдена",
 );
 
-// Категорию с активной услугой удалить нельзя: показываем серверное предупреждение.
+// Если в категории есть услуга, UI предлагает обе судьбы, а API без выбора возвращает список.
 const categoriesTabButton = [...page.dom.window.document.querySelectorAll("button")].find(
   (button) => button.textContent?.trim() === "Категории",
 );
@@ -229,17 +229,22 @@ const categoryDeleteButton = page.dom.window.document.querySelector(
   `[data-action='delete-category'][data-category-id='${createdCategory?.id}']`,
 );
 assert("у категории есть микро-кнопка удаления", Boolean(categoryDeleteButton));
+const noActionDelete = await apiAs(master, `/cabinet/services/categories/${createdCategory?.id}`, { method: "DELETE" });
+assert(
+  "API требует выбора судьбы услуг и возвращает их список",
+  noActionDelete.status === 409 && noActionDelete.data.error === "category_in_use" &&
+    noActionDelete.data.services.some((service) => service.name === "Педикюр комбинированный"),
+  JSON.stringify(noActionDelete.data?.services),
+);
 categoryDeleteButton?.dispatchEvent(new page.dom.window.MouseEvent("click", { bubbles: true }));
 await wait(100);
-page.dom.window.document.querySelector("[data-action='confirm-delete-category']")?.dispatchEvent(
-  new page.dom.window.MouseEvent("click", { bubbles: true }),
-);
-await wait(700);
-const categoryUseWarning = page.dom.window.document.querySelector("[data-category-delete-error]");
+const deletePrompt = rootText(page.dom).replace(/\s+/g, " ");
 assert(
-  "категорию с активной услугой нельзя удалить и показано предупреждение",
-  categoryUseWarning?.textContent === "Нельзя удалить категорию, пока в ней есть услуги. Пожалуйста, удалите или перенесите услуги в другие разделы",
-  categoryUseWarning?.textContent ?? "предупреждение не найдено",
+  "подтверждение перечисляет услуги и предлагает перенос или удаление",
+  deletePrompt.includes("В этой категории есть услуги: Педикюр комбинированный") &&
+    Boolean(page.dom.window.document.querySelector("[data-action='move-category-services']")) &&
+    Boolean(page.dom.window.document.querySelector("[data-action='delete-category-with-services']")),
+  deletePrompt.slice(-250),
 );
 page.dom.window.document.querySelector("[data-action='cancel-delete-category']")?.dispatchEvent(
   new page.dom.window.MouseEvent("click", { bubbles: true }),
@@ -311,6 +316,65 @@ await wait(1000);
 const afterHide = await apiAs(master, "/cabinet/services");
 const uiHidden = afterHide.data.items.find((item) => item.id === uiCreated?.id);
 assert("скрытие из интерфейса сохранилось", uiHidden?.active === false, String(uiHidden?.active));
+
+// «Удалить вместе» удаляет неиспользованную услугу в той же операции.
+categoriesTabButton?.dispatchEvent(new page.dom.window.MouseEvent("click", { bubbles: true }));
+await wait(150);
+const renamedCategoryForDelete = afterHide.data.categoryItems.find((category) => category.id === createdCategory?.id);
+const renamedDeleteButton = page.dom.window.document.querySelector(
+  `[data-action='delete-category'][data-category-id='${createdCategory?.id}']`,
+);
+renamedDeleteButton?.dispatchEvent(new page.dom.window.MouseEvent("click", { bubbles: true }));
+await wait(100);
+page.dom.window.document.querySelector("[data-action='delete-category-with-services']")?.dispatchEvent(
+  new page.dom.window.MouseEvent("click", { bubbles: true }),
+);
+await wait(900);
+const afterDeleteCategoryWithService = await apiAs(master, "/cabinet/services");
+assert(
+  "удаление вместе с категорией удаляет неиспользованную услугу",
+  !afterDeleteCategoryWithService.data.categoryItems.some((category) => category.id === createdCategory?.id) &&
+    !afterDeleteCategoryWithService.data.items.some((item) => item.id === uiCreated?.id),
+  `${renamedCategoryForDelete?.name} / ${uiCreated?.id}`,
+);
+
+// Перенос сохраняет услугу, отвязывая category_id в системный раздел.
+const moveCategoryCreate = await apiAs(master, "/cabinet/service-categories", {
+  method: "POST",
+  body: { name: "Категория для переноса" },
+});
+const moveServiceCreate = await apiAs(master, "/cabinet/services", {
+  method: "POST",
+  body: { name: "Услуга для переноса", category: "Категория для переноса", durationMinutes: 45, price: 900 },
+});
+const movedCategory = await apiAs(master, `/cabinet/services/categories/${moveCategoryCreate.data.category.id}`, {
+  method: "DELETE",
+  body: { action: "move" },
+});
+const afterMove = await apiAs(master, "/cabinet/services");
+const movedService = afterMove.data.items.find((item) => item.id === moveServiceCreate.data.service.id);
+assert(
+  "перенос в «Без категории» сохраняет услугу с category_id=null",
+  movedCategory.status === 200 && movedService?.categoryId === null && movedService?.category === "Без категории" && movedService.active,
+  `${movedCategory.status}/${movedService?.category}/${movedService?.categoryId}/${movedService?.active}`,
+);
+
+// Услуги с историческими визитами при выборе удаления архивируются, а не теряют FK истории.
+const usedCategory = afterMove.data.categoryItems.find((category) => category.name === "Маникюр");
+const archiveCategory = await apiAs(master, `/cabinet/services/categories/${usedCategory?.id}`, {
+  method: "DELETE",
+  body: { action: "delete" },
+});
+const afterArchive = await apiAs(master, "/cabinet/services");
+const archivedHistoryServices = afterArchive.data.items.filter((item) => ["anna-smirnova-s1", "anna-smirnova-s2"].includes(item.id));
+assert(
+  "удаление занятой категории сохраняет услуги истории скрытыми и без категории",
+  archiveCategory.status === 200 && archiveCategory.data.archivedServices === 2 &&
+    archivedHistoryServices.length === 2 && archivedHistoryServices.every((item) => !item.active && item.categoryId === null),
+  `${archiveCategory.status}/архив=${archiveCategory.data?.archivedServices}/услуг=${archivedHistoryServices.length}`,
+);
+servicesTabButton?.dispatchEvent(new page.dom.window.MouseEvent("click", { bubbles: true }));
+await wait(150);
 
 // Удаление услуги с записями из интерфейса: предлагаем скрыть
 const usedRow = page.dom.window.document.querySelector("[data-service-row='anna-smirnova-s2']");

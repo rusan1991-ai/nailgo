@@ -195,9 +195,9 @@ const blockStart = await firstFreeSlot(blockDate, service.id);
 assert("на день перерыва есть свободное окно", blockStart !== null, `${blockDate}`);
 const block = await apiAs(master, "/cabinet/time-blocks", {
   method: "POST",
-  body: { dateISO: blockDate, startMinutes: blockStart, endMinutes: blockStart + 60, reason: "Обед" },
+  body: { dateISO: blockDate, startMinutes: blockStart, endMinutes: blockStart + 60, reason: "Перерыв" },
 });
-assert("перерыв поставлен", block.status === 201 && block.data.block?.reason === "Обед", `status=${block.status}`);
+assert("перерыв поставлен", block.status === 201 && block.data.block?.reason === "Перерыв", `status=${block.status}`);
 
 const slotsAfterBlock = await api(`/masters/${masterSlug}/slots?date=${blockDate}&serviceId=${service.id}`);
 assert(
@@ -225,7 +225,7 @@ assert(
 
 const overlapping = await apiAs(master, "/cabinet/time-blocks", {
   method: "POST",
-  body: { dateISO: blockDate, startMinutes: blockStart + 30, endMinutes: blockStart + 90, reason: "Ещё перерыв" },
+  body: { dateISO: blockDate, startMinutes: blockStart + 30, endMinutes: blockStart + 90, reason: "Личные дела" },
 });
 assert(
   "два перерыва внахлёст не ставятся",
@@ -250,7 +250,7 @@ if (busyVisit) {
       dateISO: busyVisit.dateISO,
       startMinutes: busyVisit.startMinutes,
       endMinutes: busyVisit.startMinutes + Math.min(30, busyVisit.durationMinutes ?? 30),
-      reason: "Поверх визита",
+      reason: "Перерыв",
     },
   });
   assert(
@@ -312,13 +312,15 @@ assert("дашборд не показывает записи всех маст�
 assert("в навигации кабинета нет фантомной вкладки продвижения", !rootText(dashboardPage.dom).includes("Продвижение"));
 dashboardPage.dom.window.close();
 
-const schedulePage = makeDom("/pro/schedule", { session: master });
+const schedulePage = makeDom("/pro/scheduler", { session: master });
 await wait(2400);
 const scheduleText = rootText(schedulePage.dom);
 assert("в расписании есть ручная запись", scheduleText.includes("Записать клиента вручную"), "");
 assert("в расписании нет фильтра «Все мастера»", !scheduleText.includes("Все мастера"));
-assert("в расписании есть кнопка перерыва", scheduleText.includes("Перерыв"), "");
-assert("перерыв недели виден списком", scheduleText.includes("Обед"), "");
+assert("в расписании есть кнопка блокировки времени", scheduleText.includes("Заблокировать время") && scheduleText.includes("Перерыв"), "");
+assert("расписание доступно по пути /pro/scheduler", Boolean(schedulePage.dom.window.document.querySelector("a[href='/pro/scheduler']")));
+assert("в календарной сетке можно выделить интервал", Boolean(schedulePage.dom.window.document.querySelector("[data-scheduler-day]")) && scheduleText.includes("Выделите интервал"));
+assert("перерыв недели виден списком", scheduleText.includes("Перерыв"), "");
 assert(
   "блок перерывов отрисован",
   schedulePage.dom.window.document.querySelector("[data-block='time-blocks']") !== null,
@@ -327,6 +329,35 @@ assert(
 const nextPeriod = schedulePage.dom.window.document.querySelector("button[aria-label='Следующий период']");
 nextPeriod?.click();
 await wait(450);
+
+// Выделяем мышью интервал в сетке: форма подхватывает дату и границы диапазона.
+const schedulerDay = schedulePage.dom.window.document.querySelector("[data-scheduler-day]");
+if (schedulerDay) {
+  schedulerDay.setPointerCapture = () => {};
+  const pointerEvent = (type, clientY) => {
+    const event = new schedulePage.dom.window.MouseEvent(type, { bubbles: true, button: 0, clientY });
+    Object.defineProperty(event, "pointerId", { value: 1 });
+    Object.defineProperty(event, "pointerType", { value: "mouse" });
+    schedulerDay.dispatchEvent(event);
+  };
+  pointerEvent("pointerdown", 1);
+  pointerEvent("pointermove", 55);
+  pointerEvent("pointerup", 55);
+  await wait(150);
+}
+const blockForm = schedulePage.dom.window.document.querySelector("[data-block='time-block-form']");
+assert("выделение интервала открывает форму технического блока", Boolean(blockForm));
+const blockTimes = [...(blockForm?.querySelectorAll("input") ?? [])].map((input) => input.value);
+const blockType = [...(blockForm?.querySelectorAll("select") ?? [])].at(-1);
+assert(
+  "форма содержит интервал длиной один час и два типа блока",
+  blockTimes.length >= 2 && Math.abs(Number(blockTimes[1]?.split(":")[0]) - Number(blockTimes[0]?.split(":")[0])) === 1 &&
+    blockType?.querySelectorAll("option").length === 2 &&
+    [...(blockType?.querySelectorAll("option") ?? [])].some((option) => option.textContent === "Личные дела"),
+  `${blockTimes.join("–")}/${[...(blockType?.querySelectorAll("option") ?? [])].map((option) => option.textContent).join(",")}`,
+);
+click(schedulePage.dom, "Отмена");
+await wait(100);
 
 click(schedulePage.dom, "Записать клиента вручную");
 await wait(600);

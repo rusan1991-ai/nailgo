@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import { and, asc, desc, eq, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { masters, reviews, services, workingHours, bookings } from "../db/schema.js";
+import { masters, locations, reviews, services, workingHours, bookings } from "../db/schema.js";
 import { env } from "../env.js";
 import { scheduleForDay } from "../lib/schedule.js";
 import { isValidISODate, platformTimezone, toISODate } from "../lib/time.js";
@@ -96,6 +96,11 @@ export async function catalogRoutes(app: FastifyInstance) {
     const serviceNeedle = service?.toLowerCase();
 
     const rows = await db.select().from(masters).orderBy(desc(masters.rating));
+    const locationIds = [...new Set(rows.map((master) => master.locationId).filter((id): id is string => Boolean(id)))];
+    const locationRows = locationIds.length
+      ? await db.select({ id: locations.id, lat: locations.lat, lng: locations.lng }).from(locations).where(inArray(locations.id, locationIds))
+      : [];
+    const coordinatesByLocation = new Map(locationRows.map((location) => [location.id, location]));
     const sortBy: MasterSort = sort ?? "rating";
     const freeDateISO = date && isValidISODate(date) ? date : null;
     const filtered = rows
@@ -136,6 +141,7 @@ export async function catalogRoutes(app: FastifyInstance) {
     const avatars = await cartAvatars(sorted.map((master) => master.id));
     const items = [];
     for (const master of sorted) {
+      const location = master.locationId ? coordinatesByLocation.get(master.locationId) : undefined;
       const base = {
         avatarUrl: avatars.get(master.id)?.thumbUrl ?? null,
         avatarFullUrl: avatars.get(master.id)?.url ?? null,
@@ -153,8 +159,11 @@ export async function catalogRoutes(app: FastifyInstance) {
         address: master.address,
         city: master.city,
         region: master.region,
-        lat: master.lat,
-        lng: master.lng,
+        locationId: master.locationId,
+        // Pin coordinates are canonical metro/city directory coordinates, not
+        // free-form address coordinates entered in the profile.
+        lat: location?.lat ?? null,
+        lng: location?.lng ?? null,
         priceFrom: master.priceFrom,
         experience: master.experience,
         rating: master.rating,
@@ -219,8 +228,9 @@ export async function catalogRoutes(app: FastifyInstance) {
    */
   app.get("/cities", async () => {
     const rows = await db
-      .select({ region: masters.region, city: masters.city, lat: masters.lat, lng: masters.lng })
+      .select({ region: masters.region, city: masters.city, lat: locations.lat, lng: locations.lng })
       .from(masters)
+      .leftJoin(locations, eq(masters.locationId, locations.id))
       .where(eq(masters.status, "active"));
 
     const regions = new Map<string, { region: string; count: number; cities: Set<string>; points: { lat: number; lng: number }[] }>();
@@ -274,6 +284,9 @@ export async function catalogRoutes(app: FastifyInstance) {
         .limit(10),
       db.select().from(workingHours).where(eq(workingHours.masterId, master.id)).orderBy(asc(workingHours.weekday)),
     ]);
+    const [location] = master.locationId
+      ? await db.select({ lat: locations.lat, lng: locations.lng }).from(locations).where(eq(locations.id, master.locationId)).limit(1)
+      : [];
 
     return {
       slug: master.slug,
@@ -288,8 +301,9 @@ export async function catalogRoutes(app: FastifyInstance) {
       address: master.address,
       city: master.city,
       region: master.region,
-      lat: master.lat,
-      lng: master.lng,
+      locationId: master.locationId,
+      lat: location?.lat ?? null,
+      lng: location?.lng ?? null,
       priceFrom: master.priceFrom,
       experience: master.experience,
       rating: master.rating,

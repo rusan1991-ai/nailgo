@@ -12,10 +12,10 @@
  */
 import type { FastifyInstance } from "fastify";
 import { randomBytes } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { authFlows, identities, users } from "../db/schema.js";
+import { authFlows, identities, otpCodes, users } from "../db/schema.js";
 import { env } from "../env.js";
 import { requireAuth } from "../lib/auth.js";
 import { findFlow, linkIdentity, signInWithIdentity, unlinkIdentity } from "../lib/identities.js";
@@ -29,6 +29,8 @@ import {
   type MessengerProvider,
 } from "../lib/messengers.js";
 import { channelForUser, CHANNEL_LABELS } from "../lib/notifications.js";
+import { normalizePhone } from "../lib/phone.js";
+import { generateOtpCode, hashOtpCode } from "../lib/otp.js";
 
 /** Текст, который получает человек в мессенджере после подтверждения. */
 const LINK_DONE_TEXT =
@@ -44,9 +46,84 @@ async function reply(provider: MessengerProvider, chatId: string, text: string):
   await sendViaMessenger(provider, chatId, text);
 }
 
+/** Выдаёт OTP только тому Telegram ID, который уже привязан к телефону в аккаунте. */
+async function handleTelegramOtpStart(input: {
+  flow: NonNullable<Awaited<ReturnType<typeof findFlow>>>;
+  profile: { providerUserId: string; displayName: string | null; username: string | null; avatarUrl: string | null };
+  chatId: string;
+}): Promise<{ outcome: string; userId?: string }> {
+  const { flow, profile, chatId } = input;
+  if (flow.status !== "pending") {
+    await reply("telegram", chatId, "Эта ссылка уже использована. Вернитесь на сайт и запросите новый код.");
+    return { outcome: "otp_flow_used" };
+  }
+
+  const phone = flow.returnTo ? normalizePhone(flow.returnTo) : "";
+  const [user] = phone
+    ? await db.select().from(users).where(eq(users.phone, phone)).limit(1)
+    : [];
+  const [identity] = user
+    ? await db
+        .select({ id: identities.id })
+        .from(identities)
+        .where(and(
+          eq(identities.userId, user.id),
+          eq(identities.provider, "telegram"),
+          eq(identities.providerUserId, profile.providerUserId),
+        ))
+        .limit(1)
+    : [];
+
+  if (!user || !identity || user.blockedAt) {
+    await db.update(authFlows).set({ status: "failed", error: "telegram_identity_mismatch" }).where(eq(authFlows.id, flow.id));
+    await reply(
+      "telegram",
+      chatId,
+      "Этот Telegram не подтверждён для указанного номера. Войдите через привязанный способ и подключите Telegram в настройках аккаунта.",
+    );
+    return { outcome: "telegram_identity_mismatch" };
+  }
+
+  // Одноразово захватываем поток до создания и отправки кода: повторный
+  // webhook или два параллельных /start не должны выдать два OTP по одной ссылке.
+  const [claimed] = await db
+    .update(authFlows)
+    .set({ status: "processing" })
+    .where(and(eq(authFlows.id, flow.id), eq(authFlows.status, "pending"), gt(authFlows.expiresAt, new Date())))
+    .returning({ id: authFlows.id });
+  if (!claimed) {
+    await reply("telegram", chatId, "Эта ссылка уже использована или истекла. Запросите новый код на сайте.");
+    return { outcome: "otp_flow_used" };
+  }
+
+  const code = generateOtpCode();
+  await db.update(otpCodes).set({ consumed: true }).where(and(eq(otpCodes.phone, phone), eq(otpCodes.consumed, false)));
+  const [otp] = await db
+    .insert(otpCodes)
+    .values({ phone, codeHash: hashOtpCode(code), expiresAt: new Date(Date.now() + env.otpTtlSeconds * 1000) })
+    .returning({ id: otpCodes.id });
+
+  const sent = await sendViaMessenger(
+    "telegram",
+    chatId,
+    `Nail 2 Go · код входа: ${code}. Действует 5 минут. Никому не сообщайте этот код.`,
+  );
+  if (!sent.ok) {
+    if (otp) await db.update(otpCodes).set({ consumed: true }).where(eq(otpCodes.id, otp.id));
+    await db.update(authFlows).set({ status: "failed", error: "telegram_delivery_failed" }).where(eq(authFlows.id, flow.id));
+    return { outcome: "telegram_delivery_failed" };
+  }
+
+  await db
+    .update(authFlows)
+    .set({ status: "confirmed", userId: user.id, providerUserId: profile.providerUserId, displayName: profile.displayName })
+    .where(and(eq(authFlows.id, flow.id), eq(authFlows.status, "processing")));
+  return { outcome: "otp_sent", userId: user.id };
+}
+
 /**
  * «/start <токен>» — основной сценарий. Возвращает статус для логов и проверок:
- * `linked`, `signed_in`, `unknown_token`, `messenger_busy`, `help`.
+ * `linked`, `signed_in`, `otp_sent`, `unknown_token`, `messenger_busy`, `help`.
  */
 export async function handleBotStart(input: {
   provider: MessengerProvider;
@@ -62,8 +139,20 @@ export async function handleBotStart(input: {
   }
 
   const flow = await findFlow(token);
-  if (!flow || flow.kind !== "bot_link" || flow.provider !== provider) {
-    await reply(provider, chatId, "Ссылка устарела. Откройте кабинет Nail 2 Go и получите новую.");
+  if (!flow || flow.provider !== provider) {
+    await reply(provider, chatId, "Ссылка устарела. Откройте сайт Nail 2 Go и получите новую.");
+    return { outcome: "unknown_token" };
+  }
+
+  if (flow.kind === "telegram_otp") {
+    if (provider !== "telegram") {
+      await reply(provider, chatId, "Код входа доступен только через Telegram.");
+      return { outcome: "wrong_otp_provider" };
+    }
+    return handleTelegramOtpStart({ flow, profile, chatId });
+  }
+  if (flow.kind !== "bot_link") {
+    await reply(provider, chatId, "Ссылка устарела. Откройте сайт Nail 2 Go и получите новую.");
     return { outcome: "unknown_token" };
   }
 

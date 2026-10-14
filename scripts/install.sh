@@ -3,7 +3,7 @@
 # enabled, seeds an empty database; Nginx starts HTTP-only until Certbot issues TLS.
 set -euo pipefail
 
-ENV_FILE=".env.production"
+ENV_FILE="${ENV_FILE:-.env.production}"
 
 command -v docker >/dev/null 2>&1 || { echo "Docker is not installed"; exit 1; }
 docker compose version >/dev/null 2>&1 || { echo "Docker Compose plugin is missing"; exit 1; }

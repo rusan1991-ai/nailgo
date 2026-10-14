@@ -1,0 +1,49 @@
+name: Deployment smoke
+
+on:
+  push:
+    branches:
+      - main
+      - "arena/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deployment-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose-smoke:
+    name: Production Compose (disposable data)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            tools/devcheck/package-lock.json
+            apps/api/package-lock.json
+
+      - name: Install deployment-check dependencies
+        run: npm ci --no-audit --no-fund
+        working-directory: tools/devcheck
+
+      - name: Install API-check dependencies
+        run: npm ci --no-audit --no-fund
+        working-directory: apps/api
+
+      - name: Run static Compose and bootstrap checks
+        run: npm run deployment
+        working-directory: tools/devcheck
+
+      - name: Run disposable Docker Compose smoke test
+        run: bash scripts/compose-smoke.sh

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_FILE=".env.production"
-BACKUP_DIR="backups"
+ENV_FILE="${ENV_FILE:-.env.production}"
+BACKUP_DIR="${BACKUP_DIR:-backups}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 
 if [ ! -f "$ENV_FILE" ]; then

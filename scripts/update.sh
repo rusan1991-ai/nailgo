@@ -2,7 +2,7 @@
 # Back up, rebuild and restart the production stack. Migrations run at API startup.
 set -euo pipefail
 
-ENV_FILE=".env.production"
+ENV_FILE="${ENV_FILE:-.env.production}"
 if [ ! -f "$ENV_FILE" ]; then
   echo "$ENV_FILE not found"
   exit 1

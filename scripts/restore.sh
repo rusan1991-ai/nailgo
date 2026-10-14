@@ -6,7 +6,7 @@ if [ "$#" -ne 1 ]; then
   exit 1
 fi
 
-ENV_FILE=".env.production"
+ENV_FILE="${ENV_FILE:-.env.production}"
 BACKUP_FILE="$1"
 
 if [ ! -f "$ENV_FILE" ]; then

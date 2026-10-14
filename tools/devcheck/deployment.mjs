@@ -17,12 +17,15 @@ assert.deepEqual(Object.keys(parsedCompose.services), services, "Compose YAML mu
 assert.equal(parsedCompose.services.postgres.image, "postgres:17-alpine");
 assert.deepEqual(parsedCompose.services.postgres.volumes[0], "postgres_data:/var/lib/postgresql/data");
 assert.deepEqual(parsedCompose.services["nailgo-backend"].ports[0], "127.0.0.1:4000:4000");
-assert.deepEqual(parsedCompose.services["nailgo-frontend"].ports, ["80:80", "443:443"]);
+assert.deepEqual(parsedCompose.services["nailgo-frontend"].ports, [
+  "${NGINX_HTTP_PORT:-80}:80",
+  "${NGINX_HTTPS_PORT:-443}:443",
+]);
 assert.equal(parsedCompose.services["nailgo-frontend"].build.args.VITE_API_URL, "${VITE_API_URL:-/api}");
 assert.match(compose, /image:\s*postgres:1[6-9][0-9]?-alpine/);
 assert.match(compose, /postgres_data:\/var\/lib\/postgresql\/data/);
 assert.match(compose, /127\.0\.0\.1:4000:4000/);
-assert.match(compose, /"80:80"[\s\S]*"443:443"/);
+assert.match(compose, /"\$\{NGINX_HTTP_PORT:-80\}:80"[\s\S]*"\$\{NGINX_HTTPS_PORT:-443\}:443"/);
 assert.match(compose, /AUTO_SEED_ON_EMPTY:\s*\$\{AUTO_SEED_ON_EMPTY:-true\}/);
 
 const apiDockerfile = read("apps/api/Dockerfile");
@@ -43,10 +46,24 @@ assert.equal((nginx.match(/expires 1y;/g) ?? []).length, 2, "fingerprinted asset
 assert.equal((nginx.match(/add_header Cache-Control "public, no-transform";/g) ?? []).length, 2, "asset cache policy is explicit");
 assert.match(read("infrastructure/nginx/start-nginx.sh"), /tls\.conf\.template/);
 
+for (const script of ["scripts/install.sh", "scripts/update.sh", "scripts/backup.sh", "scripts/restore.sh"]) {
+  assert.match(read(script), /ENV_FILE="\$\{ENV_FILE:-\.env\.production\}"/, `${script} must keep the production default and allow isolated test env files`);
+}
+assert.match(read("scripts/backup.sh"), /BACKUP_DIR="\$\{BACKUP_DIR:-backups\}"/);
+const composeSmoke = read("scripts/compose-smoke.sh");
+assert.match(composeSmoke, /Refusing to overwrite/);
+assert.match(composeSmoke, /RESTORE_DB="\$\{POSTGRES_DB\}_restore"/);
+assert.match(composeSmoke, /down --volumes --remove-orphans/);
+const smokeWorkflow = parse(read(".github/workflows/deployment-smoke.yml"));
+assert.ok(smokeWorkflow.jobs?.["compose-smoke"], "GitHub Actions must define the Compose smoke job");
+assert.ok(smokeWorkflow.jobs["compose-smoke"].steps.some((step) => step.run === "bash scripts/compose-smoke.sh"));
+
 const envExample = read(".env.production.example");
 assert.match(envExample, /^APP_DOMAIN=nail2go\.ru$/m);
 assert.match(envExample, /^HOST=0\.0\.0\.0$/m);
 assert.match(envExample, /^DATABASE_URL=postgresql:\/\/[^\n]+@postgres:5432\//m);
+assert.match(envExample, /^NGINX_HTTP_PORT=80$/m);
+assert.match(envExample, /^NGINX_HTTPS_PORT=443$/m);
 
 const server = read("apps/api/src/server.ts");
 assert.ok(server.indexOf("await runMigrations()") < server.indexOf("seedOnEmptyDatabase()"));

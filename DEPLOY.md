@@ -268,3 +268,15 @@ The bootstrap test uses an isolated temporary PGlite database and removes it whe
 docker compose --env-file .env.production config
 docker compose --env-file .env.production build
 ```
+
+## 8. Disposable production-Compose smoke test
+
+On a Docker-enabled machine or in the `Deployment smoke` GitHub Actions workflow, run:
+
+```bash
+bash scripts/compose-smoke.sh
+```
+
+This test generates temporary credentials and an isolated Compose project, starts the actual production services with Nginx's HTTP bootstrap configuration, checks PostgreSQL migrations and API/Nginx health, restarts the API, runs `scripts/update.sh`, and restores its SQL backup into a separate empty database. It then removes the temporary `.env.production`, containers, network, named volumes and backup files. The script refuses to run if a `.env.production` file already exists; use a disposable checkout and never point it at a production database. It validates the HTTP bootstrap path, not issuance/renewal of a real Let's Encrypt certificate.
+
+The host Nginx ports default to 80 and 443. `NGINX_HTTP_PORT` and `NGINX_HTTPS_PORT` may be set in the environment file for isolated tests or hosts where those ports are already occupied; production defaults remain unchanged.

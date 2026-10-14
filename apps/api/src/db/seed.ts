@@ -26,6 +26,7 @@ import {
   clientFavoriteMasters,
   favorites,
   identities,
+  journalArticles,
   locations,
   magicLinks,
   masterClients,
@@ -576,6 +577,9 @@ export async function seedOnEmptyDatabase(): Promise<
       db.select({ id: masterClients.id }).from(masterClients).limit(1),
       db.select({ id: timeBlocks.id }).from(timeBlocks).limit(1),
       db.select({ id: magicLinks.id }).from(magicLinks).limit(1),
+      // Администраторская статья тоже означает, что БД уже содержит данные:
+      // production bootstrap не должен добавлять демо-аккаунты рядом с ней.
+      db.select({ id: journalArticles.id }).from(journalArticles).limit(1),
     ]);
 
     if (existingRows.some((rows) => rows.length > 0)) {

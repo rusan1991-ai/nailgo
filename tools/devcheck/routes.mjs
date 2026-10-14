@@ -22,6 +22,7 @@ const clientRoutes = [
   "/notifications",
   "/reviews",
   "/journal",
+  "/journal/unknown-article",
   "/account",
   "/settings",
 ];
@@ -40,8 +41,7 @@ const masterRoutes = [
   "/pro/settings",
 ];
 
-// Админка: вход отдельной формой, разделы — обзор, мастера, отзывы, лимиты,
-// доставка и платежи (последние два — этап 9).
+// Админка: вход, мастера, отзывы, лимиты, доставка, платежи и редактор журнала.
 const adminRoutes = [
   "/admin/login",
   "/admin",
@@ -50,6 +50,7 @@ const adminRoutes = [
   "/admin/limits",
   "/admin/deliveries",
   "/admin/payments",
+  "/admin/journal",
 ];
 
 const routes = [

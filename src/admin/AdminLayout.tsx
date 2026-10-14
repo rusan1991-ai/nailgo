@@ -9,11 +9,12 @@ const navItems = [
   { to: "/admin/limits", label: "Лимиты" },
   { to: "/admin/deliveries", label: "Доставка" },
   { to: "/admin/payments", label: "Платежи" },
+  { to: "/admin/journal", label: "Журнал" },
 ];
 
 /**
- * Каркас админки: обзор, мастера, модерация отзывов, лимиты входа, доставка и
- * предоплаты. Все разделы ходят под ролью admin.
+ * Каркас админки: обзор, мастера, модерация отзывов, лимиты входа, доставка,
+ * предоплаты и редактор журнала. Все разделы ходят под ролью admin.
  */
 export function AdminLayout() {
   const { user, signOut } = useAuth();
@@ -23,11 +24,11 @@ export function AdminLayout() {
     <div className="min-h-dvh bg-[#f8f7fb] text-slate-900">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-3">
-          <div className="flex items-center gap-6">
-            <Link to="/admin" className="text-sm font-semibold uppercase tracking-[0.2em] text-pink-500">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <Link to="/admin" className="shrink-0 text-sm font-semibold uppercase tracking-[0.2em] text-pink-500">
               Nail 2 Go · админка
             </Link>
-            <nav className="flex items-center gap-1">
+            <nav className="flex max-w-full flex-wrap items-center gap-1">
               {navItems.map((item) => (
                 <NavLink
                   key={item.to}

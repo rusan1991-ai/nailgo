@@ -24,6 +24,18 @@ try {
   const [location] = await db.select().from(schema.locations).limit(1);
   assert.ok(location, "the test setup should have reference locations before bootstrap");
 
+  // A first admin article is real business data, even before any masters exist;
+  // production bootstrap must not add demo accounts beside it.
+  const [article] = await db
+    .insert(schema.journalArticles)
+    .values({ slug: "bootstrap-check", title: "Bootstrap check", category: "Тест", content: "Тестовая статья" })
+    .returning();
+  const held = await seedOnEmptyDatabase();
+  assert.deepEqual(held, { seeded: false, reason: "database-not-empty" });
+  const mastersBeforeArticleRemoval = await db.select().from(schema.masters);
+  assert.equal(mastersBeforeArticleRemoval.length, 0, "journal content alone should prevent demo bootstrap");
+  await db.delete(schema.journalArticles).where(eq(schema.journalArticles.id, article!.id));
+
   const first = await seedOnEmptyDatabase();
   assert.equal(first.seeded, true, "an empty application database should be seeded");
   if (!first.seeded) throw new Error("bootstrap unexpectedly skipped the empty database");

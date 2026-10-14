@@ -9,11 +9,13 @@ import { AdminMastersPage } from "./admin/pages/AdminMastersPage";
 import { AdminReviewsPage } from "./admin/pages/AdminReviewsPage";
 import { AdminDeliveriesPage } from "./admin/pages/AdminDeliveriesPage";
 import { AdminPaymentsPage } from "./admin/pages/AdminPaymentsPage";
+import { AdminJournalPage } from "./admin/pages/AdminJournalPage";
 import { BookingProvider } from "./bookings/BookingContext";
 import { BookingPage } from "./pages/BookingPage";
 import { FavoritesPage } from "./pages/FavoritesPage";
 import { HomePage } from "./pages/HomePage";
 import { JournalPage } from "./pages/JournalPage";
+import { JournalArticlePage } from "./pages/JournalArticlePage";
 import { LastMinutePage } from "./pages/LastMinutePage";
 import { LoginPage } from "./pages/LoginPage";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage";
@@ -144,6 +146,7 @@ export default function App() {
             <Route path="/last-minute" element={<Navigate to="/last-minute/moskva" replace />} />
             <Route path="/last-minute/:city" element={<LastMinutePage />} />
             <Route path="/journal" element={<JournalPage />} />
+            <Route path="/journal/:slug" element={<JournalArticlePage />} />
             <Route path="/login" element={<LoginPage />} />
             {/* Прямой вход в кабинет мастера; оставляем общий экран с выбранной ролью. */}
             <Route path="/pro/login" element={<LoginPage initialRole="master" />} />
@@ -270,6 +273,7 @@ export default function App() {
               <Route path="limits" element={<AdminLimitsPage />} />
               <Route path="deliveries" element={<AdminDeliveriesPage />} />
               <Route path="payments" element={<AdminPaymentsPage />} />
+              <Route path="journal" element={<AdminJournalPage />} />
             </Route>
             <Route path="/home" element={<Navigate to="/" replace />} />
             {/* Короткая ссылка мастера в корне: /any_nails */}

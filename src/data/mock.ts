@@ -91,13 +91,6 @@ export const reviewFeed = [
   { id: "r3", client: "Дарья С.", score: 5, text: "Сделала наращивание супер, форма идеальная.", date: "15 мая" },
 ];
 
-export const journalCards = [
-  { id: "j1", title: "Тренды маникюра весна 2024", tag: "Статьи" },
-  { id: "j2", title: "Уход за кутикулой", tag: "Уход" },
-  { id: "j3", title: "Как выбрать мастера", tag: "Идеи" },
-  { id: "j4", title: "Идеи летнего маникюра", tag: "Тренды" },
-];
-
 export const upcomingBookings = [
   {
     id: "b1",

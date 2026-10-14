@@ -75,6 +75,11 @@ const seed = read("apps/api/src/db/seed.ts");
 assert.match(seed, /withBootstrapLock\(async \(\) =>/);
 assert.match(seed, /system\.demo_bootstrap\.v1/);
 assert.match(seed, /existingRows\.some\(\(rows\) => rows\.length > 0\)/);
+assert.match(seed, /db\.select\(\{ id: journalArticles\.id \}\)\.from\(journalArticles\)/);
+const journalSchema = read("apps/api/src/db/schema.ts");
+assert.match(journalSchema, /pgTable\(\s*"journal_articles"/);
+assert.match(read("apps/api/src/server.ts"), /register\(journalRoutes\)/);
+assert.match(read("apps/api/src/routes/journal.ts"), /eq\(journalArticles\.status, "published"\)/);
 
 console.log("OK  Compose has exactly three services, persistent Postgres, API and Nginx/TLS");
 console.log("OK  production env, Postgres driver, migrations and guarded bootstrap are wired");

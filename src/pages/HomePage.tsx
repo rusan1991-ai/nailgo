@@ -15,10 +15,13 @@ import { SmartSearchPanel } from "../components/SmartSearchPanel";
 import { useMasterSearch, type MasterSearchItem, type MasterSort } from "../api/search";
 import { useMasterServices } from "../api/masterServices";
 import { formatDateLabel } from "../store/bookings";
+import { useJournal } from "../api/journal";
+import { JournalArticleCard } from "../components/JournalArticleCard";
 
 export function HomePage() {
   const { user } = useAuth();
   const { masters, status: catalogStatus } = useCatalog();
+  const journal = useJournal(null, 3);
   const { region, chosen } = useCity();
   /**
    * Выбранное место живёт в адресе (?metro=… или ?district=…): так ссылку на
@@ -393,6 +396,26 @@ export function HomePage() {
           </motion.aside>
         </section>
       </div>
+
+      {journal.data && journal.data.items.length > 0 && (
+        <section
+          className="mx-auto mt-8 max-w-[1380px] rounded-[26px] border border-[#ffe6ef] bg-white p-5 shadow-sm sm:p-8"
+          data-block="home-journal"
+        >
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-pink-500">Журнал Nail 2 Go</p>
+              <h2 className="mt-1 text-2xl font-semibold text-slate-900">Идеи и уход для ваших ногтей</h2>
+            </div>
+            <Link to="/journal" className="text-sm font-medium text-pink-600 hover:text-pink-700">
+              Все статьи →
+            </Link>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {journal.data.items.map((article) => <JournalArticleCard key={article.id} article={article} />)}
+          </div>
+        </section>
+      )}
     </main>
   );
 }

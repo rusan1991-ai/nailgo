@@ -37,7 +37,8 @@
     "master-crm": "node master-crm.mjs",
     "client-cabinet": "node client-cabinet.mjs",
     "smart-notifications": "node smart-notifications.mjs",
-    "deployment": "node deployment.mjs && npm --prefix ../../apps/api run db:bootstrap-check"
+    "deployment": "node deployment.mjs && npm --prefix ../../apps/api run db:bootstrap-check",
+    "journal": "node journal.mjs"
   },
   "dependencies": {
     "jsdom": "^30.1.2"

@@ -782,6 +782,35 @@ export const magicLinks = pgTable(
   (table) => [index("magic_links_user").on(table.userId, table.createdAt)],
 );
 
+/**
+ * Редакционный журнал платформы. Публичные ручки отдают только published;
+ * черновики и управление доступны только администратору. Текст хранится как
+ * plain text с переносами строк — клиент выводит его экранированным React-ом.
+ */
+export const journalArticles = pgTable(
+  "journal_articles",
+  {
+    id: id(),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    category: text("category").notNull(),
+    excerpt: text("excerpt"),
+    content: text("content").notNull(),
+    coverUrl: text("cover_url"),
+    status: text("status").notNull().default("draft"), // draft | published
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("journal_articles_slug").on(table.slug),
+    index("journal_articles_public").on(table.status, table.publishedAt),
+    index("journal_articles_category").on(table.category),
+  ],
+);
+
+export type JournalArticle = typeof journalArticles.$inferSelect;
 export type MasterClient = typeof masterClients.$inferSelect;
 export type MagicLink = typeof magicLinks.$inferSelect;
 export type TimeBlock = typeof timeBlocks.$inferSelect;

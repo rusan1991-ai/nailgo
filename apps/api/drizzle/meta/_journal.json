@@ -155,6 +155,13 @@
       "when": 1791977986868,
       "tag": "0021_master_booking_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791980342874,
+      "tag": "0022_journal_articles",
+      "breakpoints": true
     }
   ]
 }

@@ -4,8 +4,9 @@
 в ветке `arena/933ce1e5-nailgo`. Этапы 1–6 реализованы. Полный набор из 33 сценариев devcheck,
 TypeScript и production-сборки ранее прошли 2026-10-14. После последнего изменения настроек мастера
 повторно прошли TypeScript, production-сборки фронтенда и API, `bundle`, проверки `stats`, `routes`, `short-links`,
-`media`, `master-crm`, `messengers` и свежая проверка миграций/bootstrap. Docker Compose smoke-test
-остаётся заблокирован: Docker в sandbox отсутствует. Карта сверена с текущим кодом; оставшиеся
+`media`, `master-crm`, `messengers`, `deployment` (статическая проверка Compose/Nginx) и свежая проверка
+миграций/bootstrap; синтаксис shell-скриптов деплоя также проверен. Docker Compose smoke-test остаётся
+заблокирован: в sandbox нет ни Docker, ни альтернативного runtime. Карта сверена с текущим кодом; оставшиеся
 частичные зоны идут раньше новых функций.
 Маршруты взяты из `src/App.tsx`, API — из `apps/api/src/routes/*.ts`.
 
@@ -64,8 +65,8 @@ TypeScript и production-сборки ранее прошли 2026-10-14. Пос
 | Вход и сессия | работает | Яндекс ID и VK ID (OAuth 2.0, VK — с PKCE), Telegram Login Widget и бот-диплинки Telegram/Max; обычный production-конфиг закрывает OTP, но изолированный тестовый режим `DEV_OTP_ENABLED=true` + `OTP_DELIVERY=dev` выдаёт `1234` независимо от `NODE_ENV`. Внешние провайдеры не обязательны для этого режима. Обычный `login` строгий, тестовый `dev_login` отдельный, явная регистрация отдельна. Платных SMS нет; роли `client/master/admin`, JWT с ротацией refresh и сессиями по устройству |
 | Уведомления | работает | роутер каналов `lib/notifications.ts` (заменил `notify.ts` и `reminders.ts`): привязан Telegram — уходит через бота Telegram, иначе Max, иначе событие остаётся в журнале системы; **SMS не отправляются вообще**. В приложении: заявки, подтверждения, отмены, завершения, неявки, переносы, сообщения, отзывы, подсказка «привяжите мессенджер»; клиентские настройки сохраняют свои категории, а мастер может выключить только новые заявки в собственной ленте. Внешняя доставка при этом не глушится. Тексты о времени собираются в поясе мастера. Наружу — очередь `deliveries` с транспортами `auto` (по каналу), `log` и `webhook`; сбой канала не теряет сообщение |
 | Демо-данные | работает | `npm run db:reset` локально, `POST /cabinet/demo/reset` в dev; в сидах 4 мастера (три в Санкт-Петербурге, один во Всеволожске), 40 услуг, 22 записи (прошедшие — завершены, есть заявка в ожидании), 9 отзывов, 3 диалога, аккаунты мастера и администратора; все даты считаются от текущего дня, а не прибиты к фиксированной неделе |
-| Деплой | конфигурация готова; Docker-образы не запускались в sandbox | `Dockerfile.frontend` (Vite + Nginx), `apps/api/Dockerfile`, корневой `docker-compose.yml` (postgres, nailgo-backend, nailgo-frontend), persistent volumes, Let's Encrypt bootstrap, скрипты install/update/backup/restore, `DEPLOY.md`. API выбирает `pg` при `postgresql://`, мигрирует при старте и однократно seed-ит только пустую БД; проверено `tsc`, Vite build и `tools/devcheck` bootstrap-check. `docker` в sandbox не установлен |
-| Проверки | работает | 33 сценария devcheck + `bundle` и статические mobile-layout checks; полный набор прошёл перед текущей порцией. Для настроек мастера дополнительно прошли `stats` (API и UI уведомлений/часов), `routes`, `short-links`, `media`, `master-crm`, `messengers`, TypeScript, `bundle`, API build и `db:bootstrap-check` на чистой БД. Production OTP ранее отдельно проверен под `NODE_ENV=production` на PGlite. Docker Compose smoke-test здесь не запускался |
+| Деплой | конфигурация статически проверена; Docker-образы не запускались в sandbox | `Dockerfile.frontend` (Vite + Nginx), `apps/api/Dockerfile`, корневой `docker-compose.yml` (postgres, nailgo-backend, nailgo-frontend), persistent volumes, Let's Encrypt bootstrap, скрипты install/update/backup/restore, `DEPLOY.md`. `npm run deployment` проверил Compose YAML, Nginx, production env и bootstrap; `bash -n` прошёл для install/update/backup/restore. API выбирает `pg` при `postgresql://`, мигрирует при старте и однократно seed-ит только пустую БД. Smoke-test реальных контейнеров/health-check/backup/restore не проведён: в sandbox нет `docker`, `podman` или другого runtime |
+| Проверки | работает | 33 сценария devcheck + `bundle` и статические mobile-layout checks; полный набор прошёл перед текущей порцией. Для настроек мастера прошли `stats` (API и UI уведомлений/часов), `routes`, `short-links`, `media`, `master-crm`, `messengers`, TypeScript, production-сборки, `bundle` и bootstrap на чистой БД. Для деплоя прошёл `npm run deployment` (Compose/Nginx/env/bootstrap) и `bash -n` для shell-скриптов. Production OTP ранее отдельно проверен под `NODE_ENV=production` на PGlite. Реальные контейнеры, health-check и backup/restore требуют Docker, которого нет в sandbox |
 
 ## 4. Чего нет вообще
 
@@ -330,8 +331,7 @@ TypeScript и production-сборки ранее прошли 2026-10-14. Пос
    API; статические «бонусы» и демо-статьи удалены, добавлены ссылки на реальные настройки,
    портфолио и услуги. Проверки `master-crm` и `routes`.
 3. **Настройки мастера — активная часть закрыта 2026-10-14.** `masters.notify_new_bookings` и `PATCH /cabinet/profile` сохраняют предпочтение под владельцем из сессии; `notifyStudio` применяет его только к новым заявкам в ленте кабинета, внешняя доставка и остальные события остаются независимыми. Сохранение профиля, часов и уведомлений разделено по вкладкам. Оставлены только работающие пункты: профиль, часы, уведомления и мессенджеры; фиктивные онлайн-настройки, язык и placeholder-меню удалены. Фото открываются в существующей галерее `/pro/media`, экспорт переименован в экспорт записей, demo-reset показан только в dev (серверный роут возвращает 403 вне dev). Удаление аккаунта мастера и полный экспорт не входят в активный экран и отмечены как отдельные отсутствующие функции. Проверки: расширенный `stats`, `routes`, `short-links`, `media`, `master-crm`, `messengers`.
-4. **Эксплуатация — блокируется средой.** Нужен production Compose smoke-test на закрытом сервере: обновление образов,
-   старт миграций, health-check, резервную копию и восстановление. В sandbox Docker не установлен; сначала выполнить эту проверку, затем переходить к этапу 8.
+4. **Эксплуатация — частично проверена; runtime smoke-test блокируется средой.** `npm run deployment` проверяет Compose YAML, Nginx, production env, миграции и bootstrap; `bash -n` проходит для install/update/backup/restore. Осталось на Docker-enabled сервере собрать и поднять production Compose, проверить health-check, затем создать/восстановить backup. В sandbox нет Docker/Podman/runtime; сначала выполнить этот smoke-test, затем переходить к этапу 8.
 
 ### Этап 8. Журнал — функция отсутствует полностью
 
@@ -409,6 +409,10 @@ npm run master-crm                         # CRM, ручная запись и �
 npm run analytics                          # чистая выручка, услуги/категории и scope мастера
 npm run client-cabinet                     # визиты, повторная запись и серверная отмена за 6 часов
 npm run smart-notifications                # авторегистрация, magic-вход, лоадер и шаринг сообщений
+npm run deployment                         # статическая проверка Compose/Nginx/env и чистой БД
 ```
+
+`deployment` не запускает Docker. На сервере с Docker отдельно выполнить по `DEPLOY.md` production Compose,
+health-check, backup и restore; только этот runtime smoke-test закроет этап 7 полностью.
 
 Проверки самодостаточны: каждая начинает со сброса демо-данных и не зависит от прошлых прогонов.

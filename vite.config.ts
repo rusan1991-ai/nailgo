@@ -2,6 +2,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import postcssCascadeLayers from "@csstools/postcss-cascade-layers";
 import { defineConfig } from "vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
 
@@ -18,6 +19,25 @@ const allowedHosts = (process.env.VITE_ALLOWED_HOSTS ?? "")
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), viteSingleFile()],
+  // Tailwind v4 emits cascade layers. Safari/iOS before 15.4 ignores @layer,
+  // which drops most utility CSS. Flatten layers after Tailwind has generated
+  // the complete stylesheet and before vite-plugin-singlefile inlines it.
+  css: {
+    postcss: {
+      plugins: [postcssCascadeLayers()],
+    },
+  },
+  build: {
+    // Keep the application parseable by iOS 14+ / Safari 14+ WebKit.
+    target: ["es2020", "edge88", "firefox78", "chrome87", "safari14", "ios14"],
+    // CSS minification target; cascade-layer compatibility is handled above.
+    cssTarget: "safari14",
+  },
+  // Safari 14 supports object/array destructuring, but esbuild's target table
+  // currently marks it as unsupported and otherwise refuses to transpile it.
+  esbuild: {
+    supported: { destructuring: true },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),

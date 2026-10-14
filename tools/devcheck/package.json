@@ -5,6 +5,7 @@
   "description": "Проверки интерфейса Nail 2 Go без браузера: bundle esbuild + render jsdom против живого API.",
   "scripts": {
     "bundle": "node bundle.mjs",
+    "webkit-build": "node webkit-build.mjs",
     "routes": "node routes.mjs",
     "e2e": "node e2e.mjs",
     "data": "node cabinet-data.mjs",

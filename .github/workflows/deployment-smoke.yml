@@ -30,8 +30,16 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: |
+            package-lock.json
             tools/devcheck/package-lock.json
             apps/api/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Check legacy WebKit production build
+        run: npm run webkit-build
+        working-directory: tools/devcheck
 
       - name: Install deployment-check dependencies
         run: npm ci --no-audit --no-fund

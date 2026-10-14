@@ -13,6 +13,7 @@ npm run dev                                # Vite на 5173, /api проксир
 # проверки (из каталога tools/devcheck, там же один раз npm install)
 cd tools/devcheck
 npm run bundle                             # сборка приложения в bundle.js
+npm run webkit-build                       # production build + inline CSS check for Safari/iOS 14+
 npm run routes                             # рендер всех маршрутов
 npm run e2e                                # сквозной сценарий «мастер ↔ клиент»
 npm run master-crm                         # база клиентов, ручная запись, перерывы

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { BadgeCheck, Check, Plus } from "lucide-react";
+import { BadgeCheck, Plus } from "lucide-react";
 import { Card, CardTitle, Chip, PersonAvatar, PrimaryButton, GhostButton } from "../components/ui";
-import { journalArticles, profileCompletion, formatRub } from "../data";
+import { formatRub } from "../data";
 import { useCabinetClients, useCabinetStats } from "../../api/cabinet";
 import { useCabinetProfile } from "../../api/profile";
 import { AppointmentModal } from "../components/AppointmentModal";
@@ -166,21 +166,20 @@ export function DashboardPage() {
           </Link>
         </Card>
 
-        <Card>
-          <CardTitle>Заполненность профиля</CardTitle>
-          <ul className="space-y-4">
-            {profileCompletion.map((item) => (
-              <li key={item.title} className="flex items-start gap-3">
-                <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-emerald-100 text-emerald-600">
-                  <Check className="h-3.5 w-3.5" />
-                </span>
-                <div>
-                  <p className="text-sm text-slate-700">{item.title}</p>
-                  <p className="text-xs text-slate-400">{item.bonus}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+        <Card data-block="profile-actions">
+          <CardTitle>Профиль и витрина</CardTitle>
+          <p className="text-sm text-slate-500">Обновите страницу мастера, портфолио или список услуг.</p>
+          <div className="mt-4 grid gap-2">
+            <Link to="/pro/settings" data-action="dashboard-profile-settings" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:border-rose-200 hover:bg-rose-50">
+              Настроить профиль
+            </Link>
+            <Link to="/pro/media" data-action="dashboard-profile-media" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:border-rose-200 hover:bg-rose-50">
+              Добавить фото и работы
+            </Link>
+            <Link to="/pro/services" data-action="dashboard-profile-services" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:border-rose-200 hover:bg-rose-50">
+              Обновить услуги и цены
+            </Link>
+          </div>
         </Card>
       </div>
 
@@ -218,43 +217,43 @@ export function DashboardPage() {
           </Link>
         </Card>
 
-        <div className="grid gap-4">
-          <Card padded={false} className="relative overflow-hidden">
-            <div className="relative h-52 bg-[linear-gradient(120deg,#f6d9e4_0%,#f3c6d4_35%,#e9b7c8_60%,#f7e3ea_100%)]">
-              <span className="absolute -left-6 top-6 h-24 w-24 rounded-full bg-white/40 blur-2xl" />
-              <span className="absolute right-10 top-2 h-32 w-32 rounded-full bg-white/30 blur-3xl" />
-              <span className="absolute bottom-0 right-0 h-40 w-40 rounded-full bg-[#dda8bd]/60 blur-2xl" />
-              <div className="absolute inset-0 flex flex-col justify-end gap-3 p-6">
-                <h2 className="text-2xl font-semibold text-white drop-shadow-sm">Тренды маникюра весна 2024</h2>
-                <GhostButton className="w-fit !border-white/60 !bg-white/10 !text-white backdrop-blur hover:!bg-white/20">
-                  Читать статью
-                </GhostButton>
-              </div>
-            </div>
-          </Card>
-
-          <div className="grid gap-4 sm:grid-cols-3">
-            {journalArticles.map((article, index) => (
-              <Card key={article.id} padded={false} className="overflow-hidden">
-                <div
-                  className="h-24"
-                  style={{
-                    background:
-                      index % 3 === 0
-                        ? "linear-gradient(135deg,#f8c6d8,#f9e3ec)"
-                        : index % 3 === 1
-                          ? "linear-gradient(135deg,#eec8bc,#f5e2d8)"
-                          : "linear-gradient(135deg,#cdd9f2,#e8eefb)",
-                  }}
-                />
-                <div className="p-4">
-                  <p className="text-sm font-medium leading-snug text-slate-800">{article.title}</p>
-                  <p className="mt-1 text-xs text-slate-400">{article.lead}</p>
+        <Card data-block="dashboard-profile">
+          <CardTitle>Профиль мастера</CardTitle>
+          {profile ? (
+            <>
+              <div className="flex items-center gap-3">
+                <PersonAvatar name={profile.profile.name || "Мастер"} size={44} />
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-slate-800">{profile.profile.name || "Имя не указано"}</p>
+                  <p className="truncate text-sm text-slate-500">
+                    {profile.profile.locationName || "Локация не выбрана"}
+                  </p>
                 </div>
-              </Card>
-            ))}
-          </div>
-        </div>
+                <p className="ml-auto shrink-0 text-sm text-slate-600">
+                  <span className="font-medium text-yellow-500">★ {profile.profile.rating}</span>
+                  <span className="ml-1 text-slate-400">({profile.profile.reviewsCount})</span>
+                </p>
+              </div>
+              <p className="mt-4 line-clamp-3 text-sm text-slate-500">
+                {profile.profile.about.trim() || "Описание пока не добавлено."}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Link
+                  to={profile.profile.publicPath || `/master/${profile.profile.slug}`}
+                  data-action="dashboard-open-storefront"
+                  className="text-sm font-medium text-rose-600 hover:text-rose-700"
+                >
+                  Открыть витрину →
+                </Link>
+                <Link to="/pro/settings" className="text-sm font-medium text-slate-500 hover:text-slate-700">
+                  Редактировать профиль
+                </Link>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-slate-500">Загружаем профиль мастера…</p>
+          )}
+        </Card>
       </div>
       <AppointmentModal open={modalOpen} onClose={() => setModalOpen(false)} />
     </div>

@@ -306,10 +306,14 @@ clientsPage.dom.window.close();
 
 const dashboardPage = makeDom("/pro/dashboard", { session: master });
 await wait(1600);
-assert("дашборд показывает фокус с сегодняшней датой", rootText(dashboardPage.dom).includes("Фокус на сегодня") && Boolean(dashboardPage.dom.window.document.querySelector("[data-block='today-focus']")));
+const dashboardText = rootText(dashboardPage.dom);
+assert("дашборд показывает фокус с сегодняшней датой", dashboardText.includes("Фокус на сегодня") && Boolean(dashboardPage.dom.window.document.querySelector("[data-block='today-focus']")));
 assert("дашборд показывает ленту ближайших визитов сегодня", Boolean(dashboardPage.dom.window.document.querySelector("[data-block='today-appointments']")));
-assert("дашборд не показывает записи всех мастеров", !rootText(dashboardPage.dom).includes("Все мастера"));
-assert("в навигации кабинета нет фантомной вкладки продвижения", !rootText(dashboardPage.dom).includes("Продвижение"));
+assert("дашборд не показывает записи всех мастеров", !dashboardText.includes("Все мастера"));
+assert("профиль на дашборде совпадает с API текущего мастера", Boolean(dashboardPage.dom.window.document.querySelector("[data-block='dashboard-profile']")) && dashboardText.includes(profile.data.profile.name));
+assert("вместо вымышленных бонусов есть работающие быстрые ссылки", ["/pro/settings", "/pro/media", "/pro/services"].every((href) => dashboardPage.dom.window.document.querySelector(`[data-block='profile-actions'] a[href='${href}']`)));
+assert("на дашборде не показываются демо-статьи и бонусы", !dashboardText.includes("Тренды маникюра весна 2024") && !dashboardText.includes("+10% к просмотрам"));
+assert("в навигации кабинета нет фантомной вкладки продвижения", !dashboardText.includes("Продвижение"));
 dashboardPage.dom.window.close();
 
 const schedulePage = makeDom("/pro/scheduler", { session: master });
@@ -381,6 +385,10 @@ assert(
 );
 click(schedulePage.dom, "Отмена");
 await wait(100);
+// Вернуться с проверочной следующей недели: seeded pending/confirmed записи
+// лежат в текущей неделе, а не должны зависеть от того, когда запустили тест.
+schedulePage.dom.window.document.querySelector("button[aria-label='Предыдущий период']")?.click();
+await wait(450);
 
 click(schedulePage.dom, "Записать клиента вручную");
 await wait(600);

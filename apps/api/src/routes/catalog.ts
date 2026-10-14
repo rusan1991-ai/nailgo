@@ -96,6 +96,19 @@ export async function catalogRoutes(app: FastifyInstance) {
     const serviceNeedle = service?.toLowerCase();
 
     const rows = await db.select().from(masters).orderBy(desc(masters.rating));
+    const searchableServices = needle
+      ? await db
+          .select({ masterId: services.masterId, name: services.name })
+          .from(services)
+          .where(eq(services.active, true))
+      : [];
+    const serviceNamesByMaster = new Map<string, string>();
+    for (const service of searchableServices) {
+      serviceNamesByMaster.set(
+        service.masterId,
+        `${serviceNamesByMaster.get(service.masterId) ?? ""} ${service.name}`.trim(),
+      );
+    }
     const locationIds = [...new Set(rows.map((master) => master.locationId).filter((id): id is string => Boolean(id)))];
     const locationRows = locationIds.length
       ? await db.select({ id: locations.id, lat: locations.lat, lng: locations.lng }).from(locations).where(inArray(locations.id, locationIds))
@@ -109,7 +122,7 @@ export async function catalogRoutes(app: FastifyInstance) {
         .filter((master) => master.status === "active")
         .filter((master) => {
           if (needle) {
-            const haystack = `${master.name} ${master.tags} ${master.metro}`.toLowerCase();
+            const haystack = `${master.name} ${master.tags} ${master.metro} ${serviceNamesByMaster.get(master.id) ?? ""}`.toLowerCase();
             if (!haystack.includes(needle)) return false;
           }
           if (serviceNeedle && !master.tags.toLowerCase().includes(serviceNeedle)) return false;

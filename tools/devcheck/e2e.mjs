@@ -147,19 +147,27 @@ assert(
 cabinetAfterComplete.dom.window.close();
 
 /* 3.6 Клиентская заявка «ожидает» — мастер подтверждает её из кабинета */
-// Слоты перезапрашиваем: список, полученный до создания записи мастера, уже
-// устарел, а API обязан убрать занятое время из свободных (анти-овербукинг).
-const freshSlots = await api(`/masters/anna-smirnova/slots?date=${DATE}&serviceId=${service.id}`);
-const freshLabels = freshSlots.data.slots.map((item) => item.label);
-assert("занятое окно исчезло из свободных", !freshLabels.includes(slot), `занято ${slot}`);
+// Для клиентской отмены выбираем следующий рабочий день: правило разрешает
+// её строго более чем за 6 часов, поэтому тест не зависит от времени запуска.
+const clientDate = nextWorkingISO(1);
+const clientDateSlots = await api(`/masters/anna-smirnova/slots?date=${clientDate}&serviceId=${service.id}`);
+const clientDateLabels = clientDateSlots.data.slots.map((item) => item.label);
+const sameDaySlots = await api(`/masters/anna-smirnova/slots?date=${DATE}&serviceId=${service.id}`);
+assert(
+  "занятое окно исчезло из свободных",
+  !sameDaySlots.data.slots.map((item) => item.label).includes(slot),
+  `занято ${slot}`,
+);
 
-const clientSlot = freshLabels.find((label) => allowed.has(label) && label !== slot);
+const clientSlot = clientDateLabels.find((label) => allowed.has(label));
+if (!clientSlot) throw new Error(`нет свободного окна для отмены на ${clientDate}`);
+console.log(`Окно для проверки клиентской отмены: ${clientDate} ${clientSlot} (более чем за 6 часов)`);
 const requested = await api("/bookings", {
   method: "POST",
   body: {
     masterSlug: "anna-smirnova",
     serviceId: service.id,
-    dateISO: DATE,
+    dateISO: clientDate,
     startMinutes: Number(clientSlot.slice(0, 2)) * 60 + Number(clientSlot.slice(3)),
     clientName: "Тест Клиент",
     clientPhone: PHONE,
@@ -175,7 +183,7 @@ clickIn(pendingRow, "Действия с записью");
 await wait(200);
 clickIn(pendingRow, "Подтвердить");
 await wait(1500);
-const confirmedInDb = await apiAs(masterSession, `/cabinet/bookings?from=${DATE}&to=${DATE}`);
+const confirmedInDb = await apiAs(masterSession, `/cabinet/bookings?from=${clientDate}&to=${clientDate}`);
 const confirmed = confirmedInDb.data.items.find((item) => item.id === requested.data.booking.id);
 assert("подтверждение дошло до базы", confirmed?.status === "confirmed", confirmed?.status);
 cabinetForConfirm.dom.window.close();
@@ -250,7 +258,7 @@ const article = [...account.dom.window.document.querySelectorAll("article")].fin
 const cancelButton = article
   ? [...article.querySelectorAll("button")].find((button) => button.textContent.includes("Отменить"))
   : null;
-assert("карточка нашей записи найдена и в ней есть отмена", Boolean(cancelButton), `${DATE} ${clientSlot}`);
+assert("карточка нашей записи найдена и в ней есть отмена", Boolean(cancelButton), `${clientDate} ${clientSlot}`);
 cancelButton?.click();
 await wait(1500);
 const stillUpcoming = [...account.dom.window.document.querySelectorAll("article")].some(sameBooking);
@@ -279,7 +287,7 @@ assert(
 
 const cabinetAfter = await apiAs(
   masterSession,
-  `/cabinet/bookings?status=cancelled&from=${DATE}&to=${DATE}`,
+  `/cabinet/bookings?status=cancelled&from=${clientDate}&to=${clientDate}`,
 );
 assert(
   "кабинет мастера видит отмену",

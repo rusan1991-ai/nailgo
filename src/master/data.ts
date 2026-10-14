@@ -129,18 +129,6 @@ export const weekAppointments: Appointment[] = [
 
 
 
-export const profileCompletion = [
-  { title: "Заполните портфолио", bonus: "+10% к просмотрам" },
-  { title: "Добавьте сертификаты", bonus: "+10% к доверию" },
-  { title: "Получите больше отзывов", bonus: "+20% к рейтингу" },
-];
-
-export const journalArticles = [
-  { id: "j1", title: "Уход за кутикулой в домашних условиях", lead: "Витамины для ногтей, масла" },
-  { id: "j2", title: "Как выбрать своего мастера", lead: "Советы новичкам, отзывы" },
-  { id: "j3", title: "Идеи летнего маникюра", lead: "Модные оттенки" },
-];
-
 export type BookingRow = {
   id: string;
   date: string;

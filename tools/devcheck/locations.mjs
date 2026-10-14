@@ -11,7 +11,7 @@
  *   cd tools/devcheck && node bundle.mjs && npm run locations
  */
 import fs from "node:fs";
-import { api, apiAs, check, loginMaster, makeDom, rootText, wait } from "./harness.mjs";
+import { api, apiAs, check, loginMaster, makeDom, rootText, setField, wait } from "./harness.mjs";
 
 let failures = 0;
 const assert = (label, ok, extra = "") => {
@@ -266,6 +266,83 @@ assert(
     homeMapSlugs.every((slug) => homeCatalogSlugs.includes(slug)),
   `карточки=${homeCatalogSlugs.join(",")}; карта=${homeMapSlugs.join(",")}`,
 );
+
+// Правая карточка главной всегда относится к первому мастеру той же выдачи;
+// услуги и ближайшие окна берутся из его публичных API-данных.
+const showcase = homeWindow.document.querySelector("[data-block='home-showcase']");
+const showcaseSlug = showcase?.getAttribute("data-showcase-master");
+assert(
+  "витрина справа использует первого мастера текущей выдачи",
+  Boolean(showcaseSlug) && showcaseSlug === homeCatalogSlugs[0],
+  `карточка=${showcaseSlug}; первый результат=${homeCatalogSlugs[0]}`,
+);
+
+const homeSource = fs.readFileSync(new URL("../../src/pages/HomePage.tsx", import.meta.url), "utf8");
+assert(
+  "главная не содержит закреплённого мастера и демо-недели",
+  !homeSource.includes("anna-smirnova") && !homeSource.includes("demoWeek"),
+);
+assert(
+  "прайс боковой карточки загружается по slug выбранного мастера",
+  homeSource.includes("useMasterServices(showcaseMaster?.slug)"),
+);
+
+if (showcaseSlug) {
+  const showcaseServicesResponse = await api(`/masters/${encodeURIComponent(showcaseSlug)}/services`);
+  const shownServiceIds = [...homeWindow.document.querySelectorAll("[data-block='home-showcase'] [data-master-service]")]
+    .map((node) => node.getAttribute("data-master-service"));
+  const expectedServiceIds = (showcaseServicesResponse.data?.items ?? []).slice(0, 6).map((item) => item.id);
+  assert(
+    "услуги боковой карточки соответствуют прайсу этого мастера",
+    showcaseServicesResponse.status === 200 && JSON.stringify(shownServiceIds) === JSON.stringify(expectedServiceIds),
+    `показано=${shownServiceIds.join(",")}; API=${expectedServiceIds.join(",")}`,
+  );
+
+  const homeCatalogWithWindows = await api("/masters?metro=mayakovskaya&windows=1");
+  const apiShowcase = homeCatalogWithWindows.data.items.find((item) => item.slug === showcaseSlug);
+  const shownWindows = [...homeWindow.document.querySelectorAll("[data-block='home-showcase'] [data-showcase-window]")]
+    .map((node) => node.getAttribute("data-showcase-window"));
+  const expectedWindows = (apiShowcase?.nextWindows ?? []).slice(0, 4).map((item) => `${item.dateISO}:${item.label}`);
+  assert(
+    "окна боковой карточки совпадают с живыми окнами API",
+    JSON.stringify(shownWindows) === JSON.stringify(expectedWindows),
+    `показано=${shownWindows.join(",")}; API=${expectedWindows.join(",")}`,
+  );
+
+  const searchableService = expectedServiceIds[0]
+    ? showcaseServicesResponse.data.items.find((item) => item.id === expectedServiceIds[0])
+    : undefined;
+  if (searchableService) {
+    const searchApi = await api(`/masters?query=${encodeURIComponent(searchableService.name)}&metro=mayakovskaya`);
+    assert(
+      "поиск по названию услуги находит мастера через API",
+      searchApi.status === 200 && searchApi.data.items.some((item) => item.slug === showcaseSlug),
+      `услуга=${searchableService.name}; найдено=${searchApi.data.items.map((item) => item.slug).join(",")}`,
+    );
+
+    const queryHome = makeDom(`/?metro=mayakovskaya&query=${encodeURIComponent(searchableService.name)}`);
+    await wait(1500);
+    const queryInput = queryHome.window.document.querySelector("input[aria-label='Услуга, мастер или метро']");
+    const queryShowcase = queryHome.window.document.querySelector("[data-block='home-showcase']")?.getAttribute("data-showcase-master");
+    assert("поле поиска восстанавливает запрос из URL", queryInput?.value === searchableService.name, queryInput?.value ?? "поля нет");
+    assert(
+      "поиск на главной показывает результат серверного поиска",
+      queryShowcase === showcaseSlug,
+      `показано=${queryShowcase}; ожидается=${showcaseSlug}`,
+    );
+
+    setField(queryHome.dom, "Услуга, мастер, метро", "запрос-которого-точно-нет");
+    queryInput?.closest("form")?.dispatchEvent(new queryHome.window.Event("submit", { bubbles: true, cancelable: true }));
+    await wait(900);
+    assert(
+      "кнопка «Найти» отправляет введённый текст в URL и API-выдачу",
+      queryHome.window.location.search.includes("query=%D0%B7%D0%B0%D0%BF%D1%80%D0%BE%D1%81") &&
+        rootText(queryHome.dom).includes("мастеров не найдено"),
+      `${queryHome.window.location.search} · ${rootText(queryHome.dom).slice(0, 140)}`,
+    );
+    queryHome.dom.window.close();
+  }
+}
 
 // Ссылка на витрину с местом: ?metro=… открывается тем же фильтром.
 const link = homeWindow.document.querySelector("[data-place='list-district:vsevolozhsk']");

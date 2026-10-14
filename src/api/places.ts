@@ -39,6 +39,7 @@ export type PlaceSalon = {
   location: { id: string; slug: string; name: string; kind: string; region: string } | null;
   timezone: string;
   active: boolean;
+  isPrimary?: boolean;
   role: SalonMemberRole | SalonNetworkRole;
   canManageTeam?: boolean;
   team?: PlaceTeamMember[];

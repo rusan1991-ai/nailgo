@@ -3,6 +3,13 @@ import { api } from "./client";
 import { useApiResource, type Resource } from "./resource";
 
 export type FavoriteWindow = {
+  workspaceId: string;
+  workspaceName: string;
+  salonName: string;
+  locationId: string | null;
+  locationName: string | null;
+  locationRegion: string | null;
+  timezone: string;
   dateISO: string;
   startMinutes: number;
   label: string;

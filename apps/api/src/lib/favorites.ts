@@ -13,6 +13,7 @@ import { bookings, clientFavoriteMasters, masters, notifications, services, user
 import { notifyClient } from "./notifications.js";
 import { normalizePhone } from "./phone.js";
 import { formatMinutes } from "./time.js";
+import { resolveMasterWorkspace, workspaceDisplayName } from "./workspaces.js";
 
 /** Не чаще одного «горящего окна» на клиента в 6 часов. */
 export const WINDOW_COOLDOWN_HOURS = 6;
@@ -53,12 +54,17 @@ export async function masterById(masterId: string) {
  */
 export async function notifyFavoritesAboutWindow(params: {
   masterId: string;
+  workspaceId?: string;
   dateISO: string;
   startMinutes: number;
   excludePhone?: string | null;
 }): Promise<number> {
   const master = await masterById(params.masterId);
   if (!master) return 0;
+  const workspace = params.workspaceId
+    ? await resolveMasterWorkspace(master.id, params.workspaceId, { preferredSalonId: master.salonId, requireActive: false })
+    : null;
+  const placeLabel = workspace ? `${workspaceDisplayName(workspace)} · ` : "";
 
   const owners = await favoriteOwners(params.masterId);
   if (owners.length === 0) return 0;
@@ -111,7 +117,7 @@ export async function notifyFavoritesAboutWindow(params: {
     await notifyClient(owner.phone ?? "", {
       type: "favorite_slot",
       title: "Освободилось окно у вашего мастера",
-      body: `${master.name} · ${windowText(params.dateISO, params.startMinutes)} — успейте записаться`,
+      body: `${master.name} · ${placeLabel}${windowText(params.dateISO, params.startMinutes)} — успейте записаться`,
     }, owner.userId);
     sent += 1;
   }

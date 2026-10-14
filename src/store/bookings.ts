@@ -27,6 +27,14 @@ export type Booking = {
   source: BookingSource;
   masterSlug: string;
   masterName: string;
+  workspaceId?: string;
+  workspaceName?: string | null;
+  salonId?: string | null;
+  salonName?: string | null;
+  locationId?: string | null;
+  locationName?: string | null;
+  locationRegion?: string | null;
+  timezone?: string;
   serviceId: string;
   serviceName: string;
   durationMinutes: number;
@@ -52,6 +60,7 @@ export type Booking = {
 };
 
 type NewBookingFields = {
+  workspaceId?: string;
   serviceId: string;
   dateISO: string;
   startMinutes: number;
@@ -190,6 +199,14 @@ type ApiBooking = {
   id: string;
   masterSlug: string;
   masterName: string;
+  workspaceId?: string;
+  workspaceName?: string | null;
+  salonId?: string | null;
+  salonName?: string | null;
+  locationId?: string | null;
+  locationName?: string | null;
+  locationRegion?: string | null;
+  timezone?: string;
   serviceId: string;
   serviceName: string;
   durationMinutes: number;
@@ -214,6 +231,14 @@ function mapBooking(item: ApiBooking): Booking {
     source: item.source,
     masterSlug: item.masterSlug,
     masterName: item.masterName,
+    workspaceId: item.workspaceId,
+    workspaceName: item.workspaceName,
+    salonId: item.salonId,
+    salonName: item.salonName,
+    locationId: item.locationId,
+    locationName: item.locationName,
+    locationRegion: item.locationRegion,
+    timezone: item.timezone,
     serviceId: item.serviceId,
     serviceName: item.serviceName,
     durationMinutes: item.durationMinutes,
@@ -331,6 +356,7 @@ export async function createBooking(input: NewBookingInput): Promise<{ booking: 
     // с авторизованным пользователем.
     masterSlug: input.masterSlug,
     ...(isMasterBooking && input.masterId ? { masterId: input.masterId } : {}),
+    ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
     serviceId: input.serviceId,
     dateISO: input.dateISO,
     startMinutes: input.startMinutes,
@@ -423,7 +449,7 @@ export async function noShowBooking(id: string): Promise<{ blacklisted: boolean;
 async function applyReschedule(
   id: string,
   path: string,
-  input: { dateISO: string; startMinutes: number },
+  input: { workspaceId?: string; dateISO: string; startMinutes: number },
 ): Promise<Booking> {
   const requestScope = ownerScope;
   const requestVersion = scopeVersion;
@@ -435,13 +461,13 @@ async function applyReschedule(
   return booking;
 }
 
-export async function rescheduleBooking(id: string, input: { dateISO: string; startMinutes: number }): Promise<Booking> {
+export async function rescheduleBooking(id: string, input: { workspaceId?: string; dateISO: string; startMinutes: number }): Promise<Booking> {
   return applyReschedule(id, `/bookings/${id}/reschedule`, input);
 }
 
 export async function rescheduleBookingAsMaster(
   id: string,
-  input: { dateISO: string; startMinutes: number },
+  input: { workspaceId?: string; dateISO: string; startMinutes: number },
 ): Promise<Booking> {
   return applyReschedule(id, `/cabinet/bookings/${id}/reschedule`, input);
 }

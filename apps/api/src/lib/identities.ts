@@ -17,7 +17,7 @@
  */
 import { and, desc, eq, lt } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { authFlows, identities, masters, users } from "../db/schema.js";
+import { authFlows, identities, masters, salonMemberships, salonWorkspaces, salons, users } from "../db/schema.js";
 import { slugify } from "./slug.js";
 
 export type IdentityProvider = "yandex" | "vk" | "telegram" | "max" | "phone";
@@ -88,16 +88,31 @@ export async function ensureMasterProfile(userId: string, name: string): Promise
     slug = `${base}-${attempt}`;
   }
 
-  await db.insert(masters).values({
-    slug,
-    userId,
-    name,
-    tags: "Маникюр",
-    metro: "Не указано",
-    distance: "—",
-    // Цену и услуги мастер укажет сам: в каталоге такие карточки подписаны «цена по запросу».
-    priceFrom: 0,
-    experience: "Не указано",
+  await db.transaction(async (tx) => {
+    const [master] = await tx.insert(masters).values({
+      slug,
+      userId,
+      name,
+      tags: "Маникюр",
+      metro: "Не указано",
+      distance: "—",
+      // Цену и услуги мастер укажет сам: в каталоге такие карточки подписаны «цена по запросу».
+      priceFrom: 0,
+      experience: "Не указано",
+    }).returning();
+    const [salon] = await tx.insert(salons).values({
+      name: `${name} — основное место`,
+      ownerUserId: userId,
+      timezone: master!.timezone,
+    }).returning({ id: salons.id });
+    await tx.update(masters).set({ salonId: salon!.id }).where(eq(masters.id, master!.id));
+    await tx.insert(salonWorkspaces).values({
+      salonId: salon!.id,
+      masterId: master!.id,
+      name: "Основное место",
+      kind: "chair",
+    });
+    await tx.insert(salonMemberships).values({ salonId: salon!.id, userId, role: "owner" });
   });
 }
 

@@ -74,6 +74,7 @@ export function FavoritesPage() {
                   <CalendarClock className="h-4 w-4 text-[#e11d48]" />
                   Ближайшее окно: <span className="font-medium">{windowWhen(master.nextWindow)}</span>
                   <span className="text-slate-400">· {master.nextWindow.durationMinutes} мин</span>
+                  <span className="text-slate-500" data-field="window-workspace">· {master.nextWindow.workspaceName}</span>
                 </p>
               ) : (
                 <p className="text-sm text-slate-400" data-field="next-window">
@@ -83,7 +84,7 @@ export function FavoritesPage() {
               <div className="flex gap-2">
                 {master.nextWindow && (
                   <Link
-                    to={`/booking?master=${master.slug}&service=${master.nextWindow.serviceId}&date=${master.nextWindow.dateISO}&slot=${encodeURIComponent(master.nextWindow.label)}`}
+                    to={`/booking?master=${master.slug}&workspace=${encodeURIComponent(master.nextWindow.workspaceId)}&service=${master.nextWindow.serviceId}&date=${master.nextWindow.dateISO}&slot=${encodeURIComponent(master.nextWindow.label)}`}
                     onClick={() => recordPromotionEvent(master.slug, "booking_click", "favorites")}
                     className="rounded-xl bg-[#e11d48] px-4 py-2 text-sm font-medium text-white hover:bg-[#c11440]"
                   >

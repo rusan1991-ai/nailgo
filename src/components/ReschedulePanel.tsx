@@ -6,6 +6,8 @@ import { formatDateLabel, formatTimeLabel, rescheduleBooking, rescheduleBookingA
 type Reschedulable = {
   id: string;
   masterSlug: string;
+  workspaceId?: string;
+  workspaceName?: string | null;
   serviceId: string;
   dateISO: string;
   startMinutes: number;
@@ -50,8 +52,10 @@ export function ReschedulePanel({ booking, as, onDone }: Props) {
     setLoading(true);
     setError(null);
     setChosen(null);
+    const query = new URLSearchParams({ date: dateISO, serviceId: booking.serviceId });
+    if (booking.workspaceId) query.set("workspaceId", booking.workspaceId);
     api
-      .get<SlotResponse>(`/masters/${booking.masterSlug}/slots?date=${dateISO}&serviceId=${booking.serviceId}`)
+      .get<SlotResponse>(`/masters/${booking.masterSlug}/slots?${query.toString()}`)
       .then((response) => {
         if (cancelled) return;
         setSlots(response.slots);
@@ -67,7 +71,7 @@ export function ReschedulePanel({ booking, as, onDone }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [booking.masterSlug, booking.serviceId, dateISO]);
+  }, [booking.masterSlug, booking.workspaceId, booking.serviceId, dateISO]);
 
   const submit = async () => {
     if (chosen === null) return;
@@ -75,7 +79,7 @@ export function ReschedulePanel({ booking, as, onDone }: Props) {
     setError(null);
     try {
       const move = as === "client" ? rescheduleBooking : rescheduleBookingAsMaster;
-      const updated = await move(booking.id, { dateISO, startMinutes: chosen });
+      const updated = await move(booking.id, { workspaceId: booking.workspaceId, dateISO, startMinutes: chosen });
       setDone({ dateISO: updated.dateISO, startMinutes: updated.startMinutes });
       onDone?.();
     } catch (caught) {
@@ -107,6 +111,7 @@ export function ReschedulePanel({ booking, as, onDone }: Props) {
         />
         <span className="text-xs text-slate-400">
           Сейчас: {formatDateLabel(booking.dateISO)}, {formatTimeLabel(booking.startMinutes)}
+          {booking.workspaceName ? ` · ${booking.workspaceName}` : ""}
         </span>
       </div>
 

@@ -59,11 +59,11 @@ export function AccountPage() {
                   <article key={master.slug} data-client-favorite={master.slug} className="flex items-center justify-between gap-3 rounded-xl border border-[#f4e4eb] bg-white px-3 py-2">
                     <Link to={`/master/${master.slug}`} className="min-w-0">
                       <span className="block truncate text-sm font-medium text-slate-800">{master.name}</span>
-                      <span className="block truncate text-xs text-slate-500">{master.metro}</span>
+                      <span className="block truncate text-xs text-slate-500">{master.metro}{master.nextWindow ? ` · ${master.nextWindow.workspaceName}` : ""}</span>
                     </Link>
                     {master.nextWindow ? (
                       <Link
-                        to={`/booking?master=${encodeURIComponent(master.slug)}&service=${encodeURIComponent(master.nextWindow.serviceId)}&date=${master.nextWindow.dateISO}&slot=${encodeURIComponent(master.nextWindow.label)}`}
+                        to={`/booking?master=${encodeURIComponent(master.slug)}&workspace=${encodeURIComponent(master.nextWindow.workspaceId)}&service=${encodeURIComponent(master.nextWindow.serviceId)}&date=${master.nextWindow.dateISO}&slot=${encodeURIComponent(master.nextWindow.label)}`}
                         className="shrink-0 rounded-lg bg-pink-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-pink-600"
                       >
                         Записаться
@@ -137,6 +137,11 @@ export function AccountPage() {
                     <p className="mt-3 font-medium">{booking.master}</p>
                     <p className="text-sm text-slate-500">{booking.service}</p>
                     <p className="text-sm text-slate-500">{booking.address}</p>
+                    {booking.workspaceName && (
+                      <p className="text-xs text-slate-500" data-field="booking-workspace">
+                        Филиал: {booking.workspaceName}
+                      </p>
+                    )}
                   </div>
                   <div className="text-right">
                     <p className="font-semibold">{formatRub(booking.price)}</p>
@@ -169,7 +174,7 @@ export function AccountPage() {
                     )}
                     {booking.status === "completed" && (
                       <Link
-                        to={`/booking?master=${encodeURIComponent(booking.masterSlug)}&service=${encodeURIComponent(booking.serviceId)}`}
+                        to={`/booking?master=${encodeURIComponent(booking.masterSlug)}&workspace=${encodeURIComponent(booking.workspaceId)}&service=${encodeURIComponent(booking.serviceId)}`}
                         data-action="book-again"
                         className="mt-3 block rounded-lg bg-pink-500 px-3 py-1.5 text-center text-sm font-medium text-white hover:bg-pink-600"
                       >

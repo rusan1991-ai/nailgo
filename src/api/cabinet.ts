@@ -122,6 +122,7 @@ export async function deleteMasterClient(id: string): Promise<void> {
 /** Технический перерыв мастера: обед, дорога, личные дела. */
 export type TimeBlock = {
   id: string;
+  workspaceId?: string;
   dateISO: string;
   startMinutes: number;
   endMinutes: number;
@@ -129,24 +130,40 @@ export type TimeBlock = {
 };
 
 export type TimeBlockInput = {
+  workspaceId?: string;
   dateISO: string;
   startMinutes: number;
   endMinutes: number;
   reason?: string;
 };
 
-export function useTimeBlocks(from: string, to: string): Resource<{ items: TimeBlock[]; from: string; to: string }> {
-  return useApiResource<{ items: TimeBlock[]; from: string; to: string }>(
-    `/cabinet/time-blocks?from=${from}&to=${to}`,
-  );
+export function useTimeBlocks(from: string, to: string, workspaceId?: string): Resource<{
+  items: TimeBlock[];
+  from: string;
+  to: string;
+  workspaceId?: string;
+  workspaceName?: string;
+  timezone?: string;
+}> {
+  const query = new URLSearchParams({ from, to });
+  if (workspaceId) query.set("workspaceId", workspaceId);
+  return useApiResource<{
+    items: TimeBlock[];
+    from: string;
+    to: string;
+    workspaceId?: string;
+    workspaceName?: string;
+    timezone?: string;
+  }>(`/cabinet/time-blocks?${query.toString()}`);
 }
 
 export async function createTimeBlock(input: TimeBlockInput): Promise<{ block: TimeBlock }> {
   return api.post<{ block: TimeBlock }>("/cabinet/time-blocks", input);
 }
 
-export async function deleteTimeBlock(id: string): Promise<void> {
-  await api.delete(`/cabinet/time-blocks/${id}`);
+export async function deleteTimeBlock(id: string, workspaceId?: string): Promise<void> {
+  const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
+  await api.delete(`/cabinet/time-blocks/${id}${query}`);
 }
 
 export type CabinetReview = {

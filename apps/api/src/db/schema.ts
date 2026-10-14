@@ -294,11 +294,18 @@ export const workingHours = pgTable(
     masterId: text("master_id")
       .notNull()
       .references(() => masters.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => salonWorkspaces.id, { onDelete: "cascade" }),
     weekday: integer("weekday").notNull(), // 0 = понедельник … 6 = воскресенье
+    enabled: boolean("enabled").notNull().default(true),
     startMinute: integer("start_minute").notNull(),
     endMinute: integer("end_minute").notNull(),
   },
-  (table) => [uniqueIndex("working_hours_master_weekday").on(table.masterId, table.weekday)],
+  (table) => [
+    uniqueIndex("working_hours_workspace_weekday").on(table.workspaceId, table.weekday),
+    index("working_hours_master_workspace").on(table.masterId, table.workspaceId),
+  ],
 );
 
 export const bookings = pgTable(
@@ -314,6 +321,9 @@ export const bookings = pgTable(
     masterId: text("master_id")
       .notNull()
       .references(() => masters.id),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => salonWorkspaces.id, { onDelete: "restrict" }),
     serviceId: text("service_id")
       .notNull()
       .references(() => services.id),
@@ -345,6 +355,7 @@ export const bookings = pgTable(
   },
   (table) => [
     index("bookings_master_start").on(table.masterId, table.startAt),
+    index("bookings_workspace_start").on(table.workspaceId, table.startAt),
     index("bookings_phone").on(table.clientPhone),
     index("bookings_status").on(table.status),
   ],
@@ -818,13 +829,19 @@ export const timeBlocks = pgTable(
     masterId: text("master_id")
       .notNull()
       .references(() => masters.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => salonWorkspaces.id, { onDelete: "cascade" }),
     startAt: timestamp("start_at", { withTimezone: true }).notNull(),
     endAt: timestamp("end_at", { withTimezone: true }).notNull(),
     /** «Обед», «Личные дела» — подпись, которую мастер видит в календаре. */
     reason: text("reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("time_blocks_master_start").on(table.masterId, table.startAt)],
+  (table) => [
+    index("time_blocks_master_start").on(table.masterId, table.startAt),
+    index("time_blocks_workspace_start").on(table.workspaceId, table.startAt),
+  ],
 );
 
 /**

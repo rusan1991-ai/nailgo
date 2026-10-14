@@ -4,13 +4,13 @@ import { z } from "zod";
 import { db } from "../db/index.js";
 import { masters, locations, reviews, services, workingHours, bookings } from "../db/schema.js";
 import { env } from "../env.js";
-import { scheduleForDay } from "../lib/schedule.js";
-import { isValidISODate, platformTimezone, toISODate } from "../lib/time.js";
+import { atMinutes, isValidISODate, platformTimezone, toISODate } from "../lib/time.js";
 import { freeSlotsForDay, freeWindows, windowLabel } from "../lib/slots.js";
 import { collectWindows } from "../lib/lastMinute.js";
 import { windowService } from "../lib/favorites.js";
 import { cartAvatars, masterGallery } from "./media.js";
 import { masterPublicPath } from "../lib/username.js";
+import { listMasterWorkspaces, resolveMasterWorkspace, workspaceDisplayName } from "../lib/workspaces.js";
 
 /**
  * Сортировка витрины. `rating` — по умолчанию (топ отзывов выше), `reviews` —
@@ -74,6 +74,7 @@ const lastMinuteQuery = z.object({
 const slotsQuery = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Ожидается дата в формате YYYY-MM-DD"),
   serviceId: z.string().optional(),
+  workspaceId: z.string().trim().min(1).optional(),
 });
 
 const servicesQuery = z
@@ -184,13 +185,27 @@ export async function catalogRoutes(app: FastifyInstance) {
       };
 
       const service = await windowService(master.id);
+      const workspaces = await listMasterWorkspaces(master.id);
+      const perWorkspaceSlots: Array<{
+        workspace: (typeof workspaces)[number];
+        daySlots: Awaited<ReturnType<typeof freeSlotsForDay>>;
+      }> = [];
 
-      // Фильтр «свободен в этот день»: считаем окна на конкретную дату по самой
-      // длинной услуге мастера — если она помещается, поместится и любая другая.
-      let daySlots: Awaited<ReturnType<typeof freeSlotsForDay>> = null;
-      if (freeDateISO) {
-        daySlots = service ? await freeSlotsForDay(master, freeDateISO, service.durationMinutes) : null;
-        if (!daySlots?.slots.length) continue;
+      // Окна и расписание считаются отдельно для каждого публичного места мастера.
+      if (freeDateISO && service) {
+        for (const workspace of workspaces) {
+          const daySlots = await freeSlotsForDay({
+            id: master.id,
+            timezone: workspace.timezone,
+            slotStepMinutes: master.slotStepMinutes,
+            workspaceId: workspace.id,
+            primarySalonId: master.salonId,
+          }, freeDateISO, service.durationMinutes);
+          if (daySlots?.slots.length) perWorkspaceSlots.push({ workspace, daySlots });
+        }
+        if (perWorkspaceSlots.length === 0) continue;
+      } else if (freeDateISO) {
+        continue;
       }
 
       if (!withWindows) {
@@ -198,32 +213,69 @@ export async function catalogRoutes(app: FastifyInstance) {
         continue;
       }
 
-      const found = service
-        ? await freeWindows(master, service.durationMinutes, {
+      const found: Array<{
+        dateISO: string;
+        startMinutes: number;
+        label: string;
+        workspaceId: string;
+        workspaceName: string;
+        salonName: string;
+        locationName: string | null;
+        locationRegion: string | null;
+        timezone: string;
+      }> = [];
+      if (service) {
+        for (const workspace of workspaces) {
+          const slotsForWorkspace = perWorkspaceSlots.find((item) => item.workspace.id === workspace.id)?.daySlots;
+          const windowsForWorkspace = await freeWindows({
+            id: master.id,
+            timezone: workspace.timezone,
+            slotStepMinutes: master.slotStepMinutes,
+            workspaceId: workspace.id,
+            primarySalonId: master.salonId,
+          }, service.durationMinutes, {
             days: freeDateISO ? 1 : 7,
-            max: freeDateISO ? daySlots?.slots.length ?? 0 : 4,
+            max: freeDateISO ? slotsForWorkspace?.slots.length ?? 0 : 4,
             fromDateISO: freeDateISO ?? undefined,
-          })
-        : [];
+          });
+          found.push(...windowsForWorkspace.map((window) => ({
+            ...window,
+            workspaceName: workspaceDisplayName(workspace),
+            salonName: workspace.salonName,
+            locationName: workspace.locationName,
+            locationRegion: workspace.locationRegion,
+            timezone: workspace.timezone,
+          })));
+        }
+      }
+      found.sort((a, b) => a.dateISO === b.dateISO
+        ? a.startMinutes - b.startMinutes || a.workspaceName.localeCompare(b.workspaceName, "ru")
+        : a.dateISO < b.dateISO ? -1 : 1);
+      const dayCount = perWorkspaceSlots.reduce((sum, item) => sum + (item.daySlots?.slots.length ?? 0), 0);
       items.push({
         ...base,
-        /** Сколько окон осталось в выбранный день — для подписи «свободен». */
         ...(freeDateISO
           ? {
               freeOnDate: {
                 dateISO: freeDateISO,
-                slots: daySlots?.slots.length ?? 0,
-                firstLabel: daySlots?.slots.length ? windowLabel(daySlots.slots[0]!) : null,
+                slots: dayCount,
+                firstLabel: found[0]?.label ?? null,
                 serviceId: service?.id ?? null,
                 serviceName: service?.name ?? null,
                 durationMinutes: service?.durationMinutes ?? 60,
               },
             }
           : {}),
-        nextWindows: found.map((window) => ({
+        nextWindows: found.slice(0, 8).map((window) => ({
           dateISO: window.dateISO,
           startMinutes: window.startMinutes,
           label: window.label,
+          workspaceId: window.workspaceId,
+          workspaceName: window.workspaceName,
+          salonName: window.salonName,
+          locationName: window.locationName,
+          locationRegion: window.locationRegion,
+          timezone: window.timezone,
           durationMinutes: service?.durationMinutes ?? 60,
           serviceId: service?.id ?? null,
           serviceName: service?.name ?? null,
@@ -286,17 +338,36 @@ export async function catalogRoutes(app: FastifyInstance) {
     if (!master) return reply.code(404).send({ error: "not_found", message: "Мастер не найден" });
     if (master.status !== "active") return inactiveReply(reply);
 
-    // Наружу отдаём только опубликованные отзывы: скрытые и ждущие модерации
-    // клиент видеть не должен.
-    const [masterReviews, hours] = await Promise.all([
+    // Наружу отдаём только опубликованные отзывы и активные публичные места.
+    const [masterReviews, workspaces] = await Promise.all([
       db
         .select()
         .from(reviews)
         .where(and(eq(reviews.masterId, master.id), eq(reviews.status, "published")))
         .orderBy(desc(reviews.createdAt))
         .limit(10),
-      db.select().from(workingHours).where(eq(workingHours.masterId, master.id)).orderBy(asc(workingHours.weekday)),
+      listMasterWorkspaces(master.id),
     ]);
+    const hoursRows = workspaces.length
+      ? await db.select().from(workingHours).where(and(
+          eq(workingHours.masterId, master.id),
+          inArray(workingHours.workspaceId, workspaces.map((workspace) => workspace.id)),
+        )).orderBy(asc(workingHours.weekday))
+      : [];
+    const hoursForWorkspace = (workspaceId: string) => {
+      const rows = hoursRows.filter((item) => item.workspaceId === workspaceId);
+      if (rows.length === 0) {
+        return Array.from({ length: 7 }, (_, weekday) => ({
+          weekday,
+          startMinute: env.defaultDayStartMinute,
+          endMinute: env.defaultDayEndMinute,
+        }));
+      }
+      return rows
+        .filter((item) => item.enabled)
+        .map((item) => ({ weekday: item.weekday, startMinute: item.startMinute, endMinute: item.endMinute }));
+    };
+    const primaryWorkspace = workspaces.find((workspace) => workspace.salonId === master.salonId) ?? workspaces[0];
     const [location] = master.locationId
       ? await db.select({ lat: locations.lat, lng: locations.lng }).from(locations).where(eq(locations.id, master.locationId)).limit(1)
       : [];
@@ -325,10 +396,20 @@ export async function catalogRoutes(app: FastifyInstance) {
       districtSlug: master.districtSlug,
       /** Настоящие фото работ: аватар и портфолио вместо инициалов. */
       gallery: await masterGallery(master.id),
-      hours: hours.map((item) => ({
-        weekday: item.weekday,
-        startMinute: item.startMinute,
-        endMinute: item.endMinute,
+      hours: primaryWorkspace ? hoursForWorkspace(primaryWorkspace.id) : [],
+      workspaces: workspaces.map((workspace) => ({
+        id: workspace.id,
+        salonId: workspace.salonId,
+        isPrimary: workspace.salonId === master.salonId,
+        name: workspaceDisplayName(workspace),
+        salonName: workspace.salonName,
+        kind: workspace.kind,
+        locationId: workspace.locationId,
+        locationName: workspace.locationName,
+        locationKind: workspace.locationKind,
+        locationRegion: workspace.locationRegion,
+        timezone: workspace.timezone,
+        hours: hoursForWorkspace(workspace.id),
       })),
       reviews: masterReviews.map((review) => ({
         id: review.id,
@@ -461,59 +542,78 @@ export async function catalogRoutes(app: FastifyInstance) {
       .sort((a, b) => b.rating - a.rating);
 
     type WindowService = { id: string; name: string; durationMinutes: number; price: number };
-    const withServices: { master: typeof masters.$inferSelect; service: WindowService }[] = [];
+    const withServices: Array<{
+      master: typeof masters.$inferSelect;
+      service: WindowService;
+      workspace: Awaited<ReturnType<typeof listMasterWorkspaces>>[number];
+    }> = [];
     for (const master of rows) {
-      const service = await windowService(master.id);
-      if (service) withServices.push({ master, service });
+      const [service, workspaces] = await Promise.all([
+        windowService(master.id),
+        listMasterWorkspaces(master.id),
+      ]);
+      if (service) for (const workspace of workspaces) withServices.push({ master, service, workspace });
     }
 
-    // Отсечку «уже прошло» считает сам сборщик окон — по поясу мастера.
+    // Каждое окно считает общий алгоритм, но внутри конкретного филиала.
     const collected = await collectWindows({
       masters: withServices.map((row) => ({
         id: row.master.id,
-        timezone: row.master.timezone,
+        timezone: row.workspace.timezone,
         slotStepMinutes: row.master.slotStepMinutes,
+        workspaceId: row.workspace.id,
+        primarySalonId: row.master.salonId,
         durationMinutes: row.service.durationMinutes,
       })),
       days,
       perMaster,
     });
 
-    const byId = new Map(withServices.map((row) => [row.master.id, row]));
-    /** Превью мастера: карточки витрины показывают фото, а не инициалы. */
-    const avatars = await cartAvatars(withServices.map((row) => row.master.id));
-    const offers = collected
-      .flatMap((group) =>
-        group.windows.map((window) => {
-          const row = byId.get(group.masterId)!;
-          return {
-            masterSlug: row.master.slug,
-            masterName: row.master.name,
-            avatarUrl: avatars.get(row.master.id)?.thumbUrl ?? null,
-            avatarFullUrl: avatars.get(row.master.id)?.url ?? null,
-            city: row.master.city,
-            region: row.master.region,
-            metro: row.master.metro,
-            address: row.master.address,
-            distance: row.master.distance,
-            rating: row.master.rating,
-            reviewsCount: row.master.reviewsCount,
-            priceFrom: row.master.priceFrom,
-            serviceId: row.service.id,
-            serviceName: row.service.name,
-            durationMinutes: row.service.durationMinutes,
-            price: row.service.price,
-            dateISO: window.dateISO,
-            dateLabel: window.dateLabel,
-            startMinutes: window.startMinutes,
-            timeLabel: window.label,
-          };
-        }),
-      )
-      .sort((a, b) =>
-        a.dateISO === b.dateISO ? a.startMinutes - b.startMinutes : a.dateISO < b.dateISO ? -1 : 1,
-      )
-      .slice(0, limit);
+    const byWorkspaceId = new Map(withServices.map((row) => [row.workspace.id, row]));
+    /** Превью мастеров: карточки витрины показывают фото, а не инициалы. */
+    const avatars = await cartAvatars([...new Set(withServices.map((row) => row.master.id))]);
+    const allOffers = collected.flatMap((group) =>
+      group.windows.map((window) => {
+        const row = byWorkspaceId.get(group.workspaceId)!;
+        return {
+          masterSlug: row.master.slug,
+          masterName: row.master.name,
+          avatarUrl: avatars.get(row.master.id)?.thumbUrl ?? null,
+          avatarFullUrl: avatars.get(row.master.id)?.url ?? null,
+          city: row.master.city,
+          region: row.master.region,
+          metro: row.master.metro,
+          address: row.master.address,
+          distance: row.master.distance,
+          rating: row.master.rating,
+          reviewsCount: row.master.reviewsCount,
+          priceFrom: row.master.priceFrom,
+          workspaceId: row.workspace.id,
+          workspaceName: workspaceDisplayName(row.workspace),
+          salonId: row.workspace.salonId,
+          salonName: row.workspace.salonName,
+          locationId: row.workspace.locationId,
+          locationName: row.workspace.locationName,
+          locationRegion: row.workspace.locationRegion,
+          timezone: row.workspace.timezone,
+          serviceId: row.service.id,
+          serviceName: row.service.name,
+          durationMinutes: row.service.durationMinutes,
+          price: row.service.price,
+          dateISO: window.dateISO,
+          dateLabel: window.dateLabel,
+          startMinutes: window.startMinutes,
+          timeLabel: window.label,
+        };
+      }),
+    ).sort((a, b) => atMinutes(a.dateISO, a.startMinutes, a.timezone).getTime() - atMinutes(b.dateISO, b.startMinutes, b.timezone).getTime());
+    const countByMaster = new Map<string, number>();
+    const offers = allOffers.filter((offer) => {
+      const count = countByMaster.get(offer.masterSlug) ?? 0;
+      if (count >= perMaster) return false;
+      countByMaster.set(offer.masterSlug, count + 1);
+      return true;
+    }).slice(0, limit);
 
     return {
       items: offers,
@@ -529,7 +629,7 @@ export async function catalogRoutes(app: FastifyInstance) {
    */
   app.get("/masters/:slug/slots", async (request, reply) => {
     const { slug } = request.params as { slug: string };
-    const { date, serviceId } = slotsQuery.parse(request.query ?? {});
+    const { date, serviceId, workspaceId } = slotsQuery.parse(request.query ?? {});
 
     if (!isValidISODate(date)) {
       return reply.code(400).send({ error: "bad_request", message: "Некорректная дата" });
@@ -560,15 +660,28 @@ export async function catalogRoutes(app: FastifyInstance) {
     if (!service) {
       return reply.code(404).send({ error: "service_not_found", message: "Услуга не найдена у этого мастера" });
     }
+    const workspace = await resolveMasterWorkspace(master.id, workspaceId, { preferredSalonId: master.salonId });
+    if (!workspace) return reply.code(404).send({ error: "workspace_not_found", message: "Филиал не найден у этого мастера" });
 
-    // Расчёт окон общий с избранным и горящими окнами: правила не разъезжаются.
-    const daySlots = await freeSlotsForDay(master, date, service.durationMinutes);
+    // Окна считаются для выбранного филиала; занятую запись мастера в другом
+    // месте расчёт тоже учитывает, чтобы исключить двойное бронирование.
+    const daySlots = await freeSlotsForDay({
+      id: master.id,
+      timezone: workspace.timezone,
+      slotStepMinutes: master.slotStepMinutes,
+      workspaceId: workspace.id,
+      primarySalonId: master.salonId,
+    }, date, service.durationMinutes);
     if (!daySlots) return reply.code(400).send({ error: "bad_request", message: "Некорректная дата" });
 
     if (!daySlots.working) {
       return {
         date,
         masterSlug: master.slug,
+        workspaceId: workspace.id,
+        workspaceName: workspaceDisplayName(workspace),
+        locationName: workspace.locationName,
+        locationRegion: workspace.locationRegion,
         serviceId: service.id,
         durationMinutes: service.durationMinutes,
         workingHours: { start: 0, end: 0 },
@@ -581,6 +694,10 @@ export async function catalogRoutes(app: FastifyInstance) {
     return {
       date,
       masterSlug: master.slug,
+      workspaceId: workspace.id,
+      workspaceName: workspaceDisplayName(workspace),
+      locationName: workspace.locationName,
+      locationRegion: workspace.locationRegion,
       serviceId: service.id,
       durationMinutes: service.durationMinutes,
       workingHours: { start: daySlots.start, end: daySlots.end },

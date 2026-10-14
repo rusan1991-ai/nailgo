@@ -164,12 +164,12 @@ export function SearchMapPage() {
                   {(master.nextWindows ?? []).map((window) => (
                     <Link
                       key={`${window.dateISO}-${window.startMinutes}`}
-                      to={`/booking?master=${master.slug}${window.serviceId ? `&service=${window.serviceId}` : ""}&date=${window.dateISO}&slot=${encodeURIComponent(window.label)}`}
+                      to={`/booking?master=${master.slug}&workspace=${encodeURIComponent(window.workspaceId)}${window.serviceId ? `&service=${window.serviceId}` : ""}&date=${window.dateISO}&slot=${encodeURIComponent(window.label)}`}
                       onClick={() => recordPromotionEvent(master.slug, "booking_click", "search")}
                       data-window={`${master.slug}:${window.dateISO}:${window.label}`}
                       className="rounded-lg border border-[#f1dde6] px-2 py-1 hover:border-pink-300"
                     >
-                      {window.label}
+                      {window.label} · {window.workspaceName}
                     </Link>
                   ))}
                   {(master.nextWindows ?? []).length === 0 && (

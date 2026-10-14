@@ -31,12 +31,12 @@ export function dateLabel(dateISO: string, today: string): string {
  * должна быть разнообразной, а не состоять из слотов одного мастера.
  */
 export async function collectWindows(params: {
-  masters: (SlotMaster & { durationMinutes: number })[];
+  masters: (SlotMaster & { workspaceId: string; durationMinutes: number })[];
   days: number;
   perMaster: number;
   now?: Date;
-}): Promise<{ masterId: string; windows: LastMinuteWindow[] }[]> {
-  const result: { masterId: string; windows: LastMinuteWindow[] }[] = [];
+}): Promise<{ masterId: string; workspaceId: string; windows: LastMinuteWindow[] }[]> {
+  const result: { masterId: string; workspaceId: string; windows: LastMinuteWindow[] }[] = [];
 
   for (const master of params.masters) {
     // «Сегодня» — в поясе мастера: у Дальнего Востока и Калининграда оно разное.
@@ -49,6 +49,7 @@ export async function collectWindows(params: {
 
     result.push({
       masterId: master.id,
+      workspaceId: master.workspaceId,
       windows: found.map((window) => ({
         dateISO: window.dateISO,
         startMinutes: window.startMinutes,

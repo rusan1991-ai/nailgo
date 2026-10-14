@@ -19,6 +19,12 @@ export type Master = {
   experience: string;
   /** Ближайшие свободные окна мастера (считает сервер) — вместо демо-времени. */
   nextWindows?: {
+    workspaceId: string;
+    workspaceName: string;
+    salonName: string;
+    locationName: string | null;
+    locationRegion: string | null;
+    timezone: string;
     dateISO: string;
     startMinutes: number;
     label: string;

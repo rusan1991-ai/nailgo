@@ -7,7 +7,7 @@ import { AppHeader } from "../components/AppHeader";
 import { Avatar, NailStrip } from "../components/NailUi";
 import { formatRub } from "../data/mock";
 import { useCatalog, durationLabel } from "../catalog/store";
-import { formatDateLabel } from "../store/bookings";
+import { formatDateLabel, formatTimeLabel } from "../store/bookings";
 import { openThread } from "../api/messages";
 import { useMasterCard } from "../api/masterCard";
 import { useMasterServices } from "../api/masterServices";
@@ -138,6 +138,27 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
               </div>
             )}
 
+            {(card?.workspaces?.length ?? 0) > 0 && (
+              <section className="mt-5 rounded-2xl border border-[#f1dde6] bg-[#fffafd] p-4" data-section="master-workspaces">
+                <h2 className="font-semibold text-slate-900">Филиалы и часы работы</h2>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {card!.workspaces.map((workspace) => (
+                    <article key={workspace.id} data-workspace={workspace.id} className="rounded-xl border border-[#f1dde6] bg-white p-3">
+                      <p className="font-medium">{workspace.name}{workspace.isPrimary ? " · основное" : ""}</p>
+                      {workspace.locationName && (
+                        <p className="mt-1 text-xs text-slate-500">{workspace.locationName}{workspace.locationRegion ? ` · ${workspace.locationRegion}` : ""}</p>
+                      )}
+                      <p className="mt-2 text-xs leading-5 text-slate-600">
+                        {workspace.hours.length
+                          ? workspace.hours.map((day) => `${["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][day.weekday]} ${formatTimeLabel(day.startMinute)}–${formatTimeLabel(day.endMinute)}`).join(" · ")
+                          : "График не задан"}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
+
             <div className="mt-6 border-b border-[#f2e3ea] pb-2">
               <nav className="flex gap-6 text-sm">
                 <button className="border-b-2 border-slate-900 pb-2 font-medium">Услуги и цены</button>
@@ -163,7 +184,7 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
                   <Link
                     to={bookingLinkFor(
                       nextWindows[0]
-                        ? `service=${service.id}&date=${nextWindows[0].dateISO}&slot=${encodeURIComponent(nextWindows[0].label)}`
+                        ? `workspace=${encodeURIComponent(nextWindows[0].workspaceId)}&service=${service.id}&date=${nextWindows[0].dateISO}&slot=${encodeURIComponent(nextWindows[0].label)}`
                         : `service=${service.id}`,
                     )}
                     onClick={() => recordPromotionEvent(master.slug, "booking_click", "profile")}
@@ -199,7 +220,7 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
             <div className="mt-3 space-y-2" data-field="next-windows">
               {nextWindows.map((window, idx) => {
                 const windowServiceId = window.serviceId ?? defaultServiceId;
-                const query = `${windowServiceId ? `service=${encodeURIComponent(windowServiceId)}&` : ""}date=${window.dateISO}&slot=${encodeURIComponent(window.label)}`;
+                const query = `workspace=${encodeURIComponent(window.workspaceId)}&${windowServiceId ? `service=${encodeURIComponent(windowServiceId)}&` : ""}date=${window.dateISO}&slot=${encodeURIComponent(window.label)}`;
                 return (
                   <Link
                     key={`${window.dateISO}-${window.startMinutes}`}

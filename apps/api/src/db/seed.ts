@@ -310,6 +310,8 @@ export async function seed() {
   // предсказуемый старт (иначе антиспам «не чаще раза в 6 часов» находил бы
   // уведомления прошлых прогонов).
   await db.delete(notifications);
+  // Booking.workspace_id is RESTRICT so reset records before their workspaces.
+  await db.delete(bookings);
   await db.delete(salonWorkspaces);
   await db.delete(salonMemberships);
   await db.delete(salonNetworkMemberships);
@@ -320,7 +322,6 @@ export async function seed() {
   // Очередь доставки — тоже демо-состояние: после сброса она пустая,
   // а настройки провайдера (таблица settings) остаются.
   await db.delete(deliveries);
-  await db.delete(bookings);
   await db.delete(reviews);
   await db.delete(workingHours);
   await db.delete(services);
@@ -427,10 +428,13 @@ export async function seed() {
     .returning();
   const serviceIdOf = (masterSlug: string, key: string) => `${masterSlug}-${key}`;
 
+  const workspaceIdByMaster = new Map(seededMasters.map((master) => [master.id, `seed-workspace-${master.id}`]));
   const hours = masterRows.flatMap((master) =>
     [0, 1, 2, 3, 4, 5].map((weekday) => ({
       masterId: master.id,
+      workspaceId: workspaceIdByMaster.get(master.id)!,
       weekday,
+      enabled: true,
       startMinute: 600,
       endMinute: 1200,
     })),
@@ -451,8 +455,10 @@ export async function seed() {
         endAt.getTime() < now.getTime() && (status === "confirmed" || status === "pending")
           ? "completed"
           : status;
+      const masterId = masterBySlug.get(masterSlug)!;
       return {
-        masterId: masterBySlug.get(masterSlug)!,
+        masterId,
+        workspaceId: workspaceIdByMaster.get(masterId)!,
         serviceId: serviceIdOf(masterSlug, serviceKey),
         clientName,
         // Канонический вид телефона — как при записи через приложение.

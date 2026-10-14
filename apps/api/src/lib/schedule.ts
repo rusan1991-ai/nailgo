@@ -1,34 +1,47 @@
 /**
- * Рабочие часы мастера на конкретный день.
+ * Рабочие часы мастера на конкретную дату и конкретное рабочее место.
  *
- * День без строки в working_hours — выходной: клиенты не должны видеть окна,
- * а запись обязана отклоняться. Исключение — мастер, у которого расписание ещё
- * не задано вообще: тогда работают значения по умолчанию из env, иначе новый
- * кабинет нельзя было бы записать ни на один день.
- *
- * День недели берём из календарной даты (`weekdayOfISODate`), а не из локальных
- * часов процесса: «понедельник» у мастера один и тот же в любом поясе сервера.
+ * Расписание без строк для выбранного workspace означает, что мастер ещё не
+ * настраивал его, поэтому используются прежние значения по умолчанию из env.
+ * Если хотя бы одна строка есть, день без строки — выходной.
  */
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { workingHours } from "../db/schema.js";
+import { masters, workingHours } from "../db/schema.js";
 import { env } from "../env.js";
+import { resolveMasterWorkspace } from "./workspaces.js";
 import { weekdayOfISODate } from "./time.js";
 
 export type DaySchedule = { working: boolean; start: number; end: number };
 
-/** Часы работы мастера на дату: выходной, либо интервал в минутах от полуночи. */
-export async function scheduleForDay(masterId: string, dateISO: string): Promise<DaySchedule> {
-  const rows = await db.select().from(workingHours).where(eq(workingHours.masterId, masterId));
+/** Рабочие часы на дату; workspace проверяется в пределах указанного мастера. */
+export async function scheduleForDay(
+  masterId: string,
+  dateISO: string,
+  requestedWorkspaceId?: string,
+): Promise<DaySchedule> {
+  let preferredSalonId: string | null = null;
+  if (!requestedWorkspaceId) {
+    const [master] = await db.select({ salonId: masters.salonId }).from(masters).where(eq(masters.id, masterId)).limit(1);
+    preferredSalonId = master?.salonId ?? null;
+  }
+  const workspace = await resolveMasterWorkspace(masterId, requestedWorkspaceId, { preferredSalonId });
+  if (!workspace) return { working: false, start: 0, end: 0 };
 
-  // Расписания нет совсем — мастер ещё ничего не настроил, берём общие правила.
+  const rows = await db
+    .select()
+    .from(workingHours)
+    .where(and(
+      eq(workingHours.masterId, masterId),
+      eq(workingHours.workspaceId, workspace.id),
+    ));
+
   if (rows.length === 0) {
     return { working: true, start: env.defaultDayStartMinute, end: env.defaultDayEndMinute };
   }
 
-  const weekday = weekdayOfISODate(dateISO);
-  const today = rows.find((row) => row.weekday === weekday);
-  if (!today) return { working: false, start: 0, end: 0 };
+  const today = rows.find((row) => row.weekday === weekdayOfISODate(dateISO));
+  if (!today || !today.enabled) return { working: false, start: 0, end: 0 };
 
   return { working: true, start: today.startMinute, end: today.endMinute };
 }

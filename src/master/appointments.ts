@@ -26,6 +26,7 @@ export function bookingToAppointment(booking: Booking): Appointment {
   const weekday = (new Date(year!, month! - 1, day!).getDay() + 6) % 7;
   return {
     id: booking.id,
+    workspaceId: booking.workspaceId,
     day: weekday,
     dateISO: booking.dateISO,
     start: booking.startMinutes,

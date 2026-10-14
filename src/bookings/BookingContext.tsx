@@ -14,6 +14,10 @@ export type BookingItem = {
   /** Нужны для переноса записи: окна считаются по мастеру и услуге. */
   masterSlug: string;
   serviceId: string;
+  workspaceId: string;
+  workspaceName: string | null;
+  locationName: string | null;
+  locationRegion: string | null;
   durationMinutes: number;
   /** «2024-05-22» и минуты от полуночи: нужны для переноса записи. */
   dateISO: string;
@@ -49,6 +53,10 @@ type ApiBooking = {
   masterSlug: string;
   masterName: string;
   serviceId: string;
+  workspaceId: string;
+  workspaceName: string | null;
+  locationName: string | null;
+  locationRegion: string | null;
   serviceName: string;
   durationMinutes: number;
   dateISO: string;
@@ -72,6 +80,7 @@ type ApiBooking = {
 
 type CreateBookingPayload = {
   masterSlug: string;
+  workspaceId: string;
   serviceId: string;
   /** Дата в формате 2024-05-22 */
   dateISO: string;
@@ -99,6 +108,10 @@ function toItem(booking: ApiBooking): BookingItem {
     id: booking.id,
     masterSlug: booking.masterSlug,
     serviceId: booking.serviceId,
+    workspaceId: booking.workspaceId,
+    workspaceName: booking.workspaceName,
+    locationName: booking.locationName,
+    locationRegion: booking.locationRegion,
     durationMinutes: booking.durationMinutes,
     dateISO: booking.dateISO,
     startMinutes: booking.startMinutes,
@@ -168,6 +181,7 @@ export function BookingProvider({ children }: { children: React.ReactNode }) {
         try {
           const response = await api.post<{ booking: ApiBooking; payment?: StartedPayment }>("/bookings", {
             masterSlug: payload.masterSlug,
+            workspaceId: payload.workspaceId,
             serviceId: payload.serviceId,
             dateISO: payload.dateISO,
             startMinutes: parseTimeLabel(payload.time),

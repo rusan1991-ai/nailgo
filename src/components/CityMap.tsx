@@ -13,6 +13,8 @@ export type MapMaster = {
   priceFrom?: number;
   rating?: number;
   nextWindows?: {
+    workspaceId: string;
+    workspaceName: string;
     dateISO: string;
     startMinutes: number;
     label: string;
@@ -67,6 +69,7 @@ function loadYandexMaps(key: string): Promise<any> {
 function bookingPath(master: MapMaster): string {
   const params = new URLSearchParams({ master: master.slug });
   const next = master.nextWindows?.[0];
+  if (next?.workspaceId) params.set("workspace", next.workspaceId);
   if (next?.serviceId) params.set("service", next.serviceId);
   if (next?.dateISO) params.set("date", next.dateISO);
   if (next?.label) params.set("slot", next.label);
@@ -104,6 +107,10 @@ function createMarker(master: MapMaster, popupRoot: HTMLElement): HTMLElement {
   location.textContent = [master.metro, master.address, master.city].filter(Boolean).join(" · ");
   location.style.cssText = "margin:5px 0 0;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
 
+  const branch = document.createElement("p");
+  branch.textContent = master.nextWindows?.[0]?.workspaceName ? `Свободное окно: ${master.nextWindows[0].workspaceName}` : "";
+  branch.style.cssText = "margin:4px 0 0;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px";
+
   const price = document.createElement("p");
   price.textContent = master.priceFrom ? `Услуги от ${new Intl.NumberFormat("ru-RU").format(master.priceFrom)} ₽` : "Цена по запросу";
   price.style.cssText = "margin:5px 0 10px;color:#475569;font-weight:600";
@@ -124,7 +131,7 @@ function createMarker(master: MapMaster, popupRoot: HTMLElement): HTMLElement {
   profile.addEventListener("click", trackProfileClick);
   book.addEventListener("click", () => recordPromotionEvent(master.slug, "booking_click", "map"));
   actions.append(profile, book);
-  card.append(title, location, price, actions);
+  card.append(title, location, branch, price, actions);
   marker.append(pin, card);
 
   pin.addEventListener("click", (event) => {
@@ -158,7 +165,7 @@ export function CityMap({ masters, center, zoom = 11, height = 360, title = "М�
   );
   const mapImpressionsRef = usePromotionImpressions<HTMLUListElement>("map", pinned.map((master) => master.slug));
   const markerKey = pinned
-    .map((master) => [master.slug, master.name, master.address, master.city, master.metro, master.lat, master.lng, master.priceFrom, master.nextWindows?.[0]?.serviceId, master.nextWindows?.[0]?.dateISO, master.nextWindows?.[0]?.label].join("~"))
+    .map((master) => [master.slug, master.name, master.address, master.city, master.metro, master.lat, master.lng, master.priceFrom, master.nextWindows?.[0]?.workspaceId, master.nextWindows?.[0]?.serviceId, master.nextWindows?.[0]?.dateISO, master.nextWindows?.[0]?.label].join("~"))
     .join("|");
 
   useEffect(() => {
@@ -235,6 +242,7 @@ export function CityMap({ masters, center, zoom = 11, height = 360, title = "М�
                 <span className="block truncate text-xs text-slate-500">
                   {[master.metro, master.city, master.address].filter(Boolean).join(", ")}
                 </span>
+                {master.nextWindows?.[0] && <span className="block truncate text-xs text-slate-500">Окно: {master.nextWindows[0].workspaceName}</span>}
               </Link>
               <Link
                 to={bookingPath(master)}

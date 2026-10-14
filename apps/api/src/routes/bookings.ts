@@ -22,9 +22,12 @@ import { normalizePhone, samePhone } from "../lib/phone.js";
 import { atMinutes, devNow, isValidISODate, minutesOfDay, toISODate } from "../lib/time.js";
 import { linkIdentity } from "../lib/identities.js";
 import { serializeBooking } from "../lib/serialize.js";
+import { resolveMasterWorkspace, workspacesByIds } from "../lib/workspaces.js";
 
 export const createBookingSchema = z.object({
   masterSlug: z.string().min(1),
+  /** Клиент выбирает филиал; кабинет сверяет его с мастером из сессии. */
+  workspaceId: z.string().trim().min(1).optional(),
   serviceId: z.string().min(1),
   dateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата в формате YYYY-MM-DD"),
   startMinutes: z.number().int().min(0).max(24 * 60 - 1),
@@ -76,20 +79,26 @@ export { BookingError } from "../lib/errors.js";
 export async function assertSlotFree(params: {
   masterId: string;
   timezone: string;
+  workspaceId?: string;
+  primarySalonId?: string | null;
   dateISO: string;
   startMinutes: number;
   durationMinutes: number;
   excludeBookingId?: string;
   now?: Date;
-}): Promise<{ startAt: Date; endAt: Date; dayStart: number; dayEnd: number }> {
+}): Promise<{ startAt: Date; endAt: Date; dayStart: number; dayEnd: number; workspaceId: string }> {
   if (!isValidISODate(params.dateISO)) throw new DomainError(400, "bad_date", "Некорректная дата");
 
-  const schedule = await scheduleForDay(params.masterId, params.dateISO);
+  const workspace = await resolveMasterWorkspace(params.masterId, params.workspaceId, {
+    preferredSalonId: params.primarySalonId,
+  });
+  if (!workspace) throw new DomainError(404, "workspace_not_found", "Рабочее место не найдено у этого мастера");
+  const timezone = workspace.timezone || params.timezone;
+  const schedule = await scheduleForDay(params.masterId, params.dateISO, workspace.id);
   if (!schedule.working) throw new DomainError(409, "day_off", "В этот день мастер не принимает");
 
   const dayStart = schedule.start;
   const dayEnd = schedule.end;
-
   if (params.startMinutes < dayStart || params.startMinutes + params.durationMinutes > dayEnd) {
     throw new DomainError(
       409,
@@ -98,11 +107,9 @@ export async function assertSlotFree(params: {
     );
   }
 
-  const startAt = atMinutes(params.dateISO, params.startMinutes, params.timezone);
-  const endAt = atMinutes(params.dateISO, params.startMinutes + params.durationMinutes, params.timezone);
+  const startAt = atMinutes(params.dateISO, params.startMinutes, timezone);
+  const endAt = atMinutes(params.dateISO, params.startMinutes + params.durationMinutes, timezone);
 
-  // Записаться в прошлое нельзя: и «вчера», и «через десять минут» — это уже
-  // не планирование. Запас задаёт BOOKING_MIN_LEAD_MINUTES.
   const now = params.now ?? new Date();
   if (startAt.getTime() < now.getTime() + env.bookingMinLeadMinutes * 60_000) {
     throw new DomainError(
@@ -112,36 +119,32 @@ export async function assertSlotFree(params: {
     );
   }
 
+  // Конфликт бронирования остаётся на уровне мастера: он не может быть
+  // одновременно в двух филиалах, даже если workspace разные.
   const [conflict] = await db
     .select({ id: bookings.id })
     .from(bookings)
-    .where(
-      and(
-        eq(bookings.masterId, params.masterId),
-        ne(bookings.status, "cancelled"),
-        lt(bookings.startAt, endAt),
-        gt(bookings.endAt, startAt),
-        params.excludeBookingId ? ne(bookings.id, params.excludeBookingId) : undefined,
-      ),
-    )
+    .where(and(
+      eq(bookings.masterId, params.masterId),
+      ne(bookings.status, "cancelled"),
+      lt(bookings.startAt, endAt),
+      gt(bookings.endAt, startAt),
+      params.excludeBookingId ? ne(bookings.id, params.excludeBookingId) : undefined,
+    ))
     .limit(1);
-
   if (conflict) throw new DomainError(409, "slot_taken", "Это время уже занято, выберите другое");
 
-  // Технический перерыв мастера (обед, личные дела): время занято, но это не
-  // запись. Сообщение отдельное, чтобы мастер понял, что мешает, и снял блок.
+  // Блокировка относится только к выбранному рабочему месту.
   const [blocked] = await db
     .select({ id: timeBlocks.id, reason: timeBlocks.reason })
     .from(timeBlocks)
-    .where(
-      and(
-        eq(timeBlocks.masterId, params.masterId),
-        lt(timeBlocks.startAt, endAt),
-        gt(timeBlocks.endAt, startAt),
-      ),
-    )
+    .where(and(
+      eq(timeBlocks.masterId, params.masterId),
+      eq(timeBlocks.workspaceId, workspace.id),
+      lt(timeBlocks.startAt, endAt),
+      gt(timeBlocks.endAt, startAt),
+    ))
     .limit(1);
-
   if (blocked) {
     throw new DomainError(
       409,
@@ -152,7 +155,7 @@ export async function assertSlotFree(params: {
     );
   }
 
-  return { startAt, endAt, dayStart, dayEnd };
+  return { startAt, endAt, dayStart, dayEnd, workspaceId: workspace.id };
 }
 
 /**
@@ -176,6 +179,8 @@ export async function createBooking(
   if (master.status !== "active") {
     throw new DomainError(409, "master_inactive", "Мастер снят с публикации и не принимает записи");
   }
+  const workspace = await resolveMasterWorkspace(master.id, input.workspaceId, { preferredSalonId: master.salonId });
+  if (!workspace) throw new DomainError(404, "workspace_not_found", "Рабочее место не найдено у этого мастера");
 
   // Запись по карточке из базы мастера: имя и телефон берём из неё, чтобы не
   // расходились с тем, что мастер видит в клиентах.
@@ -237,7 +242,9 @@ export async function createBooking(
 
   const { startAt, endAt } = await assertSlotFree({
     masterId: master.id,
-    timezone: master.timezone,
+    workspaceId: workspace.id,
+    primarySalonId: master.salonId,
+    timezone: workspace.timezone,
     dateISO: input.dateISO,
     startMinutes: input.startMinutes,
     durationMinutes: service.durationMinutes,
@@ -285,6 +292,7 @@ export async function createBooking(
     .insert(bookings)
     .values({
       masterId: master.id,
+      workspaceId: workspace.id,
       serviceId: service.id,
       // Вошедший клиент или аккаунт, который мы только что завели по номеру:
       // запись сразу привязана к кабинету, и «магия»-ссылка откроет её карточку.
@@ -327,10 +335,11 @@ export async function createBooking(
   }
 
   // Возвращаем и строку записи: по ней строятся уведомления участникам.
-  return { row: booking!, service, payload: serializeBooking(booking!, master, service), policy };
+  return { row: booking!, service, payload: serializeBooking(booking!, master, service, workspace), policy };
 }
 
 export const rescheduleSchema = z.object({
+  workspaceId: z.string().trim().min(1).optional(),
   dateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата в формате YYYY-MM-DD"),
   startMinutes: z.number().int().min(0).max(24 * 60 - 1),
 });
@@ -345,7 +354,7 @@ export const rescheduleSchema = z.object({
  */
 export async function rescheduleBooking(
   booking: typeof bookings.$inferSelect,
-  input: { dateISO: string; startMinutes: number },
+  input: { workspaceId?: string; dateISO: string; startMinutes: number },
   by: "client" | "master",
 ): Promise<typeof bookings.$inferSelect> {
   if (booking.status === "cancelled") {
@@ -357,6 +366,16 @@ export async function rescheduleBooking(
 
   const [master] = await db.select().from(masters).where(eq(masters.id, booking.masterId)).limit(1);
   if (!master) throw new DomainError(404, "master_not_found", "Мастер не найден");
+  const workspace = await resolveMasterWorkspace(
+    master.id,
+    input.workspaceId ?? booking.workspaceId,
+    { preferredSalonId: master.salonId },
+  );
+  if (!workspace) throw new DomainError(404, "workspace_not_found", "Рабочее место не найдено у этого мастера");
+  const oldWorkspace = await resolveMasterWorkspace(master.id, booking.workspaceId, {
+    preferredSalonId: master.salonId,
+    requireActive: false,
+  });
 
   // Перенос — новая договорённость: клиент с ограничением переносит только
   // ту запись, которая оплачена целиком (правило то же, что при создании).
@@ -374,7 +393,9 @@ export async function rescheduleBooking(
   const durationMinutes = Math.round((booking.endAt.getTime() - booking.startAt.getTime()) / 60_000);
   const { startAt, endAt } = await assertSlotFree({
     masterId: booking.masterId,
-    timezone: master.timezone,
+    workspaceId: workspace.id,
+    primarySalonId: master.salonId,
+    timezone: workspace.timezone,
     dateISO: input.dateISO,
     startMinutes: input.startMinutes,
     durationMinutes,
@@ -383,7 +404,7 @@ export async function rescheduleBooking(
 
   const [updated] = await db
     .update(bookings)
-    .set({ startAt, endAt, updatedAt: new Date() })
+    .set({ workspaceId: workspace.id, startAt, endAt, updatedAt: new Date() })
     .where(eq(bookings.id, booking.id))
     .returning();
 
@@ -405,12 +426,14 @@ export async function rescheduleBooking(
 
   // Старое время освободилось — у избранных клиентов появился шанс записаться.
   // Того, кто перенёс, не уведомляем: он про своё окно знает.
-  const freedISO = toISODate(booking.startAt, master.timezone);
-  if (freedISO !== input.dateISO || minutesOfDay(booking.startAt, master.timezone) !== input.startMinutes) {
+  const oldTimezone = oldWorkspace?.timezone ?? master.timezone;
+  const freedISO = toISODate(booking.startAt, oldTimezone);
+  if (freedISO !== input.dateISO || minutesOfDay(booking.startAt, oldTimezone) !== input.startMinutes || workspace.id !== booking.workspaceId) {
     await notifyFavoritesAboutWindow({
       masterId: booking.masterId,
+      workspaceId: booking.workspaceId,
       dateISO: freedISO,
-      startMinutes: minutesOfDay(booking.startAt, master.timezone),
+      startMinutes: minutesOfDay(booking.startAt, oldTimezone),
       excludePhone: booking.clientPhone,
     });
   }
@@ -427,7 +450,12 @@ export async function withRelations(bookingId: string) {
     .innerJoin(services, eq(bookings.serviceId, services.id))
     .where(eq(bookings.id, bookingId))
     .limit(1);
-  return row ? serializeBooking(row.booking, row.master, row.service) : null;
+  if (!row) return null;
+  const workspace = await resolveMasterWorkspace(row.booking.masterId, row.booking.workspaceId, {
+    preferredSalonId: row.master.salonId,
+    requireActive: false,
+  });
+  return serializeBooking(row.booking, row.master, row.service, workspace);
 }
 
 export async function bookingRoutes(app: FastifyInstance) {
@@ -487,12 +515,13 @@ export async function bookingRoutes(app: FastifyInstance) {
           .where(inArray(reviews.bookingId, ids))
       : [];
     const reviewByBooking = new Map(reviewRows.map((review) => [review.bookingId!, review]));
+    const workspaceById = await workspacesByIds(rows.map((row) => row.booking.workspaceId));
 
     return {
       items: rows.map((row) => {
         const review = reviewByBooking.get(row.booking.id);
         return {
-          ...serializeBooking(row.booking, row.master, row.service),
+          ...serializeBooking(row.booking, row.master, row.service, workspaceById.get(row.booking.workspaceId)),
           review: review
             ? {
                 id: review.id,
@@ -585,10 +614,16 @@ export async function bookingRoutes(app: FastifyInstance) {
       // Освободившееся окно предлагаем тем, кто добавил мастера в избранное.
       const [master] = await db.select().from(masters).where(eq(masters.id, booking.masterId)).limit(1);
       if (master) {
+        const workspace = await resolveMasterWorkspace(master.id, booking.workspaceId, {
+          preferredSalonId: master.salonId,
+          requireActive: false,
+        });
+        const timezone = workspace?.timezone ?? master.timezone;
         await notifyFavoritesAboutWindow({
           masterId: booking.masterId,
-          dateISO: toISODate(booking.startAt, master.timezone),
-          startMinutes: minutesOfDay(booking.startAt, master.timezone),
+          workspaceId: booking.workspaceId,
+          dateISO: toISODate(booking.startAt, timezone),
+          startMinutes: minutesOfDay(booking.startAt, timezone),
           excludePhone: booking.clientPhone,
         });
       }

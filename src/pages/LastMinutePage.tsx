@@ -98,9 +98,10 @@ export function LastMinutePage() {
                 </p>
                 <p className="inline-flex items-center gap-1 text-sm text-slate-500">
                   <MapPin className="h-3.5 w-3.5 text-slate-400" />
-                  {offer.metro}
-                  {offer.city && offer.city !== offer.metro ? ` · ${offer.city}` : ""}
+                  {offer.locationName ?? offer.metro}
+                  {offer.locationRegion ? ` · ${offer.locationRegion}` : offer.city && offer.city !== offer.metro ? ` · ${offer.city}` : ""}
                 </p>
+                <p className="truncate text-xs text-slate-500" data-field="offer-workspace">{offer.workspaceName}</p>
               </div>
             </div>
 
@@ -113,7 +114,7 @@ export function LastMinutePage() {
             </div>
 
             <Link
-              to={`/booking?master=${offer.masterSlug}&service=${offer.serviceId}&date=${offer.dateISO}&slot=${encodeURIComponent(offer.timeLabel)}`}
+              to={`/booking?master=${offer.masterSlug}&workspace=${encodeURIComponent(offer.workspaceId)}&service=${offer.serviceId}&date=${offer.dateISO}&slot=${encodeURIComponent(offer.timeLabel)}`}
               onClick={() => recordPromotionEvent(offer.masterSlug, "booking_click", "last-minute")}
               className="mt-3 block rounded-xl bg-pink-500 py-3 text-center text-sm font-semibold text-white hover:bg-pink-600"
               data-action="book-window"

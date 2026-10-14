@@ -6,6 +6,7 @@ import { durationLabel, useCabinetServices } from "../../api/services";
 import { createBooking, upcomingDays, parseTimeLabel } from "../../store/bookings";
 import { createMasterClient, useCabinetClients } from "../../api/cabinet";
 import { getCabinetProfile, useCabinetProfile } from "../../api/profile";
+import { useMasterPlaces } from "../../api/places";
 import { useAuth } from "../../auth/AuthContext";
 import { rememberMessengerPreference, type ShareMessenger } from "../../api/greeting";
 
@@ -31,6 +32,7 @@ export function AppointmentModal({
   presetClient,
   presetPhone,
   presetClientId,
+  initialWorkspaceId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -38,9 +40,34 @@ export function AppointmentModal({
   presetPhone?: string;
   /** Карточка из своей базы: запись пойдёт с `clientId`, имя и телефон — из неё. */
   presetClientId?: string;
+  /** Текущее рабочее место календаря; API всё равно сверяет его с сессией мастера. */
+  initialWorkspaceId?: string;
 }) {
   const { user } = useAuth();
   const profileResource = useCabinetProfile();
+  const placesResource = useMasterPlaces();
+  const workspaces = useMemo(
+    () => (placesResource.data?.salons ?? [])
+      .filter((salon) => salon.active && salon.workspace?.active)
+      .map((salon) => ({
+        id: salon.workspace!.id,
+        name: salon.name,
+        isPrimary: Boolean(salon.isPrimary),
+        locationName: salon.location?.name ?? null,
+      }))
+      .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.name.localeCompare(b.name, "ru")),
+    [placesResource.data?.salons],
+  );
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(initialWorkspaceId ?? "");
+  useEffect(() => {
+    setSelectedWorkspaceId((current) => {
+      if (initialWorkspaceId && workspaces.some((workspace) => workspace.id === initialWorkspaceId)) {
+        return initialWorkspaceId;
+      }
+      if (workspaces.some((workspace) => workspace.id === current)) return current;
+      return workspaces.find((workspace) => workspace.isPrimary)?.id ?? workspaces[0]?.id ?? "";
+    });
+  }, [initialWorkspaceId, workspaces]);
   const serviceResource = useCabinetServices();
   const clients = useCabinetClients();
   const services = useMemo(
@@ -88,6 +115,7 @@ export function AppointmentModal({
 
   useEffect(() => {
     if (!open) return;
+    setSelectedWorkspaceId(initialWorkspaceId ?? "");
     setClientName(presetClient ?? "");
     setClientPhone(presetPhone ?? "");
     setClientSearch([presetClient, presetPhone].filter(Boolean).join(" · "));
@@ -100,7 +128,14 @@ export function AppointmentModal({
     setGreeting(null);
     setShareNotice(null);
     setError(null);
-  }, [open, presetClient, presetPhone, presetClientId]);
+  }, [open, presetClient, presetPhone, presetClientId, initialWorkspaceId]);
+
+  useEffect(() => {
+    if (!open || !workspaces.length) return;
+    if (!workspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
+      setSelectedWorkspaceId(workspaces[0]!.id);
+    }
+  }, [open, selectedWorkspaceId, workspaces]);
 
   /** Карточки из базы: клиент без телефона тоже выбирается — телефон введём ниже. */
   const baseClients = clients.data?.items.filter((item) => item.id) ?? [];
@@ -195,6 +230,7 @@ export function AppointmentModal({
       if (!currentMasterSlug) throw new Error("Не удалось определить профиль мастера. Обновите страницу и попробуйте снова.");
       setResolvedMaster({ id: currentMasterId, slug: currentMasterSlug });
 
+      if (!selectedWorkspaceId) throw new Error("Выберите активное рабочее место для записи");
       if (!service) {
         throw new Error(
           serviceResource.error
@@ -214,6 +250,7 @@ export function AppointmentModal({
       const result = await createBooking({
         masterId: currentMasterId,
         masterSlug: currentMasterSlug,
+        workspaceId: selectedWorkspaceId,
         serviceId: service.id,
         dateISO,
         startMinutes: parseTimeLabel(time),
@@ -379,6 +416,23 @@ export function AppointmentModal({
 
       {!created && <>
       <div className="grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2" data-field="manual-booking-workspace">
+          <p className="mb-1.5 text-xs font-medium text-slate-500">Филиал / рабочее место</p>
+          {workspaces.length > 0 ? (
+            <Select
+              value={selectedWorkspaceId}
+              onChange={setSelectedWorkspaceId}
+              options={workspaces.map((workspace) => ({
+                value: workspace.id,
+                label: `${workspace.name}${workspace.isPrimary ? " · основное" : ""}${workspace.locationName ? ` · ${workspace.locationName}` : ""}`,
+              }))}
+            />
+          ) : (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              {placesResource.loading ? "Загружаем рабочие места…" : "Нет активного рабочего места"}
+            </p>
+          )}
+        </div>
         {/* Клиент: из своей базы или новый на лету. */}
         <div className="sm:col-span-2" data-block="client-picker">
           <p className="mb-1.5 text-xs font-medium text-slate-500">Клиент</p>

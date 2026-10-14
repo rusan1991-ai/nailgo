@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { and, asc, desc, eq, gt, gte, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { bookings, locations, masterClients, masters, reviews, serviceCategories, services, timeBlocks, users, workingHours } from "../db/schema.js";
+import { bookings, locations, masterClients, masters, reviews, salons, serviceCategories, services, timeBlocks, users, workingHours } from "../db/schema.js";
 import { env, isDev } from "../env.js";
 import {
   addDaysISO,
@@ -32,6 +32,7 @@ import { paymentRowsForBooking } from "./payments.js";
 import { notifyFavoritesAboutWindow, windowService } from "../lib/favorites.js";
 import { freeSlotsForDay } from "../lib/slots.js";
 import { checkUsername, masterPublicPath, usernameTaken } from "../lib/username.js";
+import { resolveMasterWorkspace, workspacesByIds, workspaceDisplayName } from "../lib/workspaces.js";
 
 const listQuery = z.object({
   status: z.enum(["all", "pending", "confirmed", "completed", "cancelled", "no_show"]).optional(),
@@ -59,7 +60,8 @@ const masterOnly = { preHandler: [requireAuth, requireMaster] };
  * сообщаем избранным клиентам. Возвращает число отправленных уведомлений.
  */
 async function notifyOpenedDays(
-  master: { id: string; timezone: string; slotStepMinutes: number },
+  master: { id: string; slotStepMinutes: number },
+  workspace: { id: string; timezone: string },
   opened: { weekday: number; startMinute: number; endMinute: number }[],
 ): Promise<number> {
   if (opened.length === 0) return 0;
@@ -68,11 +70,21 @@ async function notifyOpenedDays(
 
   let sent = 0;
   for (const day of opened) {
-    const dateISO = nextDateForWeekday(day.weekday, master.timezone);
-    const daySlots = await freeSlotsForDay(master, dateISO, service.durationMinutes);
+    const dateISO = nextDateForWeekday(day.weekday, workspace.timezone);
+    const daySlots = await freeSlotsForDay({
+      id: master.id,
+      timezone: workspace.timezone,
+      slotStepMinutes: master.slotStepMinutes,
+      workspaceId: workspace.id,
+    }, dateISO, service.durationMinutes);
     const [first] = daySlots?.slots ?? [];
     if (first === undefined) continue;
-    sent += await notifyFavoritesAboutWindow({ masterId: master.id, dateISO, startMinutes: first });
+    sent += await notifyFavoritesAboutWindow({
+      masterId: master.id,
+      workspaceId: workspace.id,
+      dateISO,
+      startMinutes: first,
+    });
   }
   return sent;
 }
@@ -275,6 +287,19 @@ export async function cabinetRoutes(app: FastifyInstance) {
       })
       .where(eq(masters.id, master.id));
 
+    // Profile location/timezone remains the default private workplace's settings.
+    // Extra branches keep their own directory location and timezone.
+    if (master.salonId && master.userId && (selectedLocation || input.timezone !== undefined)) {
+      await db.update(salons).set({
+        ...(selectedLocation ? { locationId: selectedLocation.id } : {}),
+        ...(input.timezone !== undefined ? { timezone: input.timezone } : {}),
+        updatedAt: new Date(),
+      }).where(and(
+        eq(salons.id, master.salonId),
+        eq(salons.ownerUserId, master.userId),
+      ));
+    }
+
     if (input.name && master.userId) {
       await db.update(users).set({ name: input.name }).where(eq(users.id, master.userId));
     }
@@ -293,19 +318,28 @@ export async function cabinetRoutes(app: FastifyInstance) {
   app.get("/cabinet/hours", masterOnly, async (request, reply) => {
     const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+    const { workspaceId } = z.object({ workspaceId: z.string().trim().min(1).optional() }).parse(request.query ?? {});
+    const workspace = await resolveMasterWorkspace(master.id, workspaceId, { preferredSalonId: master.salonId });
+    if (!workspace) return reply.code(404).send({ error: "workspace_not_found", message: "Рабочее место не найдено у этого мастера" });
 
-    const rows = await db.select().from(workingHours).where(eq(workingHours.masterId, master.id));
+    const rows = await db.select().from(workingHours).where(and(
+      eq(workingHours.masterId, master.id),
+      eq(workingHours.workspaceId, workspace.id),
+    ));
     const weekdays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
     return {
+      workspaceId: workspace.id,
+      workspaceName: workspaceDisplayName(workspace),
+      timezone: workspace.timezone,
       items: weekdays.map((label, weekday) => {
         const row = rows.find((item) => item.weekday === weekday);
         return {
           weekday,
           label,
-          enabled: Boolean(row),
-          startMinute: row?.startMinute ?? 600,
-          endMinute: row?.endMinute ?? 1200,
+          enabled: rows.length === 0 ? true : row?.enabled ?? false,
+          startMinute: row?.startMinute ?? env.defaultDayStartMinute,
+          endMinute: row?.endMinute ?? env.defaultDayEndMinute,
         };
       }),
     };
@@ -316,8 +350,9 @@ export async function cabinetRoutes(app: FastifyInstance) {
     const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
-    const { items } = z
+    const { workspaceId, items } = z
       .object({
+        workspaceId: z.string().trim().min(1).optional(),
         items: z
           .array(
             z.object({
@@ -330,6 +365,8 @@ export async function cabinetRoutes(app: FastifyInstance) {
           .min(1),
       })
       .parse(request.body ?? {});
+    const workspace = await resolveMasterWorkspace(master.id, workspaceId, { preferredSalonId: master.salonId });
+    if (!workspace) return reply.code(404).send({ error: "workspace_not_found", message: "Рабочее место не найдено у этого мастера" });
 
     for (const item of items) {
       if (item.enabled && item.endMinute <= item.startMinute) {
@@ -340,27 +377,33 @@ export async function cabinetRoutes(app: FastifyInstance) {
       }
     }
 
-    const before = await db.select().from(workingHours).where(eq(workingHours.masterId, master.id));
+    const before = await db.select().from(workingHours).where(and(
+      eq(workingHours.masterId, master.id),
+      eq(workingHours.workspaceId, workspace.id),
+    ));
 
-    await db.delete(workingHours).where(eq(workingHours.masterId, master.id));
+    await db.delete(workingHours).where(and(
+      eq(workingHours.masterId, master.id),
+      eq(workingHours.workspaceId, workspace.id),
+    ));
     const enabled = items.filter((item) => item.enabled);
-    if (enabled.length > 0) {
-      await db.insert(workingHours).values(
-        enabled.map((item) => ({
-          masterId: master.id,
-          weekday: item.weekday,
-          startMinute: item.startMinute,
-          endMinute: item.endMinute,
-        })),
-      );
-    }
+    await db.insert(workingHours).values(
+      items.map((item) => ({
+        masterId: master.id,
+        workspaceId: workspace.id,
+        weekday: item.weekday,
+        enabled: item.enabled,
+        startMinute: item.startMinute,
+        endMinute: item.endMinute,
+      })),
+    );
 
     // Мастер открыл день или расширил смену — у избранных клиентов появилось окно.
     const opened = enabled.filter((item) => {
       const was = before.find((row) => row.weekday === item.weekday);
-      return !was || was.startMinute > item.startMinute || was.endMinute < item.endMinute;
+      return !was || !was.enabled || was.startMinute > item.startMinute || was.endMinute < item.endMinute;
     });
-    const notified = await notifyOpenedDays(master, opened);
+    const notified = await notifyOpenedDays(master, workspace, opened);
     if (notified > 0) {
       await notifyStudio(master.id, {
         type: "favorite_slot",
@@ -374,13 +417,20 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
   /** Записи мастера с фильтрами — источник данных для таблицы «Записи». */
   app.get("/cabinet/bookings", masterOnly, async (request, reply) => {
-    const { status, query, from, to } = listQuery.parse(request.query ?? {});
+    const { status, query, from, to, workspaceId } = listQuery.extend({
+      workspaceId: z.string().trim().min(1).optional(),
+    }).parse(request.query ?? {});
     const needle = query?.toLowerCase();
 
     const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+    const workspace = workspaceId
+      ? await resolveMasterWorkspace(master.id, workspaceId, { preferredSalonId: master.salonId, requireActive: false })
+      : null;
+    if (workspaceId && !workspace) return reply.code(404).send({ error: "workspace_not_found", message: "Рабочее место не найдено у этого мастера" });
 
-    // Границы диапазона — календарные даты в поясе мастера.
+    // Границы диапазона — календарные даты в часовом поясе выбранного места.
+    const timezone = workspace?.timezone ?? master.timezone;
     const fromDate = from && isValidISODate(from) ? from : null;
     const toDate = to && isValidISODate(to) ? to : null;
 
@@ -391,17 +441,19 @@ export async function cabinetRoutes(app: FastifyInstance) {
       .innerJoin(services, eq(bookings.serviceId, services.id))
       .where(
         and(
-          // Кабинет видит только свои записи: чужие клиенты — не его дело.
+          // Кабинет видит только свои записи; при выборе места сужаем и workspace.
           eq(bookings.masterId, master.id),
+          workspace ? eq(bookings.workspaceId, workspace.id) : undefined,
           status && status !== "all" ? eq(bookings.status, status) : undefined,
-          fromDate ? gte(bookings.startAt, dayBounds(fromDate, master.timezone).start) : undefined,
-          toDate ? lt(bookings.startAt, dayBounds(toDate, master.timezone).end) : undefined,
+          fromDate ? gte(bookings.startAt, dayBounds(fromDate, timezone).start) : undefined,
+          toDate ? lt(bookings.startAt, dayBounds(toDate, timezone).end) : undefined,
         ),
       )
       .orderBy(asc(bookings.startAt));
 
+    const workspaceById = await workspacesByIds(rows.map((row) => row.booking.workspaceId));
     const items = rows
-      .map((row) => serializeBooking(row.booking, row.master, row.service))
+      .map((row) => serializeBooking(row.booking, row.master, row.service, workspaceById.get(row.booking.workspaceId)))
       .filter((booking) =>
         needle
           ? `${booking.clientName} ${booking.clientPhone} ${booking.serviceName}`.toLowerCase().includes(needle)
@@ -464,10 +516,16 @@ export async function cabinetRoutes(app: FastifyInstance) {
     // Окно освободилось: предлагаем его избранным клиентам (кроме самого клиента).
     const master = await currentMaster(request.currentUser?.id ?? null);
     if (master) {
+      const workspace = await resolveMasterWorkspace(master.id, booking.workspaceId, {
+        preferredSalonId: master.salonId,
+        requireActive: false,
+      });
+      const timezone = workspace?.timezone ?? master.timezone;
       await notifyFavoritesAboutWindow({
         masterId: booking.masterId,
-        dateISO: toISODate(booking.startAt, master.timezone),
-        startMinutes: minutesOfDay(booking.startAt, master.timezone),
+        workspaceId: booking.workspaceId,
+        dateISO: toISODate(booking.startAt, timezone),
+        startMinutes: minutesOfDay(booking.startAt, timezone),
         excludePhone: booking.clientPhone,
       });
     }
@@ -635,8 +693,12 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
   /** Расписание на диапазон дат — для недельной сетки. */
   app.get("/cabinet/schedule", masterOnly, async (request, reply) => {
-    const { from, to } = z
-      .object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
+    const { from, to, workspaceId } = z
+      .object({
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        workspaceId: z.string().trim().min(1).optional(),
+      })
       .parse(request.query ?? {});
 
     if (!isValidISODate(from) || !isValidISODate(to)) {
@@ -645,48 +707,52 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
     const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+    const workspace = await resolveMasterWorkspace(master.id, workspaceId, {
+      preferredSalonId: master.salonId,
+      requireActive: false,
+    });
+    if (!workspace) return reply.code(404).send({ error: "workspace_not_found", message: "Рабочее место не найдено у этого мастера" });
 
     const rows = await db
       .select({ booking: bookings, master: masters, service: services })
       .from(bookings)
       .innerJoin(masters, eq(bookings.masterId, masters.id))
       .innerJoin(services, eq(bookings.serviceId, services.id))
-      .where(
-        and(
-          eq(bookings.masterId, master.id),
-          ne(bookings.status, "cancelled"),
-          gte(bookings.startAt, dayBounds(from, master.timezone).start),
-          lt(bookings.startAt, dayBounds(to, master.timezone).end),
-        ),
-      )
+      .where(and(
+        eq(bookings.masterId, master.id),
+        eq(bookings.workspaceId, workspace.id),
+        ne(bookings.status, "cancelled"),
+        gte(bookings.startAt, dayBounds(from, workspace.timezone).start),
+        lt(bookings.startAt, dayBounds(to, workspace.timezone).end),
+      ))
       .orderBy(asc(bookings.startAt));
 
-    const items = rows.map((row) => serializeBooking(row.booking, row.master, row.service));
+    const items = rows.map((row) => serializeBooking(row.booking, row.master, row.service, workspace));
 
-    // Технические перерывы идут тем же ответом: сетка расписания рисует их
-    // серыми блоками, и мастер видит, почему клиент не может записаться.
+    // Перерывы принадлежат выбранному месту: соседний филиал не закрывает это окно.
     const blocks = await db
       .select()
       .from(timeBlocks)
-      .where(
-        and(
-          eq(timeBlocks.masterId, master.id),
-          gte(timeBlocks.endAt, dayBounds(from, master.timezone).start),
-          lt(timeBlocks.startAt, dayBounds(to, master.timezone).end),
-        ),
-      )
+      .where(and(
+        eq(timeBlocks.masterId, master.id),
+        eq(timeBlocks.workspaceId, workspace.id),
+        gte(timeBlocks.endAt, dayBounds(from, workspace.timezone).start),
+        lt(timeBlocks.startAt, dayBounds(to, workspace.timezone).end),
+      ))
       .orderBy(asc(timeBlocks.startAt));
 
     return {
       from,
       to,
+      workspaceId: workspace.id,
+      workspaceName: workspaceDisplayName(workspace),
       days: [...new Set(items.map((booking) => booking.dateISO))].sort(),
       items,
       blocks: blocks.map((row) => ({
         id: row.id,
-        dateISO: toISODate(row.startAt, master.timezone),
-        startMinutes: minutesOfDay(row.startAt, master.timezone),
-        endMinutes: minutesOfDay(row.endAt, master.timezone),
+        dateISO: toISODate(row.startAt, workspace.timezone),
+        startMinutes: minutesOfDay(row.startAt, workspace.timezone),
+        endMinutes: minutesOfDay(row.endAt, workspace.timezone),
         reason: row.reason,
       })),
     };
@@ -1048,6 +1114,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
    * сначала перенесите клиента, потом закрывайте время.
    */
   const timeBlockSchema = z.object({
+    workspaceId: z.string().trim().min(1).optional(),
     dateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Дата в формате YYYY-MM-DD"),
     startMinutes: z.number().int().min(0).max(24 * 60 - 1),
     endMinutes: z.number().int().min(1).max(24 * 60),
@@ -1058,37 +1125,40 @@ export async function cabinetRoutes(app: FastifyInstance) {
     const master = await currentMaster(request.currentUser?.id ?? null);
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
-    const { from, to } = z
-      .object({ from: z.string().optional(), to: z.string().optional() })
+    const { from, to, workspaceId } = z
+      .object({ from: z.string().optional(), to: z.string().optional(), workspaceId: z.string().trim().min(1).optional() })
       .parse(request.query ?? {});
-    const fromDate = from && isValidISODate(from) ? from : toISODate(new Date(), master.timezone);
+    const workspace = await resolveMasterWorkspace(master.id, workspaceId, { preferredSalonId: master.salonId });
+    if (!workspace) return reply.code(404).send({ error: "workspace_not_found", message: "Рабочее место не найдено у этого мастера" });
+    const fromDate = from && isValidISODate(from) ? from : toISODate(new Date(), workspace.timezone);
     const toDate = to && isValidISODate(to) ? to : addDaysISO(fromDate, 14);
 
     const rows = await db
       .select()
       .from(timeBlocks)
-      .where(
-        and(
-          eq(timeBlocks.masterId, master.id),
-          gte(timeBlocks.endAt, dayBounds(fromDate, master.timezone).start),
-          lt(timeBlocks.startAt, dayBounds(toDate, master.timezone).end),
-        ),
-      )
+      .where(and(
+        eq(timeBlocks.masterId, master.id),
+        eq(timeBlocks.workspaceId, workspace.id),
+        gte(timeBlocks.endAt, dayBounds(fromDate, workspace.timezone).start),
+        lt(timeBlocks.startAt, dayBounds(toDate, workspace.timezone).end),
+      ))
       .orderBy(asc(timeBlocks.startAt));
 
     return {
+      workspaceId: workspace.id,
+      workspaceName: workspaceDisplayName(workspace),
       items: rows.map((row) => ({
         id: row.id,
-        dateISO: toISODate(row.startAt, master.timezone),
-        startMinutes: minutesOfDay(row.startAt, master.timezone),
-        endMinutes: minutesOfDay(row.endAt, master.timezone),
+        dateISO: toISODate(row.startAt, workspace.timezone),
+        startMinutes: minutesOfDay(row.startAt, workspace.timezone),
+        endMinutes: minutesOfDay(row.endAt, workspace.timezone),
         startAt: row.startAt.toISOString(),
         endAt: row.endAt.toISOString(),
         reason: row.reason,
       })),
       from: fromDate,
       to: toDate,
-      timezone: master.timezone,
+      timezone: workspace.timezone,
     };
   });
 
@@ -1097,12 +1167,14 @@ export async function cabinetRoutes(app: FastifyInstance) {
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const input = timeBlockSchema.parse(request.body ?? {});
+    const workspace = await resolveMasterWorkspace(master.id, input.workspaceId, { preferredSalonId: master.salonId });
+    if (!workspace) return reply.code(404).send({ error: "workspace_not_found", message: "Рабочее место не найдено у этого мастера" });
     if (input.endMinutes <= input.startMinutes) {
       return reply.code(400).send({ error: "bad_range", message: "Конец перерыва должен быть позже начала" });
     }
 
-    const startAt = atMinutes(input.dateISO, input.startMinutes, master.timezone);
-    const endAt = atMinutes(input.dateISO, input.endMinutes, master.timezone);
+    const startAt = atMinutes(input.dateISO, input.startMinutes, workspace.timezone);
+    const endAt = atMinutes(input.dateISO, input.endMinutes, workspace.timezone);
 
     // Перерыв поверх визита — конфликт: клиент уже ждёт мастера в это время.
     const [conflict] = await db
@@ -1132,6 +1204,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
       .where(
         and(
           eq(timeBlocks.masterId, master.id),
+          eq(timeBlocks.workspaceId, workspace.id),
           lt(timeBlocks.startAt, endAt),
           gt(timeBlocks.endAt, startAt),
         ),
@@ -1148,12 +1221,13 @@ export async function cabinetRoutes(app: FastifyInstance) {
 
     const [created] = await db
       .insert(timeBlocks)
-      .values({ masterId: master.id, startAt, endAt, reason: input.reason || null })
+      .values({ masterId: master.id, workspaceId: workspace.id, startAt, endAt, reason: input.reason || null })
       .returning();
 
     return reply.code(201).send({
       block: {
         id: created!.id,
+        workspaceId: workspace.id,
         dateISO: input.dateISO,
         startMinutes: input.startMinutes,
         endMinutes: input.endMinutes,
@@ -1167,13 +1241,17 @@ export async function cabinetRoutes(app: FastifyInstance) {
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const { id } = request.params as { id: string };
-    const [block] = await db.select().from(timeBlocks).where(eq(timeBlocks.id, id)).limit(1);
-    if (!block) return reply.code(404).send({ error: "not_found", message: "Перерыв не найден" });
-    if (block.masterId !== master.id) {
-      return reply.code(403).send({ error: "forbidden", message: "Это перерыв другого мастера" });
-    }
+    const { workspaceId } = z.object({ workspaceId: z.string().trim().min(1).optional() }).parse(request.query ?? {});
+    const workspace = await resolveMasterWorkspace(master.id, workspaceId, { preferredSalonId: master.salonId });
+    if (!workspace) return reply.code(404).send({ error: "workspace_not_found", message: "Рабочее место не найдено у этого мастера" });
+    const [block] = await db.select().from(timeBlocks).where(and(
+      eq(timeBlocks.id, id),
+      eq(timeBlocks.masterId, master.id),
+      eq(timeBlocks.workspaceId, workspace.id),
+    )).limit(1);
+    if (!block) return reply.code(404).send({ error: "not_found", message: "Перерыв не найден в этом рабочем месте" });
 
-    await db.delete(timeBlocks).where(eq(timeBlocks.id, id));
+    await db.delete(timeBlocks).where(and(eq(timeBlocks.id, id), eq(timeBlocks.masterId, master.id), eq(timeBlocks.workspaceId, workspace.id)));
     return { ok: true };
   });
 

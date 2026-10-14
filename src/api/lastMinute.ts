@@ -15,6 +15,14 @@ export type LastMinuteOffer = {
   rating: number;
   reviewsCount: number;
   priceFrom: number;
+  workspaceId: string;
+  workspaceName: string;
+  salonId: string;
+  salonName: string;
+  locationId: string | null;
+  locationName: string | null;
+  locationRegion: string | null;
+  timezone: string;
   /** Окно посчитано под конкретную услугу мастера — её и подставляем в запись. */
   serviceId: string;
   serviceName: string;

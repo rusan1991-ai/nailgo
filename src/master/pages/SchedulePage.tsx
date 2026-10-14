@@ -23,6 +23,7 @@ import {
 } from "../data";
 import { useCabinetAppointments } from "../appointments";
 import { minutesToLabel, useCabinetHours, useCabinetProfile } from "../../api/profile";
+import { useMasterPlaces } from "../../api/places";
 import {
   cancelBooking,
   completeBooking,
@@ -315,6 +316,27 @@ export function SchedulePage() {
   const [showCancelled, setShowCancelled] = useState(false);
   const [statusBusyId, setStatusBusyId] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const placesResource = useMasterPlaces();
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
+  const workspaces = useMemo(
+    () => (placesResource.data?.salons ?? [])
+      .filter((salon) => salon.active && salon.workspace?.active)
+      .map((salon) => ({
+        id: salon.workspace!.id,
+        name: salon.name,
+        isPrimary: Boolean(salon.isPrimary),
+        locationName: salon.location?.name ?? null,
+        locationRegion: salon.location?.region ?? null,
+      }))
+      .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.name.localeCompare(b.name, "ru")),
+    [placesResource.data?.salons],
+  );
+  useEffect(() => {
+    if (!workspaces.length) return;
+    if (!workspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
+      setSelectedWorkspaceId(workspaces[0]!.id);
+    }
+  }, [workspaces, selectedWorkspaceId]);
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
@@ -331,6 +353,8 @@ export function SchedulePage() {
 
   const appointments = useCabinetAppointments();
   const bookings = useBookingsStore();
+  const workspaceAppointments = appointments.filter((item) => item.workspaceId === selectedWorkspaceId && Boolean(selectedWorkspaceId));
+  const workspaceBookings = bookings.filter((item) => item.workspaceId === selectedWorkspaceId && Boolean(selectedWorkspaceId));
   const calendarDays = buildWeek(weekStartISO);
   const monthAnchor = dateFromISO(monthAnchorISO);
   const monthYear = monthAnchor.getFullYear();
@@ -343,7 +367,7 @@ export function SchedulePage() {
       day: date.getDate(),
       iso,
       inMonth: date.getMonth() === monthIndex,
-      count: bookings.filter((booking) => booking.dateISO === iso && booking.status !== "cancelled" && booking.status !== "no_show").length,
+      count: workspaceBookings.filter((booking) => booking.dateISO === iso && booking.status !== "cancelled" && booking.status !== "no_show").length,
     };
   });
 
@@ -371,7 +395,7 @@ export function SchedulePage() {
    */
   const weekFrom = calendarDays[0]!.iso;
   const weekTo = calendarDays[6]!.iso;
-  const blocksResource = useTimeBlocks(weekFrom, weekTo);
+  const blocksResource = useTimeBlocks(weekFrom, weekTo, selectedWorkspaceId || undefined);
   const blocks = blocksResource.data?.items ?? [];
   const [blockOpen, setBlockOpen] = useState(false);
   const [blockDate, setBlockDate] = useState(TODAY_ISO);
@@ -387,7 +411,7 @@ export function SchedulePage() {
 
   // Часы работы берём из базы: их мастер правит в настройках, они же
   // определяют свободные окна для клиентов.
-  const hoursResource = useCabinetHours();
+  const hoursResource = useCabinetHours(selectedWorkspaceId || undefined);
   const profileResource = useCabinetProfile();
   const workDays = (hoursResource.data?.items ?? []).filter((day) => day.enabled);
   const hoursLabel =
@@ -404,13 +428,13 @@ export function SchedulePage() {
 
   const visible = useMemo(
     () =>
-      appointments.filter((item) => {
+      workspaceAppointments.filter((item) => {
         if (!showCancelled && (item.status === "cancelled" || item.status === "no_show")) return false;
         if (service !== "all" && item.service !== service) return false;
         if (status !== "all" && item.status !== status) return false;
         return true;
       }),
-    [appointments, service, status, showCancelled],
+    [workspaceAppointments, service, status, showCancelled],
   );
 
   const changeAppointmentStatus = async (id: string, nextStatus: AppointmentStatus) => {
@@ -431,7 +455,9 @@ export function SchedulePage() {
   const saveBlock = async () => {
     setBlockState({ saving: true, error: null });
     try {
+      if (!selectedWorkspaceId) throw new Error("Выберите активное рабочее место");
       await createTimeBlock({
+        workspaceId: selectedWorkspaceId,
         dateISO: blockDate,
         startMinutes: parseTimeLabel(blockStart),
         endMinutes: parseTimeLabel(blockEnd),
@@ -449,7 +475,7 @@ export function SchedulePage() {
   };
 
   const removeBlock = async (id: string) => {
-    await deleteTimeBlock(id).catch(() => undefined);
+    await deleteTimeBlock(id, selectedWorkspaceId || undefined).catch(() => undefined);
     blocksResource.reload();
   };
 
@@ -531,6 +557,23 @@ export function SchedulePage() {
           <p className="mt-1 text-xs text-slate-500">Выделите интервал в сетке, чтобы закрыть его для записи как перерыв или личные дела.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {placesResource.error && <span role="alert" className="text-xs text-rose-600">Не удалось загрузить филиалы</span>}
+          {workspaces.length > 0 ? (
+            <label className="min-w-[210px]">
+              <span className="sr-only">Филиал / рабочее место</span>
+              <Select
+                value={selectedWorkspaceId}
+                onChange={setSelectedWorkspaceId}
+                options={workspaces.map((workspace) => ({
+                  value: workspace.id,
+                  label: `${workspace.name}${workspace.isPrimary ? " · основное" : ""}${workspace.locationName ? ` · ${workspace.locationName}` : ""}`,
+                }))}
+                className="min-w-[210px]"
+              />
+            </label>
+          ) : !placesResource.loading ? (
+            <span className="text-xs text-amber-700">Нет активных рабочих мест</span>
+          ) : null}
           <GhostButton onClick={() => chooseDate(TODAY_ISO)}>Сегодня</GhostButton>
           <div className="flex items-center gap-1">
             <button
@@ -557,11 +600,11 @@ export function SchedulePage() {
             <SegmentedControl options={["День", "Неделя", "Месяц"]} value={view} onChange={setView} />
           </div>
           {/* Перерыв закрывает время для клиентов; запись мастер вносит вручную. */}
-          <GhostButton dataAction="block-time" onClick={() => openBlockModal()}>
+          <GhostButton dataAction="block-time" disabled={!selectedWorkspaceId} onClick={() => openBlockModal()}>
             <Coffee className="h-4 w-4" />
             Перерыв
           </GhostButton>
-          <PrimaryButton dataAction="manual-booking" onClick={() => setModalOpen(true)}>
+          <PrimaryButton dataAction="manual-booking" disabled={!selectedWorkspaceId} onClick={() => setModalOpen(true)}>
             <Plus className="h-4 w-4" />
             Записать клиента вручную
           </PrimaryButton>
@@ -882,7 +925,7 @@ export function SchedulePage() {
       </Card>
       </div>
 
-      <AppointmentModal open={modalOpen} onClose={() => setModalOpen(false)} />
+      <AppointmentModal open={modalOpen} onClose={() => setModalOpen(false)} initialWorkspaceId={selectedWorkspaceId} />
 
       {/* Интервал выбирается прямо на сетке; сервер не примет блок поверх записи. */}
       <Modal

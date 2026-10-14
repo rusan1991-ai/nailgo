@@ -108,9 +108,10 @@ export function HomePage() {
   const showcaseWindows = showcaseMaster?.nextWindows?.slice(0, 4) ?? [];
   const defaultServiceId = showcaseServices[0]?.id ?? showcaseWindows[0]?.serviceId ?? undefined;
 
-  const bookingLinkForShowcase = (options: { serviceId?: string; date?: string; slot?: string } = {}) => {
+  const bookingLinkForShowcase = (options: { workspaceId?: string; serviceId?: string; date?: string; slot?: string } = {}) => {
     if (!showcaseMaster) return "/search";
     const params = new URLSearchParams({ master: showcaseMaster.slug });
+    if (options.workspaceId) params.set("workspace", options.workspaceId);
     if (options.serviceId) params.set("service", options.serviceId);
     if (options.date) params.set("date", options.date);
     if (options.slot) params.set("slot", options.slot);
@@ -121,6 +122,7 @@ export function HomePage() {
   const showcaseProfileLink = showcaseMaster ? `/master/${showcaseMaster.slug}` : "/search";
   const showcaseBookingLink = firstShowcaseWindow
     ? bookingLinkForShowcase({
+        workspaceId: firstShowcaseWindow.workspaceId,
         serviceId: firstShowcaseWindow.serviceId ?? defaultServiceId,
         date: firstShowcaseWindow.dateISO,
         slot: firstShowcaseWindow.label,
@@ -363,6 +365,7 @@ export function HomePage() {
                           onClick={() => recordPromotionEvent(showcaseMaster.slug, "booking_click", "home")}
                           data-showcase-window={`${window.dateISO}:${window.label}`}
                           to={bookingLinkForShowcase({
+                            workspaceId: window.workspaceId,
                             serviceId: window.serviceId ?? defaultServiceId,
                             date: window.dateISO,
                             slot: window.label,
@@ -372,7 +375,7 @@ export function HomePage() {
                           }`}
                         >
                           <span className="block font-medium">{window.label}</span>
-                          <span className="block text-xs text-slate-500">{formatDateLabel(window.dateISO)}</span>
+                          <span className="block text-xs text-slate-500">{formatDateLabel(window.dateISO)} · {window.workspaceName}</span>
                         </Link>
                       ))}
                     </div>

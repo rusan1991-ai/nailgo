@@ -8,12 +8,30 @@ import { api } from "../api/client";
 import { formatRub } from "../data/mock";
 import { formatDateLabel, todayISO, upcomingDays } from "../store/bookings";
 import { useMasterServices } from "../api/masterServices";
+import { useMasterCard, type MasterWorkspaceView } from "../api/masterCard";
 
 type SlotResponse = {
   date: string;
+  workspaceId: string;
+  workspaceName: string;
+  locationName: string | null;
+  locationRegion: string | null;
   durationMinutes: number;
   workingHours: { start: number; end: number };
   slots: Array<{ startMinute: number; label: string }>;
+};
+
+const WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+const minuteLabel = (minutes: number) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+const hoursLabel = (workspace?: MasterWorkspaceView) => {
+  if (!workspace) return "";
+  if (workspace.hours.length === 0) return "График не задан";
+  return workspace.hours
+    .slice()
+    .sort((a, b) => a.weekday - b.weekday)
+    .map((day) => `${WEEKDAY_LABELS[day.weekday]} ${minuteLabel(day.startMinute)}–${minuteLabel(day.endMinute)}`)
+    .join(" · ");
 };
 
 export function BookingPage() {
@@ -24,11 +42,14 @@ export function BookingPage() {
   const { masters } = useCatalog();
 
   const masterSlug = params.get("master") ?? "anna-smirnova";
+  const requestedWorkspaceId = params.get("workspace") ?? "";
   const {
     data: masterServicesData,
     loading: servicesLoading,
     error: servicesError,
   } = useMasterServices(masterSlug);
+  const { data: masterCard, loading: masterCardLoading, error: masterCardError } = useMasterCard(masterSlug);
+  const [workspaceId, setWorkspaceId] = useState(requestedWorkspaceId);
   const [serviceId, setServiceId] = useState(params.get("service") ?? "");
   const [dateISO, setDateISO] = useState(params.get("date") ?? todayISO());
   const [slots, setSlots] = useState<SlotResponse["slots"]>([]);
@@ -47,6 +68,20 @@ export function BookingPage() {
     () => masters.find((item) => item.slug === masterSlug),
     [masterSlug, masters],
   );
+  const workspaces = masterCard?.workspaces ?? [];
+  useEffect(() => {
+    if (!masterCard) return;
+    if (workspaces.length === 0) {
+      setWorkspaceId("");
+      return;
+    }
+    if (!workspaces.some((workspace) => workspace.id === workspaceId)) {
+      const requested = workspaces.find((workspace) => workspace.id === requestedWorkspaceId);
+      const fallback = workspaces.find((workspace) => workspace.isPrimary) ?? workspaces[0]!;
+      setWorkspaceId((requested ?? fallback).id);
+    }
+  }, [masterCard, requestedWorkspaceId, workspaceId, workspaces]);
+  const selectedWorkspace = workspaces.find((workspace) => workspace.id === workspaceId);
 
   /** Прайс всегда загружается в scope выбранного мастера; общий каталог здесь не используется. */
   const masterServices = masterServicesData?.items ?? [];
@@ -56,16 +91,22 @@ export function BookingPage() {
     [masterServices, serviceId],
   );
 
-  /** Свободные окна считает сервер: занятые записи в список не попадают. */
+  /** Свободные окна считает сервер для пары «мастер + выбранное рабочее место». */
   useEffect(() => {
-    if (!service) return;
+    if (!service || !workspaceId) {
+      setSlots([]);
+      setSlotsError("");
+      setSlotsLoading(false);
+      return;
+    }
     let alive = true;
     setSlotsLoading(true);
     setSlotsError("");
     void (async () => {
       try {
+        const query = new URLSearchParams({ date: dateISO, serviceId: service.id, workspaceId });
         const response = await api.get<SlotResponse>(
-          `/masters/${masterSlug}/slots?date=${dateISO}&serviceId=${service.id}`,
+          `/masters/${masterSlug}/slots?${query.toString()}`,
         );
         if (!alive) return;
         setSlots(response.slots);
@@ -83,10 +124,14 @@ export function BookingPage() {
     return () => {
       alive = false;
     };
-  }, [dateISO, masterSlug, service]);
+  }, [dateISO, masterSlug, service, workspaceId]);
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!workspaceId) {
+      setError("Выберите активный филиал мастера.");
+      return;
+    }
     if (!clientName.trim() || !clientPhone.trim()) {
       setError("Заполните имя и телефон — мастеру нужно знать, к кому обращаться.");
       return;
@@ -100,6 +145,7 @@ export function BookingPage() {
     try {
       const created = await createBooking({
         masterSlug,
+        workspaceId,
         serviceId: service.id,
         dateISO,
         time: selectedSlot,
@@ -108,8 +154,6 @@ export function BookingPage() {
         comment,
       });
 
-      // Услуга с предоплатой: без денег запись не подтвердится, поэтому
-      // сначала показываем шаг оплаты, а не «мои записи».
       if (created.payment.status === "pending" && created.payment.paymentId) {
         setWaitingPayment({ bookingId: created.booking.id, amount: created.payment.amount ?? 0 });
         return;
@@ -172,6 +216,44 @@ export function BookingPage() {
               <p>Дата: {formatDateLabel(dateISO)}</p>
             </div>
 
+            <div className="mt-3 rounded-xl border border-[#f2dfe7] p-3" data-field="booking-workspace">
+              <label className="block">
+                <span className="text-xs text-slate-500">Филиал мастера</span>
+                {workspaces.length > 0 ? (
+                  <select
+                    value={workspaceId}
+                    onChange={(event) => {
+                      setWorkspaceId(event.target.value);
+                      setSlots([]);
+                      setSelectedSlot("");
+                    }}
+                    data-field="workspace"
+                    className="mt-1 w-full rounded-lg border border-[#f1dde6] px-2 py-2 font-medium outline-none focus:border-pink-300"
+                  >
+                    {workspaces.map((workspace) => (
+                      <option key={workspace.id} value={workspace.id}>
+                        {workspace.name}{workspace.isPrimary ? " · основное" : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="mt-1 text-sm text-slate-400">
+                    {masterCardError
+                      ? "Не удалось загрузить филиалы. Попробуйте обновить страницу."
+                      : masterCardLoading
+                        ? "Загружаем филиалы…"
+                        : "У мастера нет активных филиалов для записи."}
+                  </p>
+                )}
+              </label>
+              {selectedWorkspace && (
+                <div className="mt-2 space-y-1 text-sm text-slate-600">
+                  {selectedWorkspace.locationName && <p>Место: {selectedWorkspace.locationName}{selectedWorkspace.locationRegion ? ` · ${selectedWorkspace.locationRegion}` : ""}</p>}
+                  <p data-field="workspace-hours">График: {hoursLabel(selectedWorkspace)}</p>
+                </div>
+              )}
+            </div>
+
             <p className="mt-5 text-xs uppercase tracking-[0.14em] text-slate-400">Дата</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {upcomingDays(14).map((day) => (
@@ -196,7 +278,7 @@ export function BookingPage() {
             <p className="mt-5 text-xs uppercase tracking-[0.14em] text-slate-400">Свободное время</p>
             {slotsLoading && <p className="mt-2 text-sm text-slate-500">Считаем свободные окна…</p>}
             {!slotsLoading && slotsError && <p className="mt-2 text-sm text-rose-500">{slotsError}</p>}
-            {!slotsLoading && !slotsError && slots.length === 0 && (
+            {!slotsLoading && !slotsError && workspaceId && slots.length === 0 && (
               <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700">
                 На эту дату свободных окон нет. Выберите другой день.
               </p>
@@ -273,6 +355,7 @@ export function BookingPage() {
                 Подтверждение: {formatDateLabel(dateISO)}
                 {selectedSlot ? `, ${selectedSlot}` : ""}, {service?.name ?? "услуга не выбрана"}
                 {service ? ` · ${formatRub(service.price)}` : ""}
+                {selectedWorkspace ? ` · ${selectedWorkspace.name}` : ""}
                 {service && (service.prepaymentPercent ?? 0) > 0 && (
                   <span className="mt-1 block text-amber-600" data-note="prepayment">
                     Услуга с предоплатой {(service.prepaymentPercent ?? 0)}% —{" "}
@@ -281,19 +364,14 @@ export function BookingPage() {
                   </span>
                 )}
               </div>
-
               <button
-                disabled={pending || !selectedSlot || !service}
-                className="mt-4 w-full rounded-xl bg-pink-500 py-3 text-sm font-semibold text-white transition hover:bg-pink-600 disabled:opacity-60"
+                type="submit"
+                disabled={pending || !service || !workspaceId || slotsLoading || !selectedSlot}
+                className="w-full rounded-xl bg-pink-500 py-3 font-semibold text-white transition hover:bg-pink-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {pending ? "Записываем..." : "Записаться"}
+                {pending ? "Отправляем…" : "Подтвердить запись"}
               </button>
-              <p className="mt-2 text-xs text-slate-500">Нажимая "Записаться", вы соглашаетесь с правилами сервиса.</p>
             </form>
-
-            <Link to="/" className="mt-5 inline-block text-sm text-pink-600 hover:text-pink-700">
-              Вернуться к поиску
-            </Link>
             </>
             )}
           </div>

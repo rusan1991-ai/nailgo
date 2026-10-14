@@ -103,6 +103,7 @@ export async function placesRoutes(app: FastifyInstance) {
     const user = request.currentUser!;
     const masterId = user.masterId;
     if (!masterId) return reply.code(404).send({ error: "not_found", message: "Кабинет мастера не найден" });
+    const [masterProfile] = await db.select({ salonId: masters.salonId }).from(masters).where(eq(masters.id, masterId)).limit(1);
 
     const [networkMembershipRows, salonMembershipRows, invitationRows] = await Promise.all([
       db
@@ -252,6 +253,7 @@ export async function placesRoutes(app: FastifyInstance) {
           location: location ? { id: location.id, slug: location.slug, name: location.name, kind: location.kind, region: location.region } : null,
           timezone: salon.timezone,
           active: salon.active,
+          isPrimary: salon.id === masterProfile?.salonId,
           role,
           canManageTeam: role === "owner",
           team: role === "owner" ? teamBySalonId.get(salon.id) ?? [] : undefined,

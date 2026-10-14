@@ -183,6 +183,13 @@
       "when": 1791987883713,
       "tag": "0025_salon_member_invitations",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791992404719,
+      "tag": "0026_workspace_schedules_bookings",
+      "breakpoints": true
     }
   ]
 }

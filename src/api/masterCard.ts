@@ -16,6 +16,21 @@ export type MasterGalleryPhoto = {
   height?: number;
 };
 
+export type MasterWorkspaceView = {
+  id: string;
+  salonId: string;
+  isPrimary: boolean;
+  name: string;
+  salonName: string;
+  kind: string;
+  locationId: string | null;
+  locationName: string | null;
+  locationKind: string | null;
+  locationRegion: string | null;
+  timezone: string;
+  hours: { weekday: number; startMinute: number; endMinute: number }[];
+};
+
 export type MasterCard = {
   slug: string;
   name: string;
@@ -30,6 +45,8 @@ export type MasterCard = {
   reviewsCount: number;
   priceFrom: number;
   experience: string;
+  hours: { weekday: number; startMinute: number; endMinute: number }[];
+  workspaces: MasterWorkspaceView[];
   metroSlug: string | null;
   districtSlug: string | null;
   gallery: {

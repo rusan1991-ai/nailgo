@@ -1,22 +1,17 @@
 /**
- * Свободные окна мастера.
+ * Свободные окна мастера на конкретном рабочем месте.
  *
- * Один расчёт на всех: его использует публичная ручка слотов, избранное
- * (подбирает ближайшее окно у любимого мастера) и горящие окна.
- * Правила те же, что при создании записи: рабочие часы, выходные,
- * анти-овербукинг, технические перерывы мастера (`time_blocks` — обед,
- * личные дела) и «запас» на дорогу — записаться можно не раньше, чем
- * за `BOOKING_MIN_LEAD_MINUTES` до начала.
- *
- * Все «минуты дня» — в поясе мастера (`masters.timezone`), а не сервера.
- * Поэтому на стенде в UTC окно 10:00 у мастера из Москвы — это 10:00 по Москве,
- * и в SMS придёт то же время, что видит клиент на экране.
+ * Один расчёт на всех: его используют публичная ручка слотов, избранное,
+ * каталог и горящие окна. Учитываются расписание workspace, технические
+ * блокировки этого workspace и записи мастера (в том числе в другом филиале,
+ * чтобы один мастер не мог оказаться в двух местах одновременно).
  */
 import { and, eq, gt, lt, ne } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { bookings, timeBlocks } from "../db/schema.js";
 import { env } from "../env.js";
 import { scheduleForDay, slotStepOf } from "./schedule.js";
+import { resolveMasterWorkspace } from "./workspaces.js";
 import {
   addDaysISO,
   atMinutes,
@@ -28,39 +23,29 @@ import {
   toISODate,
 } from "./time.js";
 
-/** Минимум данных о мастере, который нужен расчёту окон. */
+/** Минимум данных о мастере и selected workspace для расчёта окон. */
 export type SlotMaster = {
   id: string;
   timezone: string;
   slotStepMinutes: number;
+  workspaceId?: string;
+  primarySalonId?: string | null;
 };
 
 export type DaySlots = {
   dateISO: string;
-  /**
-   * День уже прошёл (или это сегодня, но окна кончились — см. `slots`).
-   * Отдельный признак: «вчера» и «выходной» — разные причины пустого списка,
-   * и интерфейс не должен писать «мастер не принимает» про прошедший день.
-   */
+  workspaceId: string | null;
+  /** День уже прошёл (или сегодня, но свободные окна закончились). */
   past: boolean;
-  /** Работает ли мастер в этот день и в каких часах (минуты от полуночи). */
   working: boolean;
   start: number;
   end: number;
-  /** Начала окон в минутах от полуночи — по возрастанию. */
   slots: number[];
-  /** Сколько минут длится услуга, под которую считались окна. */
   durationMinutes: number;
-  /** Шаг сетки мастера. */
   stepMinutes: number;
 };
 
-/**
- * Окна мастера на конкретный день: `null`, только если дата некорректна.
- *
- * Прошедшие окна не отдаём: если день уже прошёл — список пустой, если это
- * сегодня — скрываем всё, что начинается раньше `now + BOOKING_MIN_LEAD_MINUTES`.
- */
+/** Окна выбранного рабочего места на день; `null` — некорректная дата. */
 export async function freeSlotsForDay(
   master: SlotMaster,
   dateISO: string,
@@ -69,10 +54,10 @@ export async function freeSlotsForDay(
 ): Promise<DaySlots | null> {
   if (!isValidISODate(dateISO)) return null;
 
-  const tz = master.timezone;
   const step = slotStepOf(master);
-  const empty = (working: boolean, start = 0, end = 0, past = false): DaySlots => ({
+  const empty = (working: boolean, workspaceId: string | null, start = 0, end = 0, past = false): DaySlots => ({
     dateISO,
+    workspaceId,
     past,
     working,
     start,
@@ -82,42 +67,43 @@ export async function freeSlotsForDay(
     stepMinutes: step,
   });
 
+  const workspace = await resolveMasterWorkspace(master.id, master.workspaceId, {
+    preferredSalonId: master.primarySalonId,
+  });
+  if (!workspace) return empty(false, null);
+
+  const tz = workspace.timezone || master.timezone;
   const now = options.now ?? new Date();
   const todayInZone = toISODate(now, tz);
-  // День в прошлом — окон нет вообще: записаться туда нельзя.
-  if (dateISO < todayInZone) return empty(false, 0, 0, true);
+  if (dateISO < todayInZone) return empty(false, workspace.id, 0, 0, true);
 
-  const schedule = await scheduleForDay(master.id, dateISO);
-  if (!schedule.working) return empty(false);
+  const schedule = await scheduleForDay(master.id, dateISO, workspace.id);
+  if (!schedule.working) return empty(false, workspace.id);
 
   const { start: dayStart, end: dayEnd } = dayBounds(dateISO, tz);
 
-  // Пересечение по времени, а не «началось в этот день»: длинная запись,
-  // начавшаяся вчера, тоже занимает время.
+  // A booking blocks the same master at every branch; branch selection must
+  // never make a simultaneous appointment appear free at another location.
   const booked = await db
     .select({ startAt: bookings.startAt, endAt: bookings.endAt })
     .from(bookings)
-    .where(
-      and(
-        eq(bookings.masterId, master.id),
-        ne(bookings.status, "cancelled"),
-        lt(bookings.startAt, dayEnd),
-        gt(bookings.endAt, dayStart),
-      ),
-    );
+    .where(and(
+      eq(bookings.masterId, master.id),
+      ne(bookings.status, "cancelled"),
+      lt(bookings.startAt, dayEnd),
+      gt(bookings.endAt, dayStart),
+    ));
 
-  // Технические перерывы занимают время так же, как записи: клиент не должен
-  // занять обед мастера. Хранятся отдельно — в статистику и деньги не попадают.
+  // A personal/technical block closes only the selected workspace.
   const blocked = await db
     .select({ startAt: timeBlocks.startAt, endAt: timeBlocks.endAt })
     .from(timeBlocks)
-    .where(
-      and(
-        eq(timeBlocks.masterId, master.id),
-        lt(timeBlocks.startAt, dayEnd),
-        gt(timeBlocks.endAt, dayStart),
-      ),
-    );
+    .where(and(
+      eq(timeBlocks.masterId, master.id),
+      eq(timeBlocks.workspaceId, workspace.id),
+      lt(timeBlocks.startAt, dayEnd),
+      gt(timeBlocks.endAt, dayStart),
+    ));
 
   const busy = [...booked, ...blocked].map((item) => ({
     start: minutesOfDay(item.startAt, tz),
@@ -125,16 +111,14 @@ export async function freeSlotsForDay(
   }));
 
   let slots = freeSlots({ start: schedule.start, end: schedule.end }, busy, durationMinutes, step);
-
-  // Запас на дорогу: сегодня отсекаем окна, до которых нельзя добраться.
   if (dateISO === todayInZone) {
     const earliest = minutesOfDay(now, tz) + env.bookingMinLeadMinutes;
     slots = slots.filter((minute) => minute >= earliest);
   }
 
-  // Сегодня окна могли закончиться: это тоже «время прошло», а не выходной.
   return {
     dateISO,
+    workspaceId: workspace.id,
     past: dateISO === todayInZone && slots.length === 0,
     working: true,
     start: schedule.start,
@@ -145,18 +129,14 @@ export async function freeSlotsForDay(
   };
 }
 
-export type FreeWindow = { dateISO: string; startMinutes: number; label: string };
+export type FreeWindow = { workspaceId: string; dateISO: string; startMinutes: number; label: string };
 
 /** «15:30» — подпись начала окна. */
 export function windowLabel(startMinutes: number): string {
   return `${String(Math.floor(startMinutes / 60)).padStart(2, "0")}:${String(startMinutes % 60).padStart(2, "0")}`;
 }
 
-/**
- * Свободные окна мастера в ближайшие дни — по возрастанию времени.
- * Прошедшее время и слишком близкие окна отсекаются тем же правилом, что
- * в `freeSlotsForDay` (единый источник правил).
- */
+/** Свободные окна в ближайшие дни для одного выбранного workspace. */
 export async function freeWindows(
   master: SlotMaster,
   durationMinutes: number,
@@ -164,18 +144,24 @@ export async function freeWindows(
 ): Promise<FreeWindow[]> {
   const days = options.days ?? 14;
   const max = options.max ?? 3;
+  const workspace = await resolveMasterWorkspace(master.id, master.workspaceId, {
+    preferredSalonId: master.primarySalonId,
+  });
+  if (!workspace) return [];
+
+  const scopedMaster = { ...master, workspaceId: workspace.id, timezone: workspace.timezone };
   const now = options.now ?? new Date();
-  const startISO = options.fromDateISO ?? todayISO(master.timezone);
+  const startISO = options.fromDateISO ?? todayISO(workspace.timezone);
   if (!isValidISODate(startISO)) return [];
 
   const found: FreeWindow[] = [];
   for (let offset = 0; offset < days && found.length < max; offset += 1) {
     const dateISO = addDaysISO(startISO, offset);
-    const daySlots = await freeSlotsForDay(master, dateISO, durationMinutes, { now });
+    const daySlots = await freeSlotsForDay(scopedMaster, dateISO, durationMinutes, { now });
     if (!daySlots?.working) continue;
 
     for (const minute of daySlots.slots) {
-      found.push({ dateISO, startMinutes: minute, label: windowLabel(minute) });
+      found.push({ workspaceId: workspace.id, dateISO, startMinutes: minute, label: windowLabel(minute) });
       if (found.length >= max) break;
     }
   }

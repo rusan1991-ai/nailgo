@@ -75,8 +75,11 @@ export async function getCabinetProfile(): Promise<CabinetProfile> {
   return response.profile;
 }
 
-export function useCabinetHours(): Resource<{ items: WorkDay[] }> {
-  return useApiResource<{ items: WorkDay[] }>("/cabinet/hours");
+export type CabinetHours = { items: WorkDay[]; workspaceId?: string; workspaceName?: string; timezone?: string };
+
+export function useCabinetHours(workspaceId?: string): Resource<CabinetHours> {
+  const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
+  return useApiResource<CabinetHours>(`/cabinet/hours${query}`);
 }
 
 /** Сохранение настроек текущего кабинета. Пустые текстовые поля очищаются на сервере. */
@@ -99,8 +102,9 @@ export async function saveCabinetProfile(input: {
 }
 
 /** Сохранение часов работы: сервер заменяет неделю целиком. */
-export async function saveCabinetHours(items: WorkDay[]): Promise<void> {
+export async function saveCabinetHours(items: WorkDay[], workspaceId?: string): Promise<void> {
   await api.put("/cabinet/hours", {
+    ...(workspaceId ? { workspaceId } : {}),
     items: items.map((item) => ({
       weekday: item.weekday,
       enabled: item.enabled,

@@ -26,6 +26,7 @@ import {
 } from "../../api/profile";
 import { cn } from "../../utils/cn";
 import { useLocationDirectory } from "../../api/locations";
+import { useMasterPlaces } from "../../api/places";
 
 const REGION_SPB = "Санкт-Петербург";
 const REGION_LO = "Ленинградская область";
@@ -37,7 +38,28 @@ export function SettingsProPage() {
 
   const profileResource = useCabinetProfile();
   const locationsResource = useLocationDirectory();
-  const hoursResource = useCabinetHours();
+  const placesResource = useMasterPlaces();
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
+  const availableWorkspaces = useMemo(
+    () => (placesResource.data?.salons ?? [])
+      .filter((salon) => salon.active && salon.workspace?.active)
+      .map((salon) => ({
+        id: salon.workspace!.id,
+        name: salon.name,
+        isPrimary: Boolean(salon.isPrimary),
+        locationName: salon.location?.name ?? null,
+        locationRegion: salon.location?.region ?? null,
+      }))
+      .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.name.localeCompare(b.name, "ru")),
+    [placesResource.data?.salons],
+  );
+  useEffect(() => {
+    if (!availableWorkspaces.length) return;
+    if (!availableWorkspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
+      setSelectedWorkspaceId(availableWorkspaces[0]!.id);
+    }
+  }, [availableWorkspaces, selectedWorkspaceId]);
+  const hoursResource = useCabinetHours(selectedWorkspaceId || undefined);
   const { draft: hours, update: updateHours } = useHoursDraft(hoursResource.data?.items);
 
   const [name, setName] = useState("");
@@ -125,7 +147,8 @@ export function SettingsProPage() {
         profileResource.reload();
       } else if (section === "hours") {
         if (!hours) throw new Error("Расписание ещё загружается");
-        await saveCabinetHours(hours);
+        if (!selectedWorkspaceId) throw new Error("Выберите активное рабочее место");
+        await saveCabinetHours(hours, selectedWorkspaceId);
         hoursResource.reload();
       } else if (section === "notifications") {
         await saveCabinetProfile({ notifyNewBookings });
@@ -165,7 +188,7 @@ export function SettingsProPage() {
             <PrimaryButton
               dataAction="save-master-settings"
               onClick={() => void save()}
-              disabled={state.saving || profileResource.loading || (section === "hours" && hoursResource.loading)}
+              disabled={state.saving || profileResource.loading || (section === "hours" && (hoursResource.loading || placesResource.loading || !selectedWorkspaceId))}
             >
               <Save className="h-4 w-4" />
               {state.saving ? "Сохраняем…" : "Сохранить изменения"}
@@ -431,14 +454,35 @@ export function SettingsProPage() {
           {section === "messengers" && <LoginMethodsCard />}
 
           {section === "hours" && (
-            <Card>
+            <Card data-block="workspace-hours">
               <CardTitle>Часы работы</CardTitle>
               <p className="mb-4 text-sm text-slate-500">
-                Эти дни и время определяют, какие окна видят клиенты при записи. Изменения вступают в силу
-                после «Сохранить изменения».
+                Расписание задаётся отдельно для каждого рабочего места и определяет, какие окна видят клиенты.
               </p>
+              {placesResource.error && <p role="alert" className="mb-3 text-sm text-rose-600">Не удалось загрузить филиалы: {placesResource.error}</p>}
+              {availableWorkspaces.length > 0 ? (
+                <label className="mb-4 block max-w-xl">
+                  <span className="text-xs font-medium text-slate-500">Филиал / рабочее место</span>
+                  <Select
+                    value={selectedWorkspaceId}
+                    onChange={(value) => {
+                      setSelectedWorkspaceId(value);
+                      setState((current) => ({ ...current, saved: false, error: null }));
+                    }}
+                    options={availableWorkspaces.map((workspace) => ({
+                      value: workspace.id,
+                      label: `${workspace.name}${workspace.isPrimary ? " · основное" : ""}${workspace.locationName ? ` · ${workspace.locationName}` : ""}`,
+                    }))}
+                    className="mt-1.5"
+                  />
+                </label>
+              ) : !placesResource.loading ? (
+                <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700" data-state="no-active-workspaces">
+                  Нет активных рабочих мест. Создайте или примите филиал в разделе «Салоны и места работы».
+                </p>
+              ) : null}
 
-              {!hours && <p className="text-sm text-slate-400">Загружаем расписание…</p>}
+              {!hours && selectedWorkspaceId && <p className="text-sm text-slate-400">Загружаем расписание…</p>}
 
               <div className="divide-y divide-slate-50">
                 {(hours ?? []).map((day) => (

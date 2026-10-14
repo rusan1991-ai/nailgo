@@ -12,6 +12,7 @@ import { cartAvatars } from "./media.js";
 import { requireAuth } from "../lib/auth.js";
 import { windowService } from "../lib/favorites.js";
 import { nextFreeWindow } from "../lib/slots.js";
+import { listMasterWorkspaces, workspaceDisplayName } from "../lib/workspaces.js";
 
 const addSchema = z.object({ masterSlug: z.string().trim().min(1) });
 
@@ -42,7 +43,26 @@ export async function favoriteRoutes(app: FastifyInstance) {
     const items = [];
     for (const row of rows) {
       const service = await windowService(row.master.id);
-      const window = service ? await nextFreeWindow(row.master, service.durationMinutes) : null;
+      const workspaces = await listMasterWorkspaces(row.master.id);
+      let next: {
+        window: NonNullable<Awaited<ReturnType<typeof nextFreeWindow>>>;
+        workspace: (typeof workspaces)[number];
+      } | null = null;
+      if (service) {
+        for (const workspace of workspaces) {
+          const window = await nextFreeWindow({
+            id: row.master.id,
+            timezone: workspace.timezone,
+            slotStepMinutes: row.master.slotStepMinutes,
+            workspaceId: workspace.id,
+            primarySalonId: row.master.salonId,
+          }, service.durationMinutes);
+          if (window && (!next || window.dateISO < next.window.dateISO ||
+            (window.dateISO === next.window.dateISO && window.startMinutes < next.window.startMinutes))) {
+            next = { window, workspace };
+          }
+        }
+      }
 
       items.push({
         slug: row.master.slug,
@@ -60,11 +80,18 @@ export async function favoriteRoutes(app: FastifyInstance) {
         rating: row.master.rating,
         reviewsCount: row.master.reviewsCount,
         addedAt: row.favorite.createdAt.toISOString(),
-        nextWindow: window
+        nextWindow: next
           ? {
-              dateISO: window.dateISO,
-              startMinutes: window.startMinutes,
-              label: window.label,
+              workspaceId: next.window.workspaceId,
+              workspaceName: workspaceDisplayName(next.workspace),
+              salonName: next.workspace.salonName,
+              locationId: next.workspace.locationId,
+              locationName: next.workspace.locationName,
+              locationRegion: next.workspace.locationRegion,
+              timezone: next.workspace.timezone,
+              dateISO: next.window.dateISO,
+              startMinutes: next.window.startMinutes,
+              label: next.window!.label,
               durationMinutes: service!.durationMinutes,
               serviceId: service!.id,
               serviceName: service!.name,

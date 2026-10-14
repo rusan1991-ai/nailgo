@@ -9,10 +9,10 @@
 `db:places-migration-check`, `db:workspaces-migration-check`, `places`, `workspaces`, `locations`,
 `stats`, `favorites`, `last-minute`, `reschedule`, `services`, `client-cabinet`, `roles`, `e2e`,
 `scheduler`, `routes` (34 маршрута), TypeScript и production-сборки frontend/API. Полный devcheck-набор
-целиком после этапа 10 не запускался. Изолированный Compose smoke-test после этапа 9 прошёл на
-GitHub runner (`Deployment smoke`, run `38575577447`); повторный Compose smoke после миграций этапов
-10–11 и реальный выпуск/продление Let's Encrypt-сертификата не проверялись. В локальном sandbox
-Docker отсутствует. Маршруты взяты из `src/App.tsx`, API — из `apps/api/src/routes/*.ts`.
+целиком после этапа 10 не запускался. Изолированный Compose smoke-test после миграций этапов 10–11
+прошёл на одобренном GitHub runner (`Deployment smoke`, run `38626821360`); реальные выпуск и
+продление Let's Encrypt-сертификата остаются непроверенными и потребуют подключённого домена.
+Маршруты взяты из `src/App.tsx`, API — из `apps/api/src/routes/*.ts`.
 
 Легенда:
 
@@ -71,8 +71,8 @@ Docker отсутствует. Маршруты взяты из `src/App.tsx`, A
 | Вход и сессия | работает | Яндекс ID и VK ID (OAuth 2.0, VK — с PKCE), Telegram Login Widget и бот-диплинки Telegram/Max; обычный production-конфиг закрывает OTP, но изолированный тестовый режим `DEV_OTP_ENABLED=true` + `OTP_DELIVERY=dev` выдаёт `1234` независимо от `NODE_ENV`. Внешние провайдеры не обязательны для этого режима. Обычный `login` строгий, тестовый `dev_login` отдельный, явная регистрация отдельна. Платных SMS нет; роли `client/master/admin`, JWT с ротацией refresh и сессиями по устройству |
 | Уведомления | работает | роутер каналов `lib/notifications.ts` (заменил `notify.ts` и `reminders.ts`): привязан Telegram — уходит через бота Telegram, иначе Max, иначе событие остаётся в журнале системы; **SMS не отправляются вообще**. В приложении: заявки, подтверждения, отмены, завершения, неявки, переносы, сообщения, отзывы, подсказка «привяжите мессенджер»; клиентские настройки сохраняют свои категории, а мастер может выключить только новые заявки в собственной ленте. Внешняя доставка при этом не глушится. Тексты о времени собираются в часовом поясе workspace записи. Наружу — очередь `deliveries` с транспортами `auto` (по каналу), `log` и `webhook`; сбой канала не теряет сообщение |
 | Демо-данные | работает | `npm run db:reset` локально, `POST /cabinet/demo/reset` в dev; в сидах 4 мастера (три в Санкт-Петербурге, один во Всеволожске), 40 услуг, 22 записи (прошедшие — завершены, есть заявка в ожидании), 9 отзывов, 3 диалога, аккаунты мастера и администратора; все даты считаются от текущего дня, а не прибиты к фиксированной неделе |
-| Деплой | runtime smoke-test пройден в GitHub Actions | `Dockerfile.frontend` (Vite + Nginx), `apps/api/Dockerfile`, production Compose с Postgres/API/Nginx, persistent volumes, Let's Encrypt bootstrap, скрипты install/update/backup/restore. `npm run deployment` проверяет Compose/Nginx/env/bootstrap. GitHub Actions run `38565233231` на Docker-enabled runner успешно собрал и поднял изолированный стек, проверил миграции/health через Nginx, restart/update, backup и restore в отдельную пустую БД; тестовые ресурсы удалены. Реальный Let's Encrypt certificate issuance/renewal не проверялся, нужен домен; это описано в `DEPLOY.md` |
-| Проверки | работают | В этом срезе прошли `combos` (API/UI, приватность цен коллег, расписания, конкуренция бронирований, snapshot, перенос/отмена, смена филиала и bootstrap), `db:places-migration-check`, `db:workspaces-migration-check`, frontend/API TypeScript, production-сборки и devcheck bundle. Ранее прошли `places`, `workspaces`, `locations`, `stats`, `favorites`, `last-minute`, `reschedule`, `services`, `client-cabinet`, `roles`, `e2e`, `scheduler`, `routes` (34 маршрута). Полный devcheck-набор после этапа 10 не запускался целиком. GitHub Actions run `38575577447` — отдельный Compose smoke после этапа 9; Compose smoke после миграций `0028–0029` здесь не запускался |
+| Деплой | runtime smoke-test пройден в GitHub Actions | `Dockerfile.frontend` (Vite + Nginx), `apps/api/Dockerfile`, production Compose с Postgres/API/Nginx, persistent volumes, Let's Encrypt bootstrap, скрипты install/update/backup/restore. `npm run deployment` проверяет Compose/Nginx/env/bootstrap. Run `38626821360` после миграций `0028–0029` успешно собрал и поднял изолированный стек на Docker-enabled runner, проверил миграции/health через Nginx, restart/update, backup и restore в отдельную пустую БД; временные тестовые ресурсы удалены. Реальный Let's Encrypt certificate issuance/renewal не проверялся, нужен домен; это описано в `DEPLOY.md` |
+| Проверки | работают | В этом срезе прошли `combos` (API/UI, приватность цен коллег, расписания, конкуренция бронирований, snapshot, перенос/отмена, смена филиала и bootstrap), `db:places-migration-check`, `db:workspaces-migration-check`, frontend/API TypeScript, production-сборки и devcheck bundle. Ранее прошли `places`, `workspaces`, `locations`, `stats`, `favorites`, `last-minute`, `reschedule`, `services`, `client-cabinet`, `roles`, `e2e`, `scheduler`, `routes` (34 маршрута). Полный devcheck-набор после этапа 10 не запускался целиком. Compose smoke с миграциями `0028–0029` прошёл на GitHub Actions run `38626821360` |
 
 ## 4. Что осталось
 
@@ -85,7 +85,7 @@ Docker отсутствует. Маршруты взяты из `src/App.tsx`, A
 ### Проверки и выпуск
 
 - Полный набор `tools/devcheck` после этапа 10–11 не запускался; в текущем срезе прошли комбо-сценарий и связанные миграционные проверки.
-- Compose smoke на изолированном GitHub runner нужно повторить после миграций `0028–0029`. В локальном sandbox Docker отсутствует; реальный выпуск и продление Let's Encrypt потребуют подключённого домена.
+- Реальные выпуск и продление Let's Encrypt остаются непроверенными и потребуют подключённого домена.
 - `npm ci` сообщил о найденных advisories в зависимостях API и devcheck; детали нужно перепроверить `npm audit` и отдельно решить приоритет обновления.
 
 ## 5. Порядок работ

@@ -35,6 +35,7 @@ const masterRoutes = [
   "/pro/services",
   "/pro/reviews",
   "/pro/promotion",
+  "/pro/places",
   "/pro/stats",
   "/pro/messages",
   "/pro/media",

@@ -39,7 +39,8 @@
     "smart-notifications": "node smart-notifications.mjs",
     "deployment": "node deployment.mjs && npm --prefix ../../apps/api run db:bootstrap-check",
     "journal": "node journal.mjs",
-    "promotion": "node promotion.mjs"
+    "promotion": "node promotion.mjs",
+    "places": "node places.mjs && npm --prefix ../../apps/api run db:places-migration-check"
   },
   "dependencies": {
     "jsdom": "^30.1.2"

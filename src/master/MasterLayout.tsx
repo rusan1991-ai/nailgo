@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   CalendarDays,
+  Building2,
   Image as ImageIcon,
   CircleDollarSign,
   LayoutDashboard,
@@ -34,6 +35,7 @@ const navItems = [
   { to: "/pro/reviews", label: "Отзывы", icon: MessageCircle },
   { to: "/pro/stats", label: "Статистика", icon: LineChart },
   { to: "/pro/promotion", label: "Продвижение", icon: Megaphone },
+  { to: "/pro/places", label: "Салоны и места", icon: Building2 },
   { to: "/pro/messages", label: "Сообщения", icon: MessagesSquare },
   { to: "/pro/media", label: "Портфолио", icon: ImageIcon },
   { to: "/pro/settings", label: "Настройки", icon: Settings },

@@ -313,7 +313,10 @@ assert("дашборд не показывает записи всех маст�
 assert("профиль на дашборде совпадает с API текущего мастера", Boolean(dashboardPage.dom.window.document.querySelector("[data-block='dashboard-profile']")) && dashboardText.includes(profile.data.profile.name));
 assert("вместо вымышленных бонусов есть работающие быстрые ссылки", ["/pro/settings", "/pro/media", "/pro/services"].every((href) => dashboardPage.dom.window.document.querySelector(`[data-block='profile-actions'] a[href='${href}']`)));
 assert("на дашборде не показываются демо-статьи и бонусы", !dashboardText.includes("Тренды маникюра весна 2024") && !dashboardText.includes("+10% к просмотрам"));
-assert("в навигации кабинета нет фантомной вкладки продвижения", !dashboardText.includes("Продвижение"));
+assert(
+  "продвижение ведёт на реализованную страницу кабинета",
+  dashboardText.includes("Продвижение") && dashboardPage.dom.window.document.querySelector("a[href='/pro/promotion']") !== null,
+);
 dashboardPage.dom.window.close();
 
 const schedulePage = makeDom("/pro/scheduler", { session: master });

@@ -29,6 +29,11 @@ import {
   journalArticles,
   locations,
   magicLinks,
+  salonMemberships,
+  salonNetworkMemberships,
+  salonNetworks,
+  salonWorkspaces,
+  salons,
   masterClients,
   masterMedia,
   masters,
@@ -305,6 +310,11 @@ export async function seed() {
   // предсказуемый старт (иначе антиспам «не чаще раза в 6 часов» находил бы
   // уведомления прошлых прогонов).
   await db.delete(notifications);
+  await db.delete(salonWorkspaces);
+  await db.delete(salonMemberships);
+  await db.delete(salonNetworkMemberships);
+  await db.delete(salons);
+  await db.delete(salonNetworks);
   await db.delete(clientFavoriteMasters);
   await db.delete(favorites);
   // Очередь доставки — тоже демо-состояние: после сброса она пустая,
@@ -356,6 +366,36 @@ export async function seed() {
   if (owner && masterUser) {
     await db.update(masters).set({ userId: masterUser.id }).where(eq(masters.id, owner.id));
   }
+
+  // У каждого профиля есть приватное основное место; демо-аккаунты не объединяем
+  // в общий салон и не выдаём владельцам кабинета доступ к чужим мастерам.
+  const seededMasters = await db.select().from(masters);
+  await db.insert(salons).values(
+    seededMasters.map((master) => ({
+      id: `seed-salon-${master.id}`,
+      name: `${master.name} — основное место`,
+      ownerUserId: master.userId,
+      locationId: master.locationId,
+      timezone: master.timezone,
+    })),
+  );
+  for (const master of seededMasters) {
+    const salonId = `seed-salon-${master.id}`;
+    await db.update(masters).set({ salonId }).where(eq(masters.id, master.id));
+  }
+  await db.insert(salonWorkspaces).values(
+    seededMasters.map((master) => ({
+      id: `seed-workspace-${master.id}`,
+      salonId: `seed-salon-${master.id}`,
+      masterId: master.id,
+      name: "Основное место",
+      kind: "chair",
+    })),
+  );
+  const salonOwnerMemberships = seededMasters
+    .filter((master) => Boolean(master.userId))
+    .map((master) => ({ salonId: `seed-salon-${master.id}`, userId: master.userId!, role: "owner" }));
+  if (salonOwnerMemberships.length > 0) await db.insert(salonMemberships).values(salonOwnerMemberships);
 
   // Аккаунт модератора: отзывы публикует администратор, не мастер.
   await db
@@ -577,6 +617,11 @@ export async function seedOnEmptyDatabase(): Promise<
       db.select({ id: masterClients.id }).from(masterClients).limit(1),
       db.select({ id: timeBlocks.id }).from(timeBlocks).limit(1),
       db.select({ id: magicLinks.id }).from(magicLinks).limit(1),
+      db.select({ id: salonNetworks.id }).from(salonNetworks).limit(1),
+      db.select({ id: salonNetworkMemberships.id }).from(salonNetworkMemberships).limit(1),
+      db.select({ id: salons.id }).from(salons).limit(1),
+      db.select({ id: salonMemberships.id }).from(salonMemberships).limit(1),
+      db.select({ id: salonWorkspaces.id }).from(salonWorkspaces).limit(1),
       // Администраторская статья тоже означает, что БД уже содержит данные:
       // production bootstrap не должен добавлять демо-аккаунты рядом с ней.
       db.select({ id: journalArticles.id }).from(journalArticles).limit(1),

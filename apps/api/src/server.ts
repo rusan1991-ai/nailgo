@@ -25,6 +25,7 @@ import { mediaRoutes } from "./routes/media.js";
 import { locationRoutes } from "./routes/locations.js";
 import { journalRoutes } from "./routes/journal.js";
 import { promotionRoutes } from "./routes/promotion.js";
+import { placesRoutes } from "./routes/places.js";
 import { reviewRoutes } from "./routes/reviews.js";
 import { serviceRoutes } from "./routes/services.js";
 
@@ -114,6 +115,7 @@ export async function buildServer() {
       await instance.register(locationRoutes);
       await instance.register(journalRoutes);
       await instance.register(promotionRoutes);
+      await instance.register(placesRoutes);
     },
     { prefix: "/api" },
   );

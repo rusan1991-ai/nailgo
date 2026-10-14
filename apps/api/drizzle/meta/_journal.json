@@ -169,6 +169,13 @@
       "when": 1791985499954,
       "tag": "0023_harsh_mongoose",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791986690452,
+      "tag": "0024_fuzzy_the_hand",
+      "breakpoints": true
     }
   ]
 }

@@ -92,6 +92,56 @@ export const sessions = pgTable(
   (table) => [index("sessions_user").on(table.userId)],
 );
 
+/** Сеть салонов: владелец и менеджеры задаются явными membership-строками. */
+export const salonNetworks = pgTable(
+  "salon_networks",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    ownerUserId: text("owner_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("salon_networks_owner").on(table.ownerUserId)],
+);
+
+export const salonNetworkMemberships = pgTable(
+  "salon_network_memberships",
+  {
+    id: id(),
+    networkId: text("network_id").notNull().references(() => salonNetworks.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull(), // owner | manager
+    status: text("status").notNull().default("active"), // active | invited | suspended
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("salon_network_memberships_network_user").on(table.networkId, table.userId),
+    index("salon_network_memberships_user").on(table.userId, table.status),
+  ],
+);
+
+/** Филиал. География — только ссылка на закрытый справочник locations, без free-text адреса. */
+export const salons = pgTable(
+  "salons",
+  {
+    id: id(),
+    networkId: text("network_id").references(() => salonNetworks.id, { onDelete: "set null" }),
+    ownerUserId: text("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    locationId: text("location_id").references(() => locations.id, { onDelete: "set null" }),
+    timezone: text("timezone").notNull().default("Europe/Moscow"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("salons_network").on(table.networkId),
+    index("salons_owner").on(table.ownerUserId),
+    index("salons_location").on(table.locationId),
+  ],
+);
+
 export const masters = pgTable("masters", {
   id: id(),
   slug: text("slug").notNull().unique(),
@@ -111,11 +161,8 @@ export const masters = pgTable("masters", {
   slotStepMinutes: integer("slot_step_minutes").notNull().default(0),
   /** Показывать ли мастеру в приложении уведомления о новых заявках. */
   notifyNewBookings: boolean("notify_new_bookings").notNull().default(true),
-  /**
-   * Задел на вторую версию: салон как место работы. Пока всегда null —
-   * «один мастер = одна локация», но схему потом не придётся переписывать.
-   */
-  salonId: text("salon_id"),
+  /** Основной филиал мастера; дополнительные места привязаны через salon_workspaces. */
+  salonId: text("salon_id").references(() => salons.id, { onDelete: "set null" }),
   /** Город и регион: по ним выбирается город на входе и фильтруется каталог. */
   city: text("city").notNull().default("Санкт-Петербург"),
   region: text("region").notNull().default("Санкт-Петербург"),
@@ -158,6 +205,41 @@ export const masters = pgTable("masters", {
   rating: doublePrecision("rating").notNull().default(5),
   reviewsCount: integer("reviews_count").notNull().default(0),
 });
+
+export const salonMemberships = pgTable(
+  "salon_memberships",
+  {
+    id: id(),
+    salonId: text("salon_id").notNull().references(() => salons.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull(), // owner | manager | master
+    status: text("status").notNull().default("active"), // active | invited | suspended
+    invitedByUserId: text("invited_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("salon_memberships_salon_user").on(table.salonId, table.userId),
+    index("salon_memberships_user").on(table.userId, table.status),
+  ],
+);
+
+/** Рабочее место связывает профиль мастера с конкретным филиалом. */
+export const salonWorkspaces = pgTable(
+  "salon_workspaces",
+  {
+    id: id(),
+    salonId: text("salon_id").notNull().references(() => salons.id, { onDelete: "cascade" }),
+    masterId: text("master_id").notNull().references(() => masters.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    kind: text("kind").notNull().default("chair"), // chair | room
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("salon_workspaces_salon_master").on(table.salonId, table.masterId),
+    index("salon_workspaces_master").on(table.masterId, table.active),
+  ],
+);
 
 /** Категории услуг принадлежат мастеру и могут существовать до первой услуги. */
 export const serviceCategories = pgTable(

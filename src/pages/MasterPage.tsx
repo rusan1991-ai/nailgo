@@ -1,5 +1,5 @@
 import { FavoriteButton } from "../components/FavoriteButton";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
@@ -11,6 +11,7 @@ import { formatDateLabel } from "../store/bookings";
 import { openThread } from "../api/messages";
 import { useMasterCard } from "../api/masterCard";
 import { useMasterServices } from "../api/masterServices";
+import { recordPromotionEvent, takeProfileSource } from "../api/promotion";
 
 /** «Сегодня» / «Завтра» / «13 окт» — подпись дня у окна. */
 function windowLabel(dateISO: string): string {
@@ -31,6 +32,7 @@ function windowLabel(dateISO: string): string {
  */
 export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
   const { user } = useAuth();
+  const trackedProfileSlug = useRef<string | null>(null);
   const navigate = useNavigate();
   const [messageError, setMessageError] = useState<string | null>(null);
   const params = useParams();
@@ -61,6 +63,12 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
       ? `service=${encodeURIComponent(defaultServiceId)}`
       : "";
   const bookingLink = bookingLinkFor(firstWindowQuery);
+
+  useEffect(() => {
+    if (!master?.slug || trackedProfileSlug.current === master.slug) return;
+    trackedProfileSlug.current = master.slug;
+    recordPromotionEvent(master.slug, "profile_view", takeProfileSource(master.slug));
+  }, [master?.slug]);
 
   // Не подменяем неизвестного мастера первой карточкой из каталога: витрина
   // должна оставаться строго привязанной к slug из адреса.
@@ -158,6 +166,7 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
                         ? `service=${service.id}&date=${nextWindows[0].dateISO}&slot=${encodeURIComponent(nextWindows[0].label)}`
                         : `service=${service.id}`,
                     )}
+                    onClick={() => recordPromotionEvent(master.slug, "booking_click", "profile")}
                     className="rounded-lg border border-pink-200 px-3 py-1 text-sm text-pink-600 hover:bg-pink-50"
                   >
                     Записаться
@@ -195,6 +204,7 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
                   <Link
                     key={`${window.dateISO}-${window.startMinutes}`}
                     to={bookingLinkFor(query)}
+                    onClick={() => recordPromotionEvent(master.slug, "booking_click", "profile")}
                     data-window={`${window.dateISO}:${window.label}`}
                     className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${
                       idx === 0 ? "border-pink-500 bg-pink-50 text-pink-600" : "border-[#f1dde6] hover:border-pink-300"
@@ -211,6 +221,7 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
             </div>
             <Link
               to={bookingLink}
+              onClick={() => recordPromotionEvent(master.slug, "booking_click", "profile")}
               className="mt-4 block rounded-xl bg-pink-500 py-3 text-center text-sm font-semibold text-white hover:bg-pink-600"
             >
               {user ? "Записаться на 19:00" : "Войти и записаться"}

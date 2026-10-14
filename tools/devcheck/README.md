@@ -20,6 +20,7 @@ npm run mobile-layout                      # mobile layout, карта и OTP-г
 npm run dev-otp-mode                       # фиксированный 1234 под NODE_ENV=production без OAuth/ботов
 npm run client-cabinet                     # визиты, повторная запись, отмена за 6 часов, отзывы
 npm run analytics                          # выручка по периодам и доли услуг/категорий
+npm run promotion                          # event tracking, scope мастера и страница продвижения
 npm run smart-notifications                # авторегистрация, magic-link, loader и шаринг
 npm run deployment                          # Compose/Docker contract + isolated bootstrap test
 ```

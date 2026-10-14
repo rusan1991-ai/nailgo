@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
+import { recordPromotionEvent, usePromotionImpressions } from "../api/promotion";
 
 export type MapMaster = {
   slug: string;
@@ -118,6 +119,10 @@ function createMarker(master: MapMaster, popupRoot: HTMLElement): HTMLElement {
   book.dataset.mapBook = master.slug;
   book.textContent = "Записаться";
   book.style.cssText = "border-radius:10px;background:#e11d48;padding:7px 11px;color:white;font-weight:600;text-decoration:none";
+  const trackProfileClick = () => recordPromotionEvent(master.slug, "profile_click", "map");
+  title.addEventListener("click", trackProfileClick);
+  profile.addEventListener("click", trackProfileClick);
+  book.addEventListener("click", () => recordPromotionEvent(master.slug, "booking_click", "map"));
   actions.append(profile, book);
   card.append(title, location, price, actions);
   marker.append(pin, card);
@@ -151,6 +156,7 @@ export function CityMap({ masters, center, zoom = 11, height = 360, title = "М�
     ),
     [masters],
   );
+  const mapImpressionsRef = usePromotionImpressions<HTMLUListElement>("map", pinned.map((master) => master.slug));
   const markerKey = pinned
     .map((master) => [master.slug, master.name, master.address, master.city, master.metro, master.lat, master.lng, master.priceFrom, master.nextWindows?.[0]?.serviceId, master.nextWindows?.[0]?.dateISO, master.nextWindows?.[0]?.label].join("~"))
     .join("|");
@@ -216,12 +222,13 @@ export function CityMap({ masters, center, zoom = 11, height = 360, title = "М�
         </p>
       )}
 
-      <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+      <ul ref={mapImpressionsRef} className="mt-3 grid gap-2 sm:grid-cols-2">
         {pinned.map((master) => (
-          <li key={master.slug} data-map-master={master.slug}>
+          <li key={master.slug} data-map-master={master.slug} data-promotion-master={master.slug}>
             <div className="flex items-center justify-between gap-2 rounded-xl border border-[#f1dde6] px-3 py-2">
               <Link
                 to={`/master/${master.slug}`}
+                onClick={() => recordPromotionEvent(master.slug, "profile_click", "map")}
                 className="min-w-0 flex-1 rounded-lg transition hover:text-pink-600"
               >
                 <span className="block truncate text-sm font-medium text-slate-800">{master.name}</span>
@@ -231,6 +238,7 @@ export function CityMap({ masters, center, zoom = 11, height = 360, title = "М�
               </Link>
               <Link
                 to={bookingPath(master)}
+                onClick={() => recordPromotionEvent(master.slug, "booking_click", "map")}
                 data-map-book={master.slug}
                 className="shrink-0 rounded-lg bg-[#e11d48] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#be123c]"
               >

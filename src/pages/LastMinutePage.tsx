@@ -16,6 +16,7 @@ import { offerWhen, useLastMinute } from "../api/lastMinute";
 import { formatRub } from "../data/mock";
 import { durationLabel } from "../catalog/store";
 import { cn } from "../utils/cn";
+import { recordPromotionEvent, usePromotionImpressions } from "../api/promotion";
 
 const FILTERS = [
   { id: "days1", label: "Сегодня и завтра", days: 2 },
@@ -29,6 +30,7 @@ export function LastMinutePage() {
   const days = FILTERS.find((item) => item.id === filter)?.days ?? 2;
 
   const { data, loading, error, reload } = useLastMinute({ region, days });
+  const impressionRef = usePromotionImpressions("last-minute", (data?.items ?? []).map((offer) => offer.masterSlug));
 
   return (
     <ClientShell title="Горящие окна">
@@ -63,10 +65,11 @@ export function LastMinutePage() {
         </p>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" data-page="last-minute">
+      <div ref={impressionRef} className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" data-page="last-minute">
         {data?.items.map((offer) => (
           <article
             key={`${offer.masterSlug}-${offer.dateISO}-${offer.startMinutes}`}
+            data-promotion-master={offer.masterSlug}
             data-offer={`${offer.masterSlug}:${offer.dateISO}:${offer.startMinutes}`}
             className="rounded-2xl border border-[#f1dde6] p-4"
           >
@@ -81,7 +84,11 @@ export function LastMinutePage() {
             <div className="flex items-center gap-3">
               <Avatar className="h-12 w-12" src={offer.avatarUrl} name={offer.masterName} />
               <div className="min-w-0 flex-1">
-                <Link to={`/master/${offer.masterSlug}`} className="truncate font-semibold hover:text-pink-600">
+                <Link
+                  to={`/master/${offer.masterSlug}`}
+                  onClick={() => recordPromotionEvent(offer.masterSlug, "profile_click", "last-minute")}
+                  className="truncate font-semibold hover:text-pink-600"
+                >
                   {offer.masterName}
                 </Link>
                 <p className="inline-flex items-center gap-1 text-sm text-slate-500">
@@ -107,6 +114,7 @@ export function LastMinutePage() {
 
             <Link
               to={`/booking?master=${offer.masterSlug}&service=${offer.serviceId}&date=${offer.dateISO}&slot=${encodeURIComponent(offer.timeLabel)}`}
+              onClick={() => recordPromotionEvent(offer.masterSlug, "booking_click", "last-minute")}
               className="mt-3 block rounded-xl bg-pink-500 py-3 text-center text-sm font-semibold text-white hover:bg-pink-600"
               data-action="book-window"
             >

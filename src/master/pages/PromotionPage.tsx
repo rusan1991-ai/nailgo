@@ -1,240 +1,189 @@
-import { useMemo, useState } from "react";
-import { ArrowRight, MapPin, Megaphone, MousePointerClick, Plus, TrendingUp, Users2, Eye } from "lucide-react";
+import { useState } from "react";
+import { MousePointerClick, Eye, UserRound, CalendarCheck2, TrendingUp } from "lucide-react";
+import { AreaLineChart } from "../components/charts";
+import { Card, CardTitle, PageHeader, Select } from "../components/ui";
 import {
-  Card,
-  CardTitle,
-  Chip,
-  GhostButton,
-  PrimaryButton,
-  Select,
-  Tabs,
-} from "../components/ui";
-import { AreaLineChart, DonutChart, Sparkline } from "../components/charts";
-import { formatNumber, formatRub } from "../data";
-import { useCabinetStats } from "../../api/cabinet";
-import { demoWeek } from "../../store/bookings";
+  PROMOTION_EVENT_LABELS,
+  PROMOTION_SOURCE_LABELS,
+  usePromotionAnalytics,
+  type PromotionEventType,
+  type PromotionPeriod,
+} from "../../api/promotion";
 
-const kpiIcons = [Eye, Users2, MousePointerClick, TrendingUp];
-
-/** Месяц демо-недели: записи лежат на 20–26 мая 2024. */
-const STATS_MONTH = demoWeek[0].iso.slice(0, 7);
-
-const tabs = [
-  { id: "overview", label: "Обзор" },
-  { id: "ads", label: "Реклама" },
-  { id: "promos", label: "Акции" },
-  { id: "sources", label: "Источники" },
-  { id: "analytics", label: "Аналитика" },
+const PERIOD_OPTIONS: { value: PromotionPeriod; label: string }[] = [
+  { value: "today", label: "Сегодня" },
+  { value: "week", label: "Эта неделя" },
+  { value: "month", label: "Этот месяц" },
 ];
 
+const METRIC_CARDS: {
+  key: PromotionEventType;
+  icon: typeof Eye;
+  color: string;
+  description: string;
+}[] = [
+  { key: "impression", icon: Eye, color: "text-violet-600 bg-violet-50", description: "Карточка была видна минимум наполовину" },
+  { key: "profile_click", icon: MousePointerClick, color: "text-pink-600 bg-pink-50", description: "Переходы из списков в профиль" },
+  { key: "profile_view", icon: UserRound, color: "text-blue-600 bg-blue-50", description: "Открытия публичной страницы мастера" },
+  { key: "booking_click", icon: CalendarCheck2, color: "text-emerald-600 bg-emerald-50", description: "Переходы к выбору записи, не подтверждённые брони" },
+];
+
+const number = (value: number) => new Intl.NumberFormat("ru-RU").format(value);
+
+function dateLabel(dateISO: string): string {
+  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })
+    .format(new Date(`${dateISO}T12:00:00Z`))
+    .replace(/\.$/, "");
+}
+
+function dateRange(fromISO: string, toISO: string): string {
+  return fromISO === toISO ? dateLabel(fromISO) : `${dateLabel(fromISO)} — ${dateLabel(toISO)}`;
+}
+
 export function PromotionPage() {
-  const [tab, setTab] = useState("overview");
-  const { data: stats, error } = useCabinetStats(STATS_MONTH);
-
-  const days = stats?.byDay ?? [];
-  const sources = useMemo(
-    () =>
-      stats
-        ? [
-            { label: "Онлайн-запись", value: stats.bySource.client, color: "#e11d48" },
-            { label: "Кабинет мастера", value: stats.bySource.master, color: "#3b82f6" },
-          ]
-            .filter((item) => item.value > 0)
-            .map((item) => ({
-              ...item,
-              percent:
-                stats.bookingsThisMonth > 0 ? Math.round((item.value / stats.bookingsThisMonth) * 100) : 0,
-            }))
-        : [],
-    [stats],
-  );
-
-  /**
-   * Показов и кликов по рекламе у нас нет — интеграция с рекламными кабинетами
-   * не подключена. Поэтому в карточках только то, что действительно есть в базе:
-   * записи, клиенты и средний чек.
-   */
-  const kpis = [
-    {
-      label: "Записей за месяц",
-      value: stats ? formatNumber(stats.bookingsThisMonth) : "—",
-      delta: stats ? `всего в базе ${formatNumber(stats.totalBookings)}` : "",
-      tone: "up" as const,
-      spark: days.map((day) => day.bookings),
-    },
-    {
-      label: "Клиентов за месяц",
-      value: stats ? formatNumber(stats.clientsThisMonth) : "—",
-      delta: stats ? `новых ${formatNumber(stats.newClientsThisMonth)}` : "",
-      tone: "up" as const,
-      spark: days.map((day) => day.bookings),
-    },
-    {
-      label: "Повторные визиты",
-      value: stats ? formatNumber(stats.repeatClientsThisMonth) : "—",
-      delta: stats ? `всего клиентов ${formatNumber(stats.clientsTotal)}` : "",
-      tone: "up" as const,
-      spark: days.map((day) => day.bookings),
-    },
-    {
-      label: "Средний чек",
-      value: stats ? formatRub(stats.avgCheckThisMonth) : "—",
-      delta: stats?.incomeDeltaLabel ?? "",
-      tone: "up" as const,
-      spark: days.map((day) => (day.bookings > 0 ? Math.round(day.revenue / day.bookings) : 0)),
-    },
-  ];
+  const [period, setPeriod] = useState<PromotionPeriod>("month");
+  const { data, loading, error } = usePromotionAnalytics(period);
+  const totals = data?.totals;
+  const hasEvents = data ? Object.values(totals ?? {}).some((value) => value > 0) : false;
 
   return (
-    <div>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Продвижение</h1>
-        <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-5" data-page="promotion">
+      <PageHeader
+        title="Продвижение"
+        subtitle="Реальные показы, переходы и действия на витрине Nail 2 Go — без выдуманных рекламных цифр."
+        action={
           <Select
-            className="w-full md:w-auto"
-            value={STATS_MONTH}
-            onChange={() => undefined}
-            options={[{ value: STATS_MONTH, label: "20.05.2024 – 26.05.2024" }]}
+            className="w-full sm:w-auto"
+            value={period}
+            onChange={(value) => setPeriod(value as PromotionPeriod)}
+            options={PERIOD_OPTIONS}
           />
-          <PrimaryButton disabled title="Рекламные кабинеты ещё не подключены">
-            <Plus className="h-4 w-4" />
-            Создать рекламную кампанию
-          </PrimaryButton>
-        </div>
-      </div>
+        }
+      />
+
+      {data && (
+        <p className="text-xs text-slate-400" data-range={`${data.fromISO}:${data.toISO}`}>
+          {dateRange(data.fromISO, data.toISO)} · часовой пояс мастера: {data.timezone}
+        </p>
+      )}
 
       {error && (
-        <div className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600">
-          Не удалось загрузить цифры из базы: {error}
+        <p role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600">
+          Не удалось загрузить события продвижения: {error}
+        </p>
+      )}
+
+      {loading && !data && (
+        <p data-state="loading-promotion" className="rounded-2xl border border-dashed border-slate-200 px-5 py-10 text-center text-sm text-slate-500">
+          Загружаем аналитику…
+        </p>
+      )}
+
+      {!loading && !error && data && !hasEvents && (
+        <div data-state="empty-promotion" className="rounded-2xl border border-dashed border-slate-200 bg-white px-5 py-8 text-center">
+          <TrendingUp className="mx-auto h-7 w-7 text-slate-300" />
+          <p className="mt-3 font-medium text-slate-700">За этот период событий пока нет</p>
+          <p className="mx-auto mt-1 max-w-xl text-sm text-slate-500">
+            Показы начнут учитываться, когда карточка мастера появится на экране в каталоге, на карте,
+            в избранном или в разделе горящих окон.
+          </p>
         </div>
       )}
 
-      <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-        Рекламные кабинеты (Instagram, Яндекс Карты, ВКонтакте) не подключены: показов, кликов и расходов
-        в системе нет. Ниже — только данные записей из базы. Метрики рекламы появятся после интеграции.
-      </div>
-
-      <Tabs tabs={tabs} active={tab} onChange={setTab} />
-
-      {tab === "overview" ? (
+      {data && (
         <>
-          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {kpis.map((kpi, index) => {
-              const Icon = kpiIcons[index] ?? Eye;
-              return (
-                <Card key={kpi.label}>
-                  <div className="flex items-center gap-3">
-                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 text-slate-500">
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <p className="text-sm text-slate-500">{kpi.label}</p>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {METRIC_CARDS.map(({ key, icon: Icon, color, description }) => (
+              <Card key={key} data-metric-card={key}>
+                <div className="flex items-start gap-3">
+                  <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${color}`}>
+                    <Icon aria-hidden="true" className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm text-slate-500">{PROMOTION_EVENT_LABELS[key]}</p>
+                    <p data-metric={key} className="mt-1 text-2xl font-semibold text-slate-900">
+                      {number(totals?.[key] ?? 0)}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-400">{description}</p>
                   </div>
-                  <p className="mt-3 text-2xl font-semibold text-slate-900">{kpi.value}</p>
-                  <div className="mt-2 flex items-end justify-between gap-3">
-                    <div>
-                      <p className="text-sm text-emerald-500">{kpi.delta}</p>
-                      <p className="text-xs text-slate-400">за месяц демо-данных</p>
-                    </div>
-                    <Sparkline
-                      points={kpi.spark}
-                      color={index === 0 ? "#3b82f6" : index === 1 ? "#22c55e" : index === 2 ? "#a855f7" : "#f59e0b"}
-                    />
-                  </div>
-                </Card>
-              );
-            })}
+                </div>
+              </Card>
+            ))}
           </div>
 
-          <div className="mt-4 grid gap-4 xl:grid-cols-[1.5fr_1fr]">
-            <Card>
-              <CardTitle>Записи по дням месяца</CardTitle>
-              <AreaLineChart
-                points={days.map((day) => day.bookings)}
-                labels={days.map((day) => day.label)}
-                color="#e11d48"
-              />
-            </Card>
-
-            <Card>
-              <CardTitle>Откуда пришли записи</CardTitle>
-              <DonutChart
-                data={sources}
-                centerValue={stats ? formatNumber(stats.bookingsThisMonth) : "—"}
-                centerLabel="записей за месяц"
-                size={190}
-              />
-            </Card>
-          </div>
-
-          <div className="mt-4 grid gap-4 xl:grid-cols-[2fr_1fr]">
-            <Card padded={false}>
-              <div className="flex items-center justify-between px-5 py-4">
-                <h2 className="text-[15px] font-semibold text-slate-900">Рекламные кампании</h2>
-                <Chip tone="amber">Не подключено</Chip>
+          <Card data-block="promotion-ctr">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <CardTitle>Кликабельность карточки</CardTitle>
+                <p className="text-sm text-slate-500">Переходы в профиль ÷ видимые показы карточки за выбранный период.</p>
               </div>
-              <div className="px-5 pb-6">
-                <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
-                  Кампаний пока нет: система не подключена к рекламным кабинетам, поэтому показы, клики и
-                  расходы не собираются. Когда интеграция появится, кампании и их ROI будут здесь.
-                </div>
-              </div>
-            </Card>
+              <p data-metric="ctr" className="text-3xl font-semibold text-pink-600">
+                {new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 }).format(totals?.ctrPercent ?? 0)}%
+              </p>
+            </div>
+          </Card>
 
-            <Card>
-              <CardTitle>Что уже можно сделать</CardTitle>
-              <ul className="space-y-3 text-sm text-slate-600">
-                <li>• Показывать свободные окна на этой неделе — записи из базы уже видны клиентам.</li>
-                <li>• Возвращать клиентов из вкладки «Давно не были»: у них есть телефон в карточке.</li>
-                <li>• Просить оставить отзыв после визита — раздел «Отзывы» работает на данных базы.</li>
-              </ul>
-              <GhostButton className="mt-4" onClick={() => setTab("sources")}>
-                <ArrowRight className="h-4 w-4" />
-                Смотреть источники
-              </GhostButton>
-            </Card>
-          </div>
-        </>
-      ) : (
-        <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardTitle>Раздел «{tabs.find((item) => item.id === tab)?.label}»</CardTitle>
-            <p className="text-sm text-slate-500">
-              {tab === "sources"
-                ? "Источники записей считаются по базе: видно, сколько записей пришло онлайн и сколько внёс мастер."
-                : "Раздел появится после подключения рекламных кабинетов: показы, клики, расходы и ROI."}
-            </p>
-            {tab === "sources" && stats && (
-              <dl className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl border border-slate-200 px-4 py-3">
-                  <dt className="text-xs text-slate-400">Онлайн-запись</dt>
-                  <dd className="mt-1 text-lg font-semibold text-slate-800">
-                    {formatNumber(stats.bySource.client)}
-                  </dd>
-                </div>
-                <div className="rounded-xl border border-slate-200 px-4 py-3">
-                  <dt className="text-xs text-slate-400">Из кабинета мастера</dt>
-                  <dd className="mt-1 text-lg font-semibold text-slate-800">
-                    {formatNumber(stats.bySource.master)}
-                  </dd>
-                </div>
-              </dl>
+          {hasEvents ? (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Card>
+                <CardTitle>Показы карточки по дням</CardTitle>
+                <AreaLineChart
+                  points={data.byDay.map((day) => day.impression)}
+                  labels={data.byDay.map((day) => day.label)}
+                  color="#8b5cf6"
+                />
+              </Card>
+              <Card>
+                <CardTitle>Переходы в профиль по дням</CardTitle>
+                <AreaLineChart
+                  points={data.byDay.map((day) => day.profile_click)}
+                  labels={data.byDay.map((day) => day.label)}
+                  color="#e11d48"
+                />
+              </Card>
+            </div>
+          ) : null}
+
+          <Card data-block="promotion-sources">
+            <CardTitle>Источники переходов</CardTitle>
+            {data.bySource.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[620px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs text-slate-400">
+                      <th className="py-2 pr-3 font-medium">Источник</th>
+                      <th className="px-3 py-2 text-right font-medium">Показы</th>
+                      <th className="px-3 py-2 text-right font-medium">Профиль</th>
+                      <th className="px-3 py-2 text-right font-medium">Просмотры</th>
+                      <th className="py-2 pl-3 text-right font-medium">Запись</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.bySource.map((row) => (
+                      <tr key={row.source} data-promotion-source={row.source} className="border-b border-slate-50 last:border-0">
+                        <th className="py-3 pr-3 font-medium text-slate-700">{PROMOTION_SOURCE_LABELS[row.source]}</th>
+                        <td className="px-3 py-3 text-right text-slate-600">{number(row.impression)}</td>
+                        <td className="px-3 py-3 text-right text-slate-600">{number(row.profile_click)}</td>
+                        <td className="px-3 py-3 text-right text-slate-600">{number(row.profile_view)}</td>
+                        <td className="py-3 pl-3 text-right text-slate-600">{number(row.booking_click)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p data-state="empty-promotion-sources" className="rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                Разбивка по источникам появится после первых событий витрины.
+              </p>
             )}
           </Card>
-          <Card>
-            <CardTitle>Состояние интеграций</CardTitle>
-            <ul className="space-y-3 text-sm text-slate-600">
-              <li className="flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-slate-400" /> Яндекс Карты — не подключено
-              </li>
-              <li className="flex items-center gap-2">
-                <Megaphone className="h-4 w-4 text-slate-400" /> Реклама — не подключено
-              </li>
-              <li className="flex items-center gap-2">
-                <Users2 className="h-4 w-4 text-emerald-500" /> Записи и клиенты — данные из базы
-              </li>
-            </ul>
-          </Card>
-        </div>
+
+          <p className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs leading-relaxed text-slate-500">
+            Система учитывает только собственные события витрины Nail 2 Go: карточка засчитывается после появления
+            не менее чем на 50% в области просмотра. Внешние рекламные кабинеты, расходы и подтверждённые брони
+            не отслеживаются и в этих цифрах не учитываются.
+          </p>
+        </>
       )}
     </div>
   );

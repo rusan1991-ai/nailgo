@@ -811,6 +811,29 @@ export const journalArticles = pgTable(
 );
 
 export type JournalArticle = typeof journalArticles.$inferSelect;
+
+/** First-party marketplace traffic events. No client identity or IP is stored. */
+export const promotionEvents = pgTable(
+  "promotion_events",
+  {
+    id: id(),
+    /** Idempotency key generated in the browser, not an authenticated user ID. */
+    eventKey: text("event_key").notNull(),
+    masterId: text("master_id")
+      .notNull()
+      .references(() => masters.id, { onDelete: "cascade" }),
+    eventType: text("event_type").notNull(), // impression | profile_click | profile_view | booking_click
+    source: text("source").notNull(), // home | search | map | favorites | last-minute | profile | direct
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("promotion_events_event_key").on(table.eventKey),
+    index("promotion_events_master_created").on(table.masterId, table.createdAt),
+    index("promotion_events_master_type_created").on(table.masterId, table.eventType, table.createdAt),
+  ],
+);
+
+export type PromotionEvent = typeof promotionEvents.$inferSelect;
 export type MasterClient = typeof masterClients.$inferSelect;
 export type MagicLink = typeof magicLinks.$inferSelect;
 export type TimeBlock = typeof timeBlocks.$inferSelect;

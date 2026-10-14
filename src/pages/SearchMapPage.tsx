@@ -11,6 +11,7 @@ import { CityPicker } from "../components/CityPicker";
 import { DEFAULT_REGIONS, useCity } from "../city/CityContext";
 import { locationsApi, type PopularItem } from "../api/locations";
 import { LocationPicker } from "../components/LocationPicker";
+import { recordPromotionEvent, usePromotionImpressions } from "../api/promotion";
 
 export function SearchMapPage() {
   const [mode, setMode] = useState<"list" | "map">("list");
@@ -51,6 +52,7 @@ export function SearchMapPage() {
     return [...regional, ...byPlace.filter((master) => !regional.includes(master))];
   }, [masters, region, place]);
   const cards = useMemo(() => sorted.slice(0, 4), [sorted]);
+  const searchImpressionsRef = usePromotionImpressions("search", cards.map((master) => master.slug));
   const regionalMasters = useMemo(
     () => masters.filter((master) => !master.region || master.region === region),
     [masters, region],
@@ -126,10 +128,11 @@ export function SearchMapPage() {
         </div>
 
         <div className={`grid gap-4 ${mode === "list" ? "xl:grid-cols-[420px_1fr]" : "xl:grid-cols-[1fr_420px]"}`}>
-          <div className={`space-y-3 ${mode === "map" ? "xl:order-2" : ""}`}>
+          <div ref={searchImpressionsRef} className={`space-y-3 ${mode === "map" ? "xl:order-2" : ""}`}>
             {cards.map((master, idx) => (
               <motion.div
                 key={master.slug}
+                data-promotion-master={master.slug}
                 initial={{ opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: idx * 0.05 }}
@@ -138,7 +141,11 @@ export function SearchMapPage() {
                 <div className="flex items-center gap-3">
                   <Avatar className="h-12 w-12" src={master.avatarUrl} name={master.name} />
                   <div className="min-w-0 flex-1">
-                    <Link to={`/master/${master.slug}`} className="truncate font-semibold hover:text-pink-600">
+                    <Link
+                      to={`/master/${master.slug}`}
+                      onClick={() => recordPromotionEvent(master.slug, "profile_click", "search")}
+                      className="truncate font-semibold hover:text-pink-600"
+                    >
                       {master.name}
                     </Link>
                     <p className="truncate text-sm text-slate-500">{master.tags}</p>
@@ -158,6 +165,7 @@ export function SearchMapPage() {
                     <Link
                       key={`${window.dateISO}-${window.startMinutes}`}
                       to={`/booking?master=${master.slug}${window.serviceId ? `&service=${window.serviceId}` : ""}&date=${window.dateISO}&slot=${encodeURIComponent(window.label)}`}
+                      onClick={() => recordPromotionEvent(master.slug, "booking_click", "search")}
                       data-window={`${master.slug}:${window.dateISO}:${window.label}`}
                       className="rounded-lg border border-[#f1dde6] px-2 py-1 hover:border-pink-300"
                     >

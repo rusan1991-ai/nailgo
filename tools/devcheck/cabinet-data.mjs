@@ -228,14 +228,18 @@ assert(
 );
 clientReviewsPage.dom.window.close();
 
-/* --- «Продвижение»: фантомная вкладка отключена --- */
+/* --- «Продвижение»: страница и метрики живут на API-событиях --- */
 const promoPage = makeDom("/pro/promotion", { session: master });
 await wait(1400);
 const promoText = normalize(rootText(promoPage.dom));
 assert(
-  "раздел продвижения отключён и перенаправляет в кабинет",
-  promoPage.window.location.pathname === "/pro" && !promoText.includes("интеграция не подключена"),
+  "страница продвижения открывается в кабинете мастера",
+  promoPage.window.location.pathname === "/pro/promotion" && Boolean(promoPage.dom.window.document.querySelector('[data-page="promotion"]')),
   `${promoPage.window.location.pathname}: ${promoText.slice(0, 80)}`,
+);
+assert(
+  "продвижение не показывает старые демо-показатели",
+  !promoText.includes("125 430") && !promoText.includes("45 230") && !promoText.includes("4 856"),
 );
 assert("на странице нет ошибок", promoPage.errors.length === 0 && promoPage.consoleErrors.length === 0, promoPage.errors[0] ?? "");
 promoPage.dom.window.close();

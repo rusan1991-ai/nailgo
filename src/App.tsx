@@ -37,6 +37,7 @@ import { BookingsPage } from "./master/pages/BookingsPage";
 import { ClientsPage } from "./master/pages/ClientsPage";
 import { ServicesPage } from "./master/pages/ServicesPage";
 import { ReviewsProPage } from "./master/pages/ReviewsProPage";
+import { PromotionPage } from "./master/pages/PromotionPage";
 import { StatsPage } from "./master/pages/StatsPage";
 import { MessagesPage } from "./master/pages/MessagesPage";
 import { SettingsProPage } from "./master/pages/SettingsProPage";
@@ -188,7 +189,7 @@ export default function App() {
               <Route path="clients" element={<ClientsPage />} />
               <Route path="services" element={<ServicesPage />} />
               <Route path="reviews" element={<ReviewsProPage />} />
-              <Route path="promotion" element={<Navigate to="/pro" replace />} />
+              <Route path="promotion" element={<PromotionPage />} />
               <Route path="stats" element={<StatsPage />} />
               <Route path="messages" element={<MessagesPage />} />
               <Route path="media" element={<MediaPage />} />

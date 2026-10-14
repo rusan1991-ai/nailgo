@@ -17,6 +17,7 @@ import { useMasterServices } from "../api/masterServices";
 import { formatDateLabel } from "../store/bookings";
 import { useJournal } from "../api/journal";
 import { JournalArticleCard } from "../components/JournalArticleCard";
+import { recordPromotionEvent, usePromotionImpression, usePromotionImpressions } from "../api/promotion";
 
 export function HomePage() {
   const { user } = useAuth();
@@ -95,7 +96,9 @@ export function HomePage() {
   const listedMasters: MasterSearchItem[] =
     smartActive && smart.data ? smart.data.items : (placeMasters as MasterSearchItem[]);
   const listedCount = listedMasters.length;
+  const homeImpressionsRef = usePromotionImpressions("home", listedMasters.map((master) => master.slug));
   const showcaseMaster = listedMasters[0];
+  const showcaseImpressionRef = usePromotionImpression<HTMLElement>(showcaseMaster?.slug ?? "", "home");
   const {
     data: showcaseServicesData,
     loading: showcaseServicesLoading,
@@ -210,10 +213,11 @@ export function HomePage() {
               </p>
             </div>
 
-            <div className="space-y-3" data-block="home-masters">
+            <div ref={homeImpressionsRef} className="space-y-3" data-block="home-masters">
               {listedMasters.map((master, idx) => (
                 <motion.article
                   key={master.slug}
+                  data-promotion-master={master.slug}
                   initial={{ opacity: 0, x: -14 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: idx * 0.06 }}
@@ -225,7 +229,11 @@ export function HomePage() {
                     {/* Фото мастера из портфолио (thumb 320): инициалы — запасной вид. */}
                     <Avatar className="h-14 w-14" src={master.avatarUrl} name={master.name} />
                     <div className="min-w-0 flex-1">
-                      <Link to={`/master/${master.slug}`} className="truncate text-lg font-semibold hover:text-pink-600">
+                      <Link
+                        to={`/master/${master.slug}`}
+                        onClick={() => recordPromotionEvent(master.slug, "profile_click", "home")}
+                        className="truncate text-lg font-semibold hover:text-pink-600"
+                      >
                         {master.name}
                       </Link>
                       <p className="truncate text-sm text-slate-500">{master.tags}</p>
@@ -283,6 +291,7 @@ export function HomePage() {
             initial={{ opacity: 0, x: 12 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.35 }}
+            ref={showcaseImpressionRef}
             className="rounded-3xl border border-[#f0d9e4] bg-white p-5 shadow-[0_30px_50px_-35px_rgba(236,72,153,0.45)]"
             data-block="home-showcase"
             data-showcase-master={showcaseMaster?.slug ?? ""}
@@ -292,7 +301,11 @@ export function HomePage() {
                 <div className="flex items-start gap-4">
                   <Avatar className="h-20 w-20" src={showcaseMaster.avatarUrl} name={showcaseMaster.name} />
                   <div className="min-w-0 flex-1">
-                    <Link to={showcaseProfileLink} className="text-2xl font-semibold hover:text-pink-600">
+                    <Link
+                      to={showcaseProfileLink}
+                      onClick={() => showcaseMaster && recordPromotionEvent(showcaseMaster.slug, "profile_click", "home")}
+                      className="text-2xl font-semibold hover:text-pink-600"
+                    >
                       {showcaseMaster.name}
                     </Link>
                     <p className="truncate text-sm text-slate-500">{showcaseMaster.tags}</p>
@@ -317,6 +330,7 @@ export function HomePage() {
                         <span className="font-semibold">{formatRub(service.price)}</span>
                         <Link
                           to={serviceLink(service.id)}
+                          onClick={() => recordPromotionEvent(showcaseMaster.slug, "booking_click", "home")}
                           data-booking-service={service.id}
                           className="rounded-lg border border-pink-200 px-3 py-1 text-pink-600 transition hover:bg-pink-50"
                         >
@@ -346,6 +360,7 @@ export function HomePage() {
                       {showcaseWindows.map((window, index) => (
                         <Link
                           key={`${window.dateISO}-${window.startMinutes}`}
+                          onClick={() => recordPromotionEvent(showcaseMaster.slug, "booking_click", "home")}
                           data-showcase-window={`${window.dateISO}:${window.label}`}
                           to={bookingLinkForShowcase({
                             serviceId: window.serviceId ?? defaultServiceId,
@@ -368,6 +383,7 @@ export function HomePage() {
                   )}
                   <Link
                     to={showcaseBookingLink}
+                    onClick={() => recordPromotionEvent(showcaseMaster.slug, "booking_click", "home")}
                     data-action="showcase-booking"
                     className="mt-3 block w-full rounded-xl bg-pink-500 py-3 text-center text-sm font-semibold text-white transition hover:bg-pink-600"
                   >

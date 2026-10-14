@@ -12,13 +12,15 @@ import { Avatar } from "../components/NailUi";
 import { FavoriteButton } from "../components/FavoriteButton";
 import { useFavoritesList, windowWhen } from "../api/favorites";
 import { formatRub } from "../data/mock";
+import { recordPromotionEvent, usePromotionImpressions } from "../api/promotion";
 
 export function FavoritesPage() {
   const { data, loading, error, reload } = useFavoritesList();
+  const impressionRef = usePromotionImpressions("favorites", (data?.items ?? []).map((master) => master.slug));
 
   return (
     <ClientShell title="Избранное">
-      <div className="space-y-3" data-page="favorites">
+      <div ref={impressionRef} className="space-y-3" data-page="favorites">
         {loading && !data && <p className="text-sm text-slate-500">Загружаем избранное…</p>}
 
         {error && (
@@ -30,6 +32,7 @@ export function FavoritesPage() {
         {data?.items.map((master) => (
           <article
             key={master.slug}
+            data-promotion-master={master.slug}
             data-favorite={master.slug}
             className="rounded-2xl border border-[#f1dde6] p-4"
           >
@@ -37,7 +40,11 @@ export function FavoritesPage() {
               <Avatar className="h-12 w-12" src={master.avatarUrl} name={master.name} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Link to={`/master/${master.slug}`} className="truncate font-semibold hover:text-pink-600">
+                  <Link
+                    to={`/master/${master.slug}`}
+                    onClick={() => recordPromotionEvent(master.slug, "profile_click", "favorites")}
+                    className="truncate font-semibold hover:text-pink-600"
+                  >
                     {master.name}
                   </Link>
                   <span className="inline-flex items-center gap-1 text-sm text-slate-500">
@@ -77,6 +84,7 @@ export function FavoritesPage() {
                 {master.nextWindow && (
                   <Link
                     to={`/booking?master=${master.slug}&service=${master.nextWindow.serviceId}&date=${master.nextWindow.dateISO}&slot=${encodeURIComponent(master.nextWindow.label)}`}
+                    onClick={() => recordPromotionEvent(master.slug, "booking_click", "favorites")}
                     className="rounded-xl bg-[#e11d48] px-4 py-2 text-sm font-medium text-white hover:bg-[#c11440]"
                   >
                     Записаться
@@ -84,6 +92,7 @@ export function FavoritesPage() {
                 )}
                 <Link
                   to={`/master/${master.slug}`}
+                  onClick={() => recordPromotionEvent(master.slug, "profile_click", "favorites")}
                   className="rounded-xl border border-[#f1dde6] px-4 py-2 text-sm text-slate-600 hover:border-pink-300"
                 >
                   Карточка мастера

@@ -334,37 +334,16 @@ export const quickReplies = [
 
 export const settingsNav = [
   {
-    title: "Общие",
+    title: "Кабинет",
     items: [
       { id: "profile", label: "Профиль и бизнес" },
-      { id: "notifications", label: "Уведомления" },
       { id: "hours", label: "Часы работы" },
-      { id: "online", label: "Онлайн-запись" },
+      { id: "notifications", label: "Уведомления" },
     ],
   },
   {
     title: "Коммуникации",
-    items: [
-      { id: "messengers", label: "Мессенджеры" },
-      { id: "autoreplies", label: "Автоответы" },
-    ],
-  },
-  {
-    title: "Продвижение",
-    items: [
-      { id: "widget", label: "Виджет и ссылки" },
-      { id: "promos", label: "Акции и скидки" },
-      { id: "seo", label: "SEO-настройки" },
-    ],
-  },
-  {
-    title: "Система",
-    items: [
-      { id: "users", label: "Пользователи" },
-      { id: "security", label: "Безопасность" },
-      { id: "integrations", label: "Интеграции" },
-      { id: "payments", label: "Платежи" },
-    ],
+    items: [{ id: "messengers", label: "Мессенджеры" }],
   },
 ];
 

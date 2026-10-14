@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Camera, Check, Download, Save, Trash2, Upload } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Camera, Check, Download, Save } from "lucide-react";
 import {
   Card,
   CardTitle,
@@ -47,6 +48,7 @@ export function SettingsProPage() {
   const [region, setRegion] = useState<LocationRegion>(REGION_SPB);
   const [locationId, setLocationId] = useState("");
   const [tags, setTags] = useState("");
+  const [experience, setExperience] = useState("");
   const [priceFrom, setPriceFrom] = useState("0");
   /**
    * Короткая ссылка мастера: `nail2go.ru/any_nails`. Хранится без ведущего
@@ -62,11 +64,9 @@ export function SettingsProPage() {
     error: null,
   });
 
-  const [notifyNew, setNotifyNew] = useState(true);
-  const [onlyAvailable, setOnlyAvailable] = useState(true);
+  const [notifyNewBookings, setNotifyNewBookings] = useState(true);
   const [timezone, setTimezone] = useState("Europe/Moscow");
   const [slotStep, setSlotStep] = useState(0);
-  const [language, setLanguage] = useState("Русский");
 
   const bookings = useBookingsStore();
   const { status: apiStatus } = useStoreStatus();
@@ -91,32 +91,46 @@ export function SettingsProPage() {
     setRegion(profile.region === REGION_LO ? REGION_LO : REGION_SPB);
     setLocationId(profile.locationId ?? "");
     setTags(profile.tags);
+    setExperience(profile.experience);
     setPriceFrom(String(profile.priceFrom));
     setTimezone(profile.timezone);
     setSlotStep(profile.slotStepMinutes);
+    setNotifyNewBookings(profile.notifyNewBookings);
     setUsernameSlug(profile.usernameSlug ?? "");
   }, [profile]);
+
+  const onTextChange = (setter: (value: string) => void) => (value: string) => {
+    setter(value);
+    setState((current) => ({ ...current, saved: false, error: null }));
+  };
 
   const save = async () => {
     setState({ saving: true, saved: false, error: null });
     try {
-      if (!locationId) throw new Error("Выберите место работы из справочника");
-      await saveCabinetProfile({
-        name,
-        email,
-        site,
-        about: description,
-        tags,
-        locationId,
-        experience: profile?.experience ?? "5 лет",
-        priceFrom: Number.parseInt(priceFrom, 10) || 0,
-        timezone,
-        slotStepMinutes: slotStep,
-        usernameSlug,
-      });
-      if (hours) await saveCabinetHours(hours);
-      profileResource.reload();
-      hoursResource.reload();
+      if (section === "profile") {
+        if (!locationId) throw new Error("Выберите место работы из справочника");
+        await saveCabinetProfile({
+          name,
+          email,
+          site,
+          about: description,
+          tags,
+          locationId,
+          experience,
+          priceFrom: Number.parseInt(priceFrom, 10) || 0,
+          timezone,
+          slotStepMinutes: slotStep,
+          usernameSlug,
+        });
+        profileResource.reload();
+      } else if (section === "hours") {
+        if (!hours) throw new Error("Расписание ещё загружается");
+        await saveCabinetHours(hours);
+        hoursResource.reload();
+      } else if (section === "notifications") {
+        await saveCabinetProfile({ notifyNewBookings });
+        profileResource.reload();
+      }
       setState({ saving: false, saved: true, error: null });
     } catch (cause) {
       setState({
@@ -134,7 +148,10 @@ export function SettingsProPage() {
   return (
     <div>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Настройки</h1>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Настройки</h1>
+          {sectionTitle && <p className="mt-1 text-sm text-slate-500">{sectionTitle}</p>}
+        </div>
         <div className="flex items-center gap-3">
           {state.saved && (
             <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600">
@@ -142,10 +159,18 @@ export function SettingsProPage() {
               Сохранено в базе
             </span>
           )}
-          <PrimaryButton onClick={() => void save()} disabled={state.saving}>
-            <Save className="h-4 w-4" />
-            {state.saving ? "Сохраняем…" : "Сохранить изменения"}
-          </PrimaryButton>
+          {section === "messengers" ? (
+            <span className="text-sm text-slate-400">Привязка применяется сразу</span>
+          ) : (
+            <PrimaryButton
+              dataAction="save-master-settings"
+              onClick={() => void save()}
+              disabled={state.saving || profileResource.loading || (section === "hours" && hoursResource.loading)}
+            >
+              <Save className="h-4 w-4" />
+              {state.saving ? "Сохраняем…" : "Сохранить изменения"}
+            </PrimaryButton>
+          )}
         </div>
       </div>
 
@@ -154,10 +179,6 @@ export function SettingsProPage() {
           {state.error ?? `Профиль не загрузился: ${profileResource.error}`}
         </div>
       )}
-
-      {/* Способы входа и каналы уведомлений — до формы профиля: без мессенджера
-          мастер не получит напоминание о визите. */}
-      <LoginMethodsCard />
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)_320px]">
         <Card className="h-fit" padded={false}>
@@ -198,22 +219,30 @@ export function SettingsProPage() {
 
                 <div className="grid gap-5 sm:grid-cols-[110px_1fr]">
                   <div className="space-y-3">
-                    <div className="relative w-fit">
+                    <Link
+                      to="/pro/media"
+                      data-action="settings-media-link"
+                      aria-label="Открыть управление фотографиями"
+                      className="relative block w-fit rounded-full focus:outline-none focus:ring-2 focus:ring-rose-400 focus:ring-offset-2"
+                    >
                       <PersonAvatar name={name || "Мастер"} size={92} />
-                      <button className="absolute -bottom-1 -right-1 grid h-8 w-8 place-items-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm">
+                      <span className="absolute -bottom-1 -right-1 grid h-8 w-8 place-items-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm">
                         <Camera className="h-4 w-4" />
-                      </button>
-                    </div>
+                      </span>
+                    </Link>
+                    <Link to="/pro/media" className="block text-xs font-medium text-rose-600 hover:text-rose-700">
+                      Управлять фото
+                    </Link>
                   </div>
 
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <TextField label="Имя мастера / название студии" value={name} onChange={setName} />
+                    <TextField label="Имя мастера / название студии" value={name} onChange={onTextChange(setName)} />
                     <div>
                       <TextField label="Телефон (логин)" value={phone} onChange={() => undefined} />
                       <p className="mt-1 text-xs text-slate-400">Телефон — это логин, он не меняется здесь.</p>
                     </div>
                     <div className="sm:col-span-2">
-                      <TextArea label="Описание" value={description} onChange={setDescription} rows={4} />
+                      <TextArea label="Описание" value={description} onChange={onTextChange(setDescription)} rows={4} />
                     </div>
 
                     {/*
@@ -231,6 +260,7 @@ export function SettingsProPage() {
                           onChange={(event) => {
                             setUsernameSlug(event.target.value.replace(/^@/, "").toLowerCase());
                             setCopied(false);
+                            setState((current) => ({ ...current, saved: false, error: null }));
                           }}
                           placeholder="any_nails"
                           className="w-full min-w-0 flex-1 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-pink-400 md:w-auto"
@@ -262,8 +292,8 @@ export function SettingsProPage() {
                         </p>
                       )}
                     </div>
-                    <TextField label="Email" value={email} onChange={setEmail} />
-                    <TextField label="Сайт (необязательно)" value={site} onChange={setSite} />
+                    <TextField label="Email" value={email} onChange={onTextChange(setEmail)} />
+                    <TextField label="Сайт (необязательно)" value={site} onChange={onTextChange(setSite)} />
                     <div className="sm:col-span-2" data-block="master-location">
                       <p className="mb-2 text-sm font-medium text-slate-700">Место работы</p>
                       <div className="grid gap-3 sm:grid-cols-2">
@@ -328,31 +358,11 @@ export function SettingsProPage() {
                       <TextField
                         label="Специализация (через запятую)"
                         value={tags}
-                        onChange={setTags}
+                        onChange={onTextChange(setTags)}
                       />
                     </div>
-                    <TextField label="Цена от, ₽" value={priceFrom} onChange={setPriceFrom} />
-                    <div>
-                      <p className="text-xs font-medium text-slate-500">Логотип / фото студии</p>
-                      <div className="mt-1.5 flex items-center gap-4">
-                        <span className="grid h-20 w-20 place-items-center rounded-xl bg-rose-50 text-center text-xs font-semibold uppercase tracking-wide text-rose-400">
-                          Nail
-                          <br />
-                          studio
-                        </span>
-                        <button
-                          type="button"
-                          disabled
-                          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3.5 py-2 text-sm text-slate-400"
-                        >
-                          <Upload className="h-4 w-4" />
-                          Загрузка фото не подключена
-                        </button>
-                      </div>
-                      <p className="mt-2 text-xs text-slate-400">
-                        Хранилища файлов пока нет — этот блок появится вместе с загрузкой изображений.
-                      </p>
-                    </div>
+                    <TextField label="Цена от, ₽" value={priceFrom} onChange={onTextChange(setPriceFrom)} />
+                    <TextField label="Опыт работы" value={experience} onChange={onTextChange(setExperience)} />
                   </div>
                 </div>
               </Card>
@@ -361,12 +371,15 @@ export function SettingsProPage() {
                 <CardTitle>Часовой пояс</CardTitle>
                 <Select
                   value={timezone}
-                  onChange={setTimezone}
+                  onChange={(value) => {
+                    setTimezone(value);
+                    setState((current) => ({ ...current, saved: false, error: null }));
+                  }}
                   options={MASTER_TIMEZONES}
                 />
                 <p className="mt-2 text-xs text-slate-400">
-                  Пояс мастера: в нём клиент видит окна записи, в нём же приходят времена
-                  в SMS и уведомлениях. Если мастер работает в другом регионе, выберите его
+                  Пояс мастера: в нём клиент видит окна записи, в нём же показываются времена
+                  в уведомлениях. Если мастер работает в другом регионе, выберите его
                   пояс — иначе клиент увидит время со сдвигом.
                 </p>
               </Card>
@@ -375,7 +388,10 @@ export function SettingsProPage() {
                 <CardTitle>Шаг сетки записи</CardTitle>
                 <Select
                   value={String(slotStep)}
-                  onChange={(value) => setSlotStep(Number.parseInt(value, 10))}
+                  onChange={(value) => {
+                    setSlotStep(Number.parseInt(value, 10));
+                    setState((current) => ({ ...current, saved: false, error: null }));
+                  }}
                   options={[
                     { value: "0", label: "Как у площадки (30 минут)" },
                     { value: "15", label: "15 минут" },
@@ -389,36 +405,30 @@ export function SettingsProPage() {
                 </p>
               </Card>
 
-              <Card>
-                <CardTitle>Язык интерфейса</CardTitle>
-                <Select
-                  value={language}
-                  onChange={setLanguage}
-                  options={[
-                    { value: "Русский", label: "Русский" },
-                    { value: "English", label: "English" },
-                  ]}
-                />
-                <p className="mt-2 text-xs text-slate-400">Интерфейс пока только на русском.</p>
-              </Card>
-
-              <Card>
-                <CardTitle>Удаление аккаунта</CardTitle>
-                <p className="text-sm text-slate-500">
-                  Удаление кабинета ещё не реализовано: это необратимая операция, её подключим вместе с
-                  подтверждением по коду.
-                </p>
-                <button
-                  type="button"
-                  disabled
-                  className="mt-4 inline-flex items-center gap-2 rounded-xl border border-rose-100 px-4 py-2.5 text-sm font-medium text-rose-300"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Удалить аккаунт
-                </button>
-              </Card>
             </>
           )}
+
+          {section === "notifications" && (
+            <Card>
+              <CardTitle>Уведомления в кабинете</CardTitle>
+              <Toggle
+                checked={notifyNewBookings}
+                dataAction="toggle-master-new-bookings"
+                onChange={(value) => {
+                  setNotifyNewBookings(value);
+                  setState((current) => ({ ...current, saved: false, error: null }));
+                }}
+                label="Уведомления о новых заявках"
+                description="Управляет только колокольчиком кабинета. Клиентские сообщения и подключённые внешние каналы работают независимо."
+              />
+              <p className="mt-3 text-xs text-slate-400">
+                Подтверждения, отмены и сообщения остаются в ленте кабинета. Канал доставки уведомлений
+                настраивается отдельно в разделе «Мессенджеры».
+              </p>
+            </Card>
+          )}
+
+          {section === "messengers" && <LoginMethodsCard />}
 
           {section === "hours" && (
             <Card>
@@ -435,7 +445,10 @@ export function SettingsProPage() {
                   <div key={day.weekday} className="flex flex-wrap items-center gap-3 py-3">
                     <Toggle
                       checked={day.enabled}
-                      onChange={(next) => updateHours(day.weekday, { enabled: next })}
+                      onChange={(next) => {
+                        updateHours(day.weekday, { enabled: next });
+                        setState((current) => ({ ...current, saved: false, error: null }));
+                      }}
                       label={day.label}
                     />
                     <div className="ml-auto flex items-center gap-2">
@@ -443,9 +456,10 @@ export function SettingsProPage() {
                         type="time"
                         value={minutesToLabel(day.startMinute)}
                         disabled={!day.enabled}
-                        onChange={(event) =>
-                          updateHours(day.weekday, { startMinute: labelToMinutes(event.target.value) })
-                        }
+                        onChange={(event) => {
+                          updateHours(day.weekday, { startMinute: labelToMinutes(event.target.value) });
+                          setState((current) => ({ ...current, saved: false, error: null }));
+                        }}
                         className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-rose-300 disabled:bg-slate-50 disabled:text-slate-300"
                       />
                       <span className="text-slate-400">—</span>
@@ -453,9 +467,10 @@ export function SettingsProPage() {
                         type="time"
                         value={minutesToLabel(day.endMinute)}
                         disabled={!day.enabled}
-                        onChange={(event) =>
-                          updateHours(day.weekday, { endMinute: labelToMinutes(event.target.value) })
-                        }
+                        onChange={(event) => {
+                          updateHours(day.weekday, { endMinute: labelToMinutes(event.target.value) });
+                          setState((current) => ({ ...current, saved: false, error: null }));
+                        }}
                         className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-rose-300 disabled:bg-slate-50 disabled:text-slate-300"
                       />
                     </div>
@@ -465,64 +480,18 @@ export function SettingsProPage() {
             </Card>
           )}
 
-          {section !== "profile" && section !== "hours" && (
-            <Card>
-              <CardTitle>{sectionTitle}</CardTitle>
-              <p className="text-sm text-slate-500">
-                Раздел ещё не реализован — в отличие от «Профиля» и «Часов работы», которые сохраняются в
-                базу. Здесь появятся настройки, когда будет код, который их читает.
-              </p>
-              <button
-                type="button"
-                onClick={() => setSection("profile")}
-                className="mt-4 text-sm font-medium text-[#e11d48]"
-              >
-                ← Вернуться к профилю
-              </button>
-            </Card>
-          )}
         </div>
 
         <div className="space-y-4">
           <Card>
-            <CardTitle>Уведомления</CardTitle>
-            <div className="divide-y divide-slate-50">
-              <Toggle
-                checked={notifyNew}
-                onChange={setNotifyNew}
-                label="Уведомления о новых записях в приложении"
-              />
-            </div>
-            <p className="mt-3 text-xs text-slate-400">
-              Уведомления о заявках, подтверждениях, отменах и сообщениях приходят в колокольчик кабинета и
-              в ленту клиента. SMS, WhatsApp и email-рассылки не подключены: провайдеров нет, поэтому
-              переключателей для них мы не показываем.
-            </p>
-          </Card>
-
-          <Card>
-            <CardTitle>Параметры записи</CardTitle>
-            <div className="space-y-4">
-              <Toggle
-                checked={onlyAvailable}
-                onChange={setOnlyAvailable}
-                label="Показывать только доступное время"
-              />
-              <p className="text-xs text-slate-400">
-                Шаг сетки слотов задаётся переменной API `SLOT_STEP_MINUTES` (сейчас 30 минут). Интервал
-                между записями появится вместе с настройкой на стороне сервера.
-              </p>
-            </div>
-          </Card>
-
-          <Card>
-            <CardTitle>Резервное копирование</CardTitle>
+            <CardTitle>Экспорт записей</CardTitle>
             <p className="text-sm text-slate-500">
-              Экспортируйте данные студии и клиентов. Сейчас в базе {bookings.length} записей, источник
-              данных: {apiStatus === "ready" ? "API" : apiStatus === "offline" ? "локальный кэш (нет связи с API)" : "загрузка"}.
+              Скачать JSON со списком записей кабинета. Сейчас {bookings.length} записей; источник данных: {" "}
+              {apiStatus === "ready" ? "API" : apiStatus === "offline" ? "локальный кэш (нет связи с API)" : "загрузка"}.
             </p>
             <button
               type="button"
+              data-action="export-bookings"
               onClick={() => {
                 const blob = new Blob([exportBookings()], { type: "application/json" });
                 const url = URL.createObjectURL(blob);
@@ -535,25 +504,28 @@ export function SettingsProPage() {
               className="mt-4 inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600 transition hover:bg-slate-50"
             >
               <Download className="h-4 w-4" />
-              Экспорт данных
+              Экспортировать записи
             </button>
-            <button
-              type="button"
-              disabled={resetting}
-              onClick={async () => {
-                setResetting(true);
-                try {
-                  await resetDemoData();
-                  profileResource.reload();
-                  hoursResource.reload();
-                } finally {
-                  setResetting(false);
-                }
-              }}
-              className="mt-2 block text-xs text-slate-400 underline decoration-dotted transition hover:text-[#e11d48] disabled:opacity-50"
-            >
-              {resetting ? "Пересоздаём демо-данные..." : "Сбросить демо-данные"}
-            </button>
+            {import.meta.env.DEV && (
+              <button
+                type="button"
+                data-action="reset-demo-data"
+                disabled={resetting}
+                onClick={async () => {
+                  setResetting(true);
+                  try {
+                    await resetDemoData();
+                    profileResource.reload();
+                    hoursResource.reload();
+                  } finally {
+                    setResetting(false);
+                  }
+                }}
+                className="mt-2 block text-xs text-slate-400 underline decoration-dotted transition hover:text-[#e11d48] disabled:opacity-50"
+              >
+                {resetting ? "Пересоздаём демо-данные..." : "Сбросить демо-данные (только dev)"}
+              </button>
+            )}
           </Card>
         </div>
       </div>

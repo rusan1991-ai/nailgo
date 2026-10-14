@@ -148,6 +148,13 @@
       "when": 1791740000000,
       "tag": "0020_b2c_commercial_polish",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791977986868,
+      "tag": "0021_master_booking_notifications",
+      "breakpoints": true
     }
   ]
 }

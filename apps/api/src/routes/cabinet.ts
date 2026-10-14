@@ -164,6 +164,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
          */
         timezone: master.timezone,
         slotStepMinutes: master.slotStepMinutes,
+        notifyNewBookings: master.notifyNewBookings,
         platformTimezone: platformTimezone(),
         /**
          * Решение площадки по профилю: мастер видит в кабинете, что снят с
@@ -208,6 +209,8 @@ export async function cabinetRoutes(app: FastifyInstance) {
           .optional(),
         /** 0 — общий шаг площадки, иначе 15/30/60 минут. */
         slotStepMinutes: z.union([z.literal(0), z.literal(15), z.literal(30), z.literal(60)]).optional(),
+        /** Уведомление только в кабинете мастера; внешний канал этим не выключается. */
+        notifyNewBookings: z.boolean().optional(),
         /**
          * Короткая ссылка: пустая строка снимает её (остаётся `/master/<slug>`).
          * Формат проверяем до базы, занятость — запросом.
@@ -267,6 +270,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
         ...(input.priceFrom !== undefined ? { priceFrom: input.priceFrom } : {}),
         ...(input.timezone !== undefined ? { timezone: input.timezone } : {}),
         ...(input.slotStepMinutes !== undefined ? { slotStepMinutes: input.slotStepMinutes } : {}),
+        ...(input.notifyNewBookings !== undefined ? { notifyNewBookings: input.notifyNewBookings } : {}),
         ...(usernameSlug !== undefined ? { usernameSlug } : {}),
       })
       .where(eq(masters.id, master.id));

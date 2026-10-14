@@ -28,6 +28,8 @@ export type CabinetProfile = {
   timezone: string;
   /** Свой шаг сетки слотов: 0 — общий шаг площадки. */
   slotStepMinutes: number;
+  /** Показывать ли уведомления о новых заявках в ленте кабинета. */
+  notifyNewBookings: boolean;
   /** Пояс площадки: с ним сравнивается выбранный пояс. */
   platformTimezone: string;
   /** Решение площадки по профилю: active | paused | blocked. */
@@ -77,18 +79,19 @@ export function useCabinetHours(): Resource<{ items: WorkDay[] }> {
   return useApiResource<{ items: WorkDay[] }>("/cabinet/hours");
 }
 
-/** Сохранение профиля: пустые поля очищаем, цену передаём числом. */
+/** Сохранение настроек текущего кабинета. Пустые текстовые поля очищаются на сервере. */
 export async function saveCabinetProfile(input: {
-  name: string;
-  email: string;
-  site: string;
-  about: string;
-  tags: string;
-  locationId: string;
-  experience: string;
-  priceFrom: number;
+  name?: string;
+  email?: string;
+  site?: string;
+  about?: string;
+  tags?: string;
+  locationId?: string;
+  experience?: string;
+  priceFrom?: number;
   timezone?: string;
   slotStepMinutes?: number;
+  notifyNewBookings?: boolean;
   /** Короткая ссылка: пустая строка снимает её (остаётся `/master/<slug>`). */
   usernameSlug?: string;
 }): Promise<void> {

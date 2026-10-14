@@ -342,17 +342,22 @@ export function Toggle({
   onChange,
   label,
   description,
+  dataAction,
 }: {
   checked: boolean;
   onChange: (value: boolean) => void;
   label?: string;
   description?: string;
+  /** Стабильный селектор для devcheck и браузерной автоматизации. */
+  dataAction?: string;
 }) {
   const control = (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={label}
+      data-action={dataAction}
       onClick={() => onChange(!checked)}
       className={cn(
         "relative h-6 w-11 shrink-0 rounded-full transition",

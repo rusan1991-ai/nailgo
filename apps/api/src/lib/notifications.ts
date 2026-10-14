@@ -166,14 +166,18 @@ export async function notifyStudio(
   const [master] = await db.select().from(masters).where(eq(masters.id, masterId)).limit(1);
   if (!master?.userId) return; // у мастера нет аккаунта — уведомлять некого
 
-  await db.insert(notifications).values({
-    audience: "master",
-    userId: master.userId,
-    type: input.type,
-    title: input.title,
-    body: input.body,
-    bookingId: input.bookingId,
-  });
+  // Настройка управляет только лентой кабинета. Внешняя доставка — отдельный
+  // канал и остаётся включённой независимо от этого переключателя.
+  if (input.type !== "booking_created" || master.notifyNewBookings) {
+    await db.insert(notifications).values({
+      audience: "master",
+      userId: master.userId,
+      type: input.type,
+      title: input.title,
+      body: input.body,
+      bookingId: input.bookingId,
+    });
+  }
 
   if (input.external) await sendExternal({ userId: master.userId, phone: null }, input.type, `${input.title}: ${input.body}`, input.bookingId);
 }

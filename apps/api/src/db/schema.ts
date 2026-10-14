@@ -109,6 +109,8 @@ export const masters = pgTable("masters", {
   timezone: text("timezone").notNull().default("Europe/Moscow"),
   /** Свой шаг сетки слотов (15/30/60). 0 — брать общий из SLOT_STEP_MINUTES. */
   slotStepMinutes: integer("slot_step_minutes").notNull().default(0),
+  /** Показывать ли мастеру в приложении уведомления о новых заявках. */
+  notifyNewBookings: boolean("notify_new_bookings").notNull().default(true),
   /**
    * Задел на вторую версию: салон как место работы. Пока всегда null —
    * «один мастер = одна локация», но схему потом не придётся переписывать.

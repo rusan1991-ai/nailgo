@@ -213,13 +213,15 @@ export const salonMemberships = pgTable(
     salonId: text("salon_id").notNull().references(() => salons.id, { onDelete: "cascade" }),
     userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     role: text("role").notNull(), // owner | manager | master
-    status: text("status").notNull().default("active"), // active | invited | suspended
+    status: text("status").notNull().default("active"), // active | invited | suspended | declined | expired
     invitedByUserId: text("invited_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    invitationExpiresAt: timestamp("invitation_expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex("salon_memberships_salon_user").on(table.salonId, table.userId),
     index("salon_memberships_user").on(table.userId, table.status),
+    index("salon_memberships_invites").on(table.userId, table.status, table.invitationExpiresAt),
   ],
 );
 

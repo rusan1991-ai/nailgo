@@ -1,17 +1,21 @@
 import type { FastifyInstance } from "fastify";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import {
+  identities,
   locations,
   masters,
+  notifications,
   salonMemberships,
   salonNetworkMemberships,
   salonNetworks,
   salonWorkspaces,
   salons,
+  users,
 } from "../db/schema.js";
 import { requireAuth, requireMaster } from "../lib/auth.js";
+import { normalizePhone } from "../lib/phone.js";
 import { MASTER_TIMEZONES } from "../lib/time.js";
 
 const masterOnly = { preHandler: [requireAuth, requireMaster] };
@@ -32,8 +36,52 @@ const updateSalonSchema = z
     timezone: timezoneSchema.optional(),
   })
   .refine((value) => Object.values(value).some((field) => field !== undefined), "Нечего сохранять");
+const inviteSalonMemberSchema = z.object({
+  phone: z.string().trim().min(7).max(25),
+  role: z.enum(["manager", "master"]),
+});
+const updateSalonMemberSchema = z
+  .object({
+    role: z.enum(["manager", "master"]).optional(),
+    status: z.literal("suspended").optional(),
+  })
+  .refine((value) => Object.values(value).some((field) => field !== undefined), "Нечего сохранять");
 
 const active = "active";
+const invitationLifetimeMs = 7 * 24 * 60 * 60 * 1000;
+
+/** Owners are established only by an active direct or network membership. */
+async function salonManagedByOwner(salonId: string, userId: string) {
+  const [salon] = await db.select().from(salons).where(eq(salons.id, salonId)).limit(1);
+  if (!salon) return null;
+
+  const [directMembership] = await db
+    .select({ id: salonMemberships.id })
+    .from(salonMemberships)
+    .where(and(
+      eq(salonMemberships.salonId, salonId),
+      eq(salonMemberships.userId, userId),
+      eq(salonMemberships.role, "owner"),
+      eq(salonMemberships.status, active),
+    ))
+    .limit(1);
+  if (directMembership) return salon;
+
+  if (salon.networkId) {
+    const [networkMembership] = await db
+      .select({ id: salonNetworkMemberships.id })
+      .from(salonNetworkMemberships)
+      .where(and(
+        eq(salonNetworkMemberships.networkId, salon.networkId),
+        eq(salonNetworkMemberships.userId, userId),
+        eq(salonNetworkMemberships.role, "owner"),
+        eq(salonNetworkMemberships.status, active),
+      ))
+      .limit(1);
+    if (networkMembership) return salon;
+  }
+  return null;
+}
 
 /** Location selection is always by an existing directory ID; no free-text address is accepted. */
 async function locationFromDirectory(locationId: string) {
@@ -56,7 +104,7 @@ export async function placesRoutes(app: FastifyInstance) {
     const masterId = user.masterId;
     if (!masterId) return reply.code(404).send({ error: "not_found", message: "Кабинет мастера не найден" });
 
-    const [networkMembershipRows, salonMembershipRows] = await Promise.all([
+    const [networkMembershipRows, salonMembershipRows, invitationRows] = await Promise.all([
       db
         .select({ networkId: salonNetworkMemberships.networkId, role: salonNetworkMemberships.role })
         .from(salonNetworkMemberships)
@@ -65,6 +113,27 @@ export async function placesRoutes(app: FastifyInstance) {
         .select({ salonId: salonMemberships.salonId, role: salonMemberships.role })
         .from(salonMemberships)
         .where(and(eq(salonMemberships.userId, user.id), eq(salonMemberships.status, active))),
+      db
+        .select({
+          id: salonMemberships.id,
+          salonId: salons.id,
+          salonName: salons.name,
+          networkName: salonNetworks.name,
+          locationName: locations.name,
+          locationRegion: locations.region,
+          role: salonMemberships.role,
+          expiresAt: salonMemberships.invitationExpiresAt,
+        })
+        .from(salonMemberships)
+        .innerJoin(salons, eq(salonMemberships.salonId, salons.id))
+        .leftJoin(locations, eq(salons.locationId, locations.id))
+        .leftJoin(salonNetworks, eq(salons.networkId, salonNetworks.id))
+        .where(and(
+          eq(salonMemberships.userId, user.id),
+          eq(salonMemberships.status, "invited"),
+          gt(salonMemberships.invitationExpiresAt, new Date()),
+          eq(salons.active, true),
+        )),
     ]);
 
     const networkIds = [...new Set(networkMembershipRows.map((row) => row.networkId))];
@@ -92,9 +161,15 @@ export async function placesRoutes(app: FastifyInstance) {
     }
     const salonRows = [...visibleSalons.values()];
     const salonIds = salonRows.map((salon) => salon.id);
+    const ownerSalonIds = salonRows
+      .filter((salon) => {
+        const networkRole = salon.networkId ? networkRoleById.get(salon.networkId) : undefined;
+        return networkRole === "owner" || directSalonRoleById.get(salon.id) === "owner";
+      })
+      .map((salon) => salon.id);
     const locationIds = [...new Set(salonRows.map((salon) => salon.locationId).filter((id): id is string => Boolean(id)))];
 
-    const [workspaceRows, locationRows] = await Promise.all([
+    const [workspaceRows, locationRows, teamRows] = await Promise.all([
       salonIds.length
         ? db
             .select()
@@ -104,10 +179,59 @@ export async function placesRoutes(app: FastifyInstance) {
       locationIds.length
         ? db.select().from(locations).where(inArray(locations.id, locationIds))
         : Promise.resolve([]),
+      ownerSalonIds.length
+        ? db
+            .select({
+              membershipId: salonMemberships.id,
+              salonId: salonMemberships.salonId,
+              name: users.name,
+              role: salonMemberships.role,
+              status: salonMemberships.status,
+              masterSlug: masters.slug,
+              workspaceName: salonWorkspaces.name,
+              workspaceActive: salonWorkspaces.active,
+              invitationExpiresAt: salonMemberships.invitationExpiresAt,
+            })
+            .from(salonMemberships)
+            .innerJoin(users, eq(salonMemberships.userId, users.id))
+            .leftJoin(masters, eq(masters.userId, users.id))
+            .leftJoin(salonWorkspaces, and(
+              eq(salonWorkspaces.masterId, masters.id),
+              eq(salonWorkspaces.salonId, salonMemberships.salonId),
+            ))
+            .where(and(inArray(salonMemberships.salonId, ownerSalonIds), ne(salonMemberships.status, "declined")))
+            .orderBy(asc(users.name))
+        : Promise.resolve([]),
     ]);
 
     const locationById = new Map(locationRows.map((location) => [location.id, location]));
     const workspaceBySalonId = new Map(workspaceRows.map((workspace) => [workspace.salonId, workspace]));
+    const now = new Date();
+    const teamBySalonId = new Map<string, Array<{
+      id: string;
+      name: string;
+      role: string;
+      status: string;
+      masterSlug: string | null;
+      workspace: { name: string; active: boolean } | null;
+      invitationExpiresAt: string | null;
+    }>>();
+    for (const member of teamRows) {
+      const team = teamBySalonId.get(member.salonId) ?? [];
+      const expired = member.status === "invited" && (!member.invitationExpiresAt || member.invitationExpiresAt <= now);
+      team.push({
+        id: member.membershipId,
+        name: member.name,
+        role: member.role,
+        status: expired ? "expired" : member.status,
+        masterSlug: member.masterSlug,
+        workspace: member.workspaceName
+          ? { name: member.workspaceName, active: member.workspaceActive ?? false }
+          : null,
+        invitationExpiresAt: member.invitationExpiresAt?.toISOString() ?? null,
+      });
+      teamBySalonId.set(member.salonId, team);
+    }
     const networks = networkRows.map((network) => ({
       id: network.id,
       name: network.name,
@@ -119,6 +243,7 @@ export async function placesRoutes(app: FastifyInstance) {
         const location = salon.locationId ? locationById.get(salon.locationId) : undefined;
         const directRole = directSalonRoleById.get(salon.id);
         const networkRole = salon.networkId ? networkRoleById.get(salon.networkId) : undefined;
+        const role = networkRole === "owner" ? "owner" : directRole ?? networkRole ?? "member";
         return {
           id: salon.id,
           name: salon.name,
@@ -127,7 +252,9 @@ export async function placesRoutes(app: FastifyInstance) {
           location: location ? { id: location.id, slug: location.slug, name: location.name, kind: location.kind, region: location.region } : null,
           timezone: salon.timezone,
           active: salon.active,
-          role: directRole ?? networkRole ?? "member",
+          role,
+          canManageTeam: role === "owner",
+          team: role === "owner" ? teamBySalonId.get(salon.id) ?? [] : undefined,
           workspace: workspaceBySalonId.get(salon.id)
             ? {
                 id: workspaceBySalonId.get(salon.id)!.id,
@@ -139,8 +266,19 @@ export async function placesRoutes(app: FastifyInstance) {
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+    const invitations = invitationRows.map((invite) => ({
+      id: invite.id,
+      salonId: invite.salonId,
+      salonName: invite.salonName,
+      networkName: invite.networkName,
+      location: invite.locationName
+        ? { name: invite.locationName, region: invite.locationRegion }
+        : null,
+      role: invite.role,
+      expiresAt: invite.expiresAt?.toISOString() ?? null,
+    }));
 
-    return { networks, salons: resultSalons };
+    return { networks, salons: resultSalons, invitations };
   });
 
   /** Create a network owned by the authenticated master account. */
@@ -294,35 +432,8 @@ export async function placesRoutes(app: FastifyInstance) {
     const { id } = z.object({ id: z.string().trim().min(1) }).parse(request.params);
     const input = updateSalonSchema.parse(request.body ?? {});
     const user = request.currentUser!;
-    const [salon] = await db.select().from(salons).where(eq(salons.id, id)).limit(1);
+    const salon = await salonManagedByOwner(id, user.id);
     if (!salon) return reply.code(404).send({ error: "not_found", message: "Салон не найден" });
-
-    const [directOwnerMembership] = await db
-      .select({ id: salonMemberships.id })
-      .from(salonMemberships)
-      .where(and(
-        eq(salonMemberships.salonId, id),
-        eq(salonMemberships.userId, user.id),
-        eq(salonMemberships.role, "owner"),
-        eq(salonMemberships.status, active),
-      ))
-      .limit(1);
-    let isOwner = Boolean(directOwnerMembership);
-    if (!isOwner && salon.networkId) {
-      const [networkOwner] = await db
-        .select({ id: salonNetworks.id })
-        .from(salonNetworkMemberships)
-        .innerJoin(salonNetworks, eq(salonNetworkMemberships.networkId, salonNetworks.id))
-        .where(and(
-          eq(salonNetworkMemberships.networkId, salon.networkId),
-          eq(salonNetworkMemberships.userId, user.id),
-          eq(salonNetworkMemberships.role, "owner"),
-          eq(salonNetworkMemberships.status, active),
-        ))
-        .limit(1);
-      isOwner = Boolean(networkOwner);
-    }
-    if (!isOwner) return reply.code(404).send({ error: "not_found", message: "Салон не найден" });
 
     let locationId: string | undefined;
     let location: Awaited<ReturnType<typeof locationFromDirectory>> = null;
@@ -359,5 +470,242 @@ export async function placesRoutes(app: FastifyInstance) {
         active: updated!.active,
       },
     };
+  });
+
+  /** Invite an already registered, phone-verified master to a salon. */
+  app.post("/cabinet/places/salons/:id/invitations", masterOnly, async (request, reply) => {
+    const { id: salonId } = z.object({ id: z.string().trim().min(1) }).parse(request.params);
+    const input = inviteSalonMemberSchema.parse(request.body ?? {});
+    const user = request.currentUser!;
+    const salon = await salonManagedByOwner(salonId, user.id);
+    if (!salon) return reply.code(404).send({ error: "not_found", message: "Салон не найден" });
+    if (!salon.active) return reply.code(409).send({ error: "salon_inactive", message: "В этот филиал нельзя приглашать сотрудников" });
+
+    const phone = normalizePhone(input.phone);
+    if (!/^\+\d{10,15}$/.test(phone)) {
+      return reply.code(400).send({ error: "bad_phone", message: "Введите телефон полностью" });
+    }
+    const [target] = await db
+      .select({ userId: users.id })
+      .from(identities)
+      .innerJoin(users, eq(identities.userId, users.id))
+      .innerJoin(masters, eq(masters.userId, users.id))
+      .where(and(
+        eq(identities.provider, "phone"),
+        eq(identities.providerUserId, phone),
+        eq(users.role, "master"),
+        isNull(users.blockedAt),
+      ))
+      .limit(1);
+    if (!target) {
+      return reply.code(404).send({
+        error: "master_not_found",
+        message: "Номер не связан с подтверждённым аккаунтом мастера",
+      });
+    }
+    if (target.userId === user.id) {
+      return reply.code(400).send({ error: "cannot_invite_self", message: "Нельзя пригласить свой аккаунт" });
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + invitationLifetimeMs);
+    const [existing] = await db
+      .select()
+      .from(salonMemberships)
+      .where(and(eq(salonMemberships.salonId, salonId), eq(salonMemberships.userId, target.userId)))
+      .limit(1);
+    if (existing?.role === "owner") {
+      return reply.code(409).send({ error: "owner_membership_protected", message: "Нельзя заменить приглашением членство владельца" });
+    }
+    if (existing?.status === active) {
+      return reply.code(409).send({ error: "already_member", message: "Этот мастер уже состоит в филиале" });
+    }
+    if (existing?.status === "invited" && existing.invitationExpiresAt && existing.invitationExpiresAt > now) {
+      return reply.code(409).send({ error: "invite_exists", message: "Приглашение уже ожидает ответа" });
+    }
+
+    const invite = await db.transaction(async (tx) => {
+      const [membership] = existing
+        ? await tx
+            .update(salonMemberships)
+            .set({
+              role: input.role,
+              status: "invited",
+              invitedByUserId: user.id,
+              invitationExpiresAt: expiresAt,
+              createdAt: now,
+            })
+            .where(eq(salonMemberships.id, existing.id))
+            .returning({ id: salonMemberships.id, role: salonMemberships.role, status: salonMemberships.status })
+        : await tx
+            .insert(salonMemberships)
+            .values({
+              salonId,
+              userId: target.userId,
+              role: input.role,
+              status: "invited",
+              invitedByUserId: user.id,
+              invitationExpiresAt: expiresAt,
+            })
+            .returning({ id: salonMemberships.id, role: salonMemberships.role, status: salonMemberships.status });
+      await tx.insert(notifications).values({
+        audience: "master",
+        userId: target.userId,
+        type: "salon_invitation",
+        title: "Приглашение в салон",
+        body: `Вас пригласили в филиал «${salon.name}». Проверьте приглашение в разделе «Салоны и места».`,
+      });
+      return membership!;
+    });
+
+    return reply.code(201).send({ invitation: { ...invite, expiresAt: expiresAt.toISOString() } });
+  });
+
+  /** The invite can be accepted only by the invited authenticated master. */
+  app.post("/cabinet/places/invitations/:id/accept", masterOnly, async (request, reply) => {
+    const { id } = z.object({ id: z.string().trim().min(1) }).parse(request.params);
+    const user = request.currentUser!;
+    const masterId = user.masterId;
+    if (!masterId) return reply.code(404).send({ error: "not_found", message: "Кабинет мастера не найден" });
+    const now = new Date();
+
+    const outcome = await db.transaction(async (tx) => {
+      const [invite] = await tx
+        .select({
+          id: salonMemberships.id,
+          salonId: salonMemberships.salonId,
+          role: salonMemberships.role,
+          status: salonMemberships.status,
+          expiresAt: salonMemberships.invitationExpiresAt,
+          salonName: salons.name,
+          salonActive: salons.active,
+        })
+        .from(salonMemberships)
+        .innerJoin(salons, eq(salonMemberships.salonId, salons.id))
+        .where(and(eq(salonMemberships.id, id), eq(salonMemberships.userId, user.id)))
+        .limit(1);
+      if (!invite) return { error: "not_found" as const };
+      if (invite.status !== "invited") return { error: "invite_not_pending" as const };
+      if (!invite.expiresAt || invite.expiresAt <= now) {
+        await tx.update(salonMemberships)
+          .set({ status: "expired", invitationExpiresAt: null })
+          .where(eq(salonMemberships.id, id));
+        return { error: "invite_expired" as const };
+      }
+      if (!invite.salonActive) return { error: "salon_inactive" as const };
+
+      const [updated] = await tx
+        .update(salonMemberships)
+        .set({ status: active, invitationExpiresAt: null })
+        .where(and(
+          eq(salonMemberships.id, id),
+          eq(salonMemberships.userId, user.id),
+          eq(salonMemberships.status, "invited"),
+        ))
+        .returning({ id: salonMemberships.id, salonId: salonMemberships.salonId, role: salonMemberships.role });
+      if (!updated) return { error: "invite_not_pending" as const };
+
+      const [workspace] = await tx
+        .insert(salonWorkspaces)
+        .values({ salonId: invite.salonId, masterId, name: "Рабочее место", kind: "chair", active: true })
+        .onConflictDoUpdate({
+          target: [salonWorkspaces.salonId, salonWorkspaces.masterId],
+          set: { active: true },
+        })
+        .returning({ id: salonWorkspaces.id, name: salonWorkspaces.name, kind: salonWorkspaces.kind, active: salonWorkspaces.active });
+      return { invite: updated, salonName: invite.salonName, workspace: workspace! };
+    });
+
+    if ("error" in outcome) {
+      if (outcome.error === "invite_expired") {
+        return reply.code(410).send({ error: "invite_expired", message: "Срок приглашения истёк — попросите владельца прислать новое" });
+      }
+      if (outcome.error === "salon_inactive") {
+        return reply.code(409).send({ error: "salon_inactive", message: "Филиал временно не принимает сотрудников" });
+      }
+      return reply.code(outcome.error === "not_found" ? 404 : 409).send({
+        error: outcome.error,
+        message: outcome.error === "not_found" ? "Приглашение не найдено" : "Приглашение больше не ожидает ответа",
+      });
+    }
+
+    return {
+      membership: { id: outcome.invite.id, salonId: outcome.invite.salonId, salonName: outcome.salonName, role: outcome.invite.role, status: active },
+      workspace: outcome.workspace,
+    };
+  });
+
+  /** Declining is scoped to the invitee from the current session. */
+  app.post("/cabinet/places/invitations/:id/decline", masterOnly, async (request, reply) => {
+    const { id } = z.object({ id: z.string().trim().min(1) }).parse(request.params);
+    const user = request.currentUser!;
+    const [invite] = await db
+      .select({ id: salonMemberships.id, status: salonMemberships.status, expiresAt: salonMemberships.invitationExpiresAt })
+      .from(salonMemberships)
+      .where(and(eq(salonMemberships.id, id), eq(salonMemberships.userId, user.id)))
+      .limit(1);
+    if (!invite || invite.status !== "invited") {
+      return reply.code(404).send({ error: "not_found", message: "Приглашение не найдено" });
+    }
+    if (!invite.expiresAt || invite.expiresAt <= new Date()) {
+      await db.update(salonMemberships)
+        .set({ status: "expired", invitationExpiresAt: null })
+        .where(eq(salonMemberships.id, id));
+      return reply.code(410).send({ error: "invite_expired", message: "Срок приглашения истёк" });
+    }
+
+    await db.update(salonMemberships)
+      .set({ status: "declined", invitationExpiresAt: null })
+      .where(and(
+        eq(salonMemberships.id, id),
+        eq(salonMemberships.userId, user.id),
+        eq(salonMemberships.status, "invited"),
+      ));
+    return { ok: true };
+  });
+
+  /** Owners can change non-owner staff roles or suspend their branch access. */
+  app.patch("/cabinet/places/salons/:id/members/:memberId", masterOnly, async (request, reply) => {
+    const { id: salonId, memberId } = z
+      .object({ id: z.string().trim().min(1), memberId: z.string().trim().min(1) })
+      .parse(request.params);
+    const input = updateSalonMemberSchema.parse(request.body ?? {});
+    const user = request.currentUser!;
+    const salon = await salonManagedByOwner(salonId, user.id);
+    if (!salon) return reply.code(404).send({ error: "not_found", message: "Салон не найден" });
+
+    const [member] = await db
+      .select()
+      .from(salonMemberships)
+      .where(and(eq(salonMemberships.id, memberId), eq(salonMemberships.salonId, salonId)))
+      .limit(1);
+    if (!member || member.role === "owner") {
+      return reply.code(404).send({ error: "not_found", message: "Сотрудник не найден" });
+    }
+
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(salonMemberships)
+        .set({
+          ...(input.role !== undefined ? { role: input.role } : {}),
+          ...(input.status !== undefined ? { status: input.status, invitationExpiresAt: null } : {}),
+        })
+        .where(and(eq(salonMemberships.id, memberId), eq(salonMemberships.salonId, salonId)))
+        .returning({ id: salonMemberships.id, userId: salonMemberships.userId, role: salonMemberships.role, status: salonMemberships.status });
+      if (!row) return null;
+
+      if (input.status === "suspended") {
+        const [master] = await tx.select({ id: masters.id }).from(masters).where(eq(masters.userId, row.userId)).limit(1);
+        if (master) {
+          await tx.update(salonWorkspaces)
+            .set({ active: false })
+            .where(and(eq(salonWorkspaces.salonId, salonId), eq(salonWorkspaces.masterId, master.id)));
+        }
+      }
+      return row;
+    });
+    if (!updated) return reply.code(409).send({ error: "membership_changed", message: "Членство уже изменилось" });
+
+    return { member: { id: updated.id, role: updated.role, status: updated.status } };
   });
 }

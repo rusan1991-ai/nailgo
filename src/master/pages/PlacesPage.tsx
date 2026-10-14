@@ -3,10 +3,18 @@ import { Building2, MapPin, Plus, UsersRound } from "lucide-react";
 import { useLocationDirectory } from "../../api/locations";
 import { placesApi, useMasterPlaces } from "../../api/places";
 import { MASTER_TIMEZONES } from "../../api/profile";
-import { Card, CardTitle, PageHeader, PrimaryButton, Select, TextField } from "../components/ui";
+import { Card, CardTitle, GhostButton, PageHeader, PrimaryButton, Select, TextField } from "../components/ui";
 
 const locationLabel = (kind: string, name: string, region: string) =>
   `${kind === "metro" ? "м. " : "г. "}${name} · ${region}`;
+const teamRoleLabel = (role: string) => role === "owner" ? "Владелец" : role === "manager" ? "Менеджер" : "Мастер";
+const teamStatusLabel = (status: string) => ({
+  active: "Доступ активен",
+  invited: "Ожидает ответа",
+  suspended: "Доступ приостановлен",
+  declined: "Отклонено",
+  expired: "Срок приглашения истёк",
+}[status] ?? status);
 
 export function PlacesPage() {
   const places = useMasterPlaces();
@@ -16,6 +24,9 @@ export function PlacesPage() {
   const [locationId, setLocationId] = useState("");
   const [networkId, setNetworkId] = useState("");
   const [timezone, setTimezone] = useState("Europe/Moscow");
+  const [invitePhone, setInvitePhone] = useState("");
+  const [inviteSalonId, setInviteSalonId] = useState("");
+  const [inviteRole, setInviteRole] = useState<"manager" | "master">("master");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -31,6 +42,10 @@ export function PlacesPage() {
       label: locationLabel("district", item.name, item.region),
     })),
   ], [locations.data]);
+  const manageableSalons = useMemo(
+    () => (places.data?.salons ?? []).filter((salon) => salon.canManageTeam),
+    [places.data?.salons],
+  );
 
   const runSave = async (action: () => Promise<unknown>, success: string) => {
     setSaving(true);
@@ -74,6 +89,31 @@ export function PlacesPage() {
     }, networkId ? "Филиал добавлен в сеть." : "Место добавлено.");
   };
 
+  const inviteMember = () => {
+    const phone = invitePhone.trim();
+    if (!inviteSalonId) {
+      setError("Выберите филиал, куда пригласить сотрудника");
+      return;
+    }
+    if (phone.length < 7) {
+      setError("Введите телефон мастера с подтверждённым аккаунтом");
+      return;
+    }
+    void runSave(async () => {
+      await placesApi.inviteMember(inviteSalonId, { phone, role: inviteRole });
+      setInvitePhone("");
+    }, "Приглашение отправлено. Мастер должен принять его в своём кабинете.");
+  };
+
+  const acceptInvitation = (id: string) =>
+    void runSave(() => placesApi.acceptInvitation(id), "Приглашение принято. Филиал добавлен в ваши места.");
+  const declineInvitation = (id: string) =>
+    void runSave(() => placesApi.declineInvitation(id), "Приглашение отклонено.");
+  const suspendMember = (salonId: string, memberId: string) =>
+    void runSave(() => placesApi.updateMember(salonId, memberId, { status: "suspended" }), "Доступ сотрудника приостановлен.");
+  const changeMemberRole = (salonId: string, memberId: string, role: "manager" | "master") =>
+    void runSave(() => placesApi.updateMember(salonId, memberId, { role }), "Роль сотрудника обновлена.");
+
   return (
     <div className="space-y-5" data-page="places">
       <PageHeader
@@ -84,6 +124,35 @@ export function PlacesPage() {
       {error && <p role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</p>}
       {notice && <p role="status" className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</p>}
       {places.error && <p role="alert" className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-600">Не удалось загрузить места: {places.error}</p>}
+
+      {(places.data?.invitations.length ?? 0) > 0 && (
+        <Card data-block="incoming-place-invitations">
+          <CardTitle>Приглашения в филиалы</CardTitle>
+          <div className="space-y-3">
+            {places.data!.invitations.map((invite) => (
+              <article key={invite.id} data-invitation={invite.id} className="flex flex-col gap-3 rounded-xl border border-violet-100 bg-violet-50/50 p-4 sm:flex-row sm:items-center">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-medium text-slate-800">{invite.salonName}</h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {invite.networkName ? `${invite.networkName} · ` : ""}{invite.location ? `${invite.location.name} · ${invite.location.region} · ` : ""}{teamRoleLabel(invite.role)}
+                  </p>
+                  {invite.expiresAt && (
+                    <p className="mt-1 text-xs text-slate-400">Ответить до {new Date(invite.expiresAt).toLocaleDateString("ru-RU")}</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <PrimaryButton onClick={() => acceptInvitation(invite.id)} disabled={saving} dataAction={`accept-place-invitation-${invite.id}`}>
+                    Принять
+                  </PrimaryButton>
+                  <GhostButton onClick={() => declineInvitation(invite.id)} disabled={saving} dataAction={`decline-place-invitation-${invite.id}`}>
+                    Отклонить
+                  </GhostButton>
+                </div>
+              </article>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card data-block="salon-networks">
@@ -148,6 +217,50 @@ export function PlacesPage() {
         </Card>
       </div>
 
+      {manageableSalons.length > 0 && (
+        <Card data-block="invite-salon-member">
+          <CardTitle>Пригласить сотрудника</CardTitle>
+          <p className="mb-4 text-sm text-slate-500">
+            Приглашение доступно мастеру с подтверждённым телефонным входом. Новый участник появится в филиале после принятия приглашения.
+          </p>
+          <div className="grid gap-3 md:grid-cols-[1.1fr_1fr_1fr_auto] md:items-end">
+            <label className="block">
+              <span className="text-xs font-medium text-slate-500">Филиал</span>
+              <Select
+                value={inviteSalonId}
+                onChange={setInviteSalonId}
+                options={[
+                  { value: "", label: "Выберите филиал" },
+                  ...manageableSalons.map((salon) => ({ value: salon.id, label: salon.name })),
+                ]}
+                className="mt-1.5"
+              />
+            </label>
+            <TextField
+              label="Телефон мастера"
+              value={invitePhone}
+              onChange={setInvitePhone}
+              placeholder="+7 999 123-45-67"
+            />
+            <label className="block">
+              <span className="text-xs font-medium text-slate-500">Роль в филиале</span>
+              <Select
+                value={inviteRole}
+                onChange={(value) => setInviteRole(value as "manager" | "master")}
+                options={[
+                  { value: "master", label: "Мастер" },
+                  { value: "manager", label: "Менеджер" },
+                ]}
+                className="mt-1.5"
+              />
+            </label>
+            <PrimaryButton onClick={inviteMember} disabled={saving} dataAction="invite-salon-member">
+              Пригласить
+            </PrimaryButton>
+          </div>
+        </Card>
+      )}
+
       <Card data-block="salon-list">
         <CardTitle>Мои филиалы и места</CardTitle>
         {places.loading && !places.data ? (
@@ -177,6 +290,50 @@ export function PlacesPage() {
                     )}
                   </div>
                 </div>
+                {salon.canManageTeam && (
+                  <div data-block={`salon-team-${salon.id}`} className="mt-4 border-t border-slate-100 pt-4">
+                    <h4 className="mb-3 text-sm font-semibold text-slate-700">Сотрудники · {salon.team?.length ?? 0}</h4>
+                    {salon.team?.length ? (
+                      <div className="space-y-2">
+                        {salon.team.map((member) => (
+                          <div key={member.id} data-member={member.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium text-slate-700">{member.name}{member.role === "owner" ? " · вы" : ""}</p>
+                              <p className="text-xs text-slate-500">{teamRoleLabel(member.role)} · {teamStatusLabel(member.status)}{member.workspace ? ` · ${member.workspace.name}` : ""}</p>
+                              {member.invitationExpiresAt && member.status === "invited" && (
+                                <p className="text-[11px] text-slate-400">до {new Date(member.invitationExpiresAt).toLocaleDateString("ru-RU")}</p>
+                              )}
+                            </div>
+                            {member.role !== "owner" && member.status !== "suspended" && member.status !== "expired" && (
+                              <>
+                                <Select
+                                  value={member.role}
+                                  onChange={(value) => changeMemberRole(salon.id, member.id, value as "manager" | "master")}
+                                  options={[
+                                    { value: "master", label: "Мастер" },
+                                    { value: "manager", label: "Менеджер" },
+                                  ]}
+                                  className="w-32"
+                                />
+                                <GhostButton onClick={() => suspendMember(salon.id, member.id)} disabled={saving} dataAction={`suspend-salon-member-${member.id}`}>
+                                  {member.status === "invited" ? "Отозвать" : "Приостановить"}
+                                </GhostButton>
+                              </>
+                            )}
+                            {member.status === "suspended" && member.role !== "owner" && (
+                              <span className="text-xs text-slate-400">Для возврата отправьте новое приглашение.</span>
+                            )}
+                            {member.status === "expired" && (
+                              <span className="text-xs text-slate-400">Отправьте приглашение повторно.</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400">В филиале пока только владелец.</p>
+                    )}
+                  </div>
+                )}
               </article>
             ))}
           </div>
@@ -186,9 +343,9 @@ export function PlacesPage() {
       </Card>
 
       <p className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs leading-relaxed text-slate-500">
-        На этом шаге подключены сети, филиалы и личное рабочее место из справочника. Расписание по филиалам,
-        запись с выбором места и приглашение других мастеров будут добавлены следующим шагом этапа 10.
-        Кабинеты мастеров и их клиентские данные остаются изолированными.
+        Приглашение доступно только по номеру, связанному с подтверждённым аккаунтом мастера; оно истекает через 7 дней.
+        Роли филиала не открывают чужие кабинеты, записи, услуги, отзывы или клиентские карточки. Расписание по филиалам
+        и выбор места клиентом будут добавлены следующим шагом этапа 10.
       </p>
     </div>
   );

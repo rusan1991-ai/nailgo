@@ -21,7 +21,7 @@ npm run dev-otp-mode                       # фиксированный 1234 п�
 npm run client-cabinet                     # визиты, повторная запись, отмена за 6 часов, отзывы
 npm run analytics                          # выручка по периодам и доли услуг/категорий
 npm run promotion                          # event tracking, scope мастера и страница продвижения
-npm run places                             # сети, филиалы, membership, location_id, /pro/places и migration 0024 backfill
+npm run places                             # филиалы, verified-master invites/roles, /pro/places и migration 0024–0025 checks
 npm run smart-notifications                # авторегистрация, magic-link, loader и шаринг
 npm run deployment                          # Compose/Docker contract + isolated bootstrap test
 ```

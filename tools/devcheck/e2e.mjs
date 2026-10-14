@@ -129,7 +129,7 @@ bookings.dom.window.close();
 /* 3.5 Мастер завершает визит прямо в таблице кабинета (кнопка «Действия») */
 const cabinetAfterComplete = makeDom("/pro/bookings", { session: masterSession });
 await wait(1800);
-const ourRow = rowByText(cabinetAfterComplete.dom, service.name, `${slot} –`);
+const ourRow = rowByText(cabinetAfterComplete.dom, "Тест Клиент", service.name, `${slot} –`);
 assert("в кабинете нашлась строка нашей записи", Boolean(ourRow), `${service.name} ${slot}`);
 clickIn(ourRow, "Действия с записью");
 await wait(200);

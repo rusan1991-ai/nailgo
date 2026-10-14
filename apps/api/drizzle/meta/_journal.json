@@ -176,6 +176,13 @@
       "when": 1791986690452,
       "tag": "0024_fuzzy_the_hand",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791987883713,
+      "tag": "0025_salon_member_invitations",
+      "breakpoints": true
     }
   ]
 }

@@ -94,8 +94,20 @@ try {
   assert.equal(membership?.salonId, salon?.id);
   assert.equal(membership?.role, "owner");
   assert.equal(membership?.status, "active");
+  assert.equal(membership?.invitationExpiresAt, null, "migration 0025 should add an empty invitation-expiry field to existing memberships");
+  const invitationExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  await db
+    .update(schema.salonMemberships)
+    .set({ invitationExpiresAt: invitationExpiry })
+    .where(eq(schema.salonMemberships.id, membership!.id));
+  const [expiryRoundTrip] = await db
+    .select({ invitationExpiresAt: schema.salonMemberships.invitationExpiresAt })
+    .from(schema.salonMemberships)
+    .where(eq(schema.salonMemberships.id, membership!.id))
+    .limit(1);
+  assert.equal(expiryRoundTrip?.invitationExpiresAt?.toISOString(), invitationExpiry.toISOString());
 
-  console.log("OK  migration 0024 backfills an existing master into a private salon, workspace and owner membership");
+  console.log("OK  migrations 0024–0025 backfill private master places and store invite expiry");
 } finally {
   await client.close();
   fs.rmSync(tempDir, { recursive: true, force: true });

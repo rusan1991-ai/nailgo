@@ -1,0 +1,2 @@
+ALTER TABLE "salon_memberships" ADD COLUMN "invitation_expires_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "salon_memberships_invites" ON "salon_memberships" USING btree ("user_id","status","invitation_expires_at");

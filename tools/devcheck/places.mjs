@@ -1,4 +1,4 @@
-/** Stage 10 foundation: private network/branch management and directory-only locations. */
+/** Stage 10: private places, verified-master invitations, roles and branch access. */
 import {
   api,
   apiAs,
@@ -118,6 +118,47 @@ try {
   if (isolatedMasterLogin.status === 200) {
     const isolatedMaster = isolatedMasterLogin.data;
     const isolatedPlaces = await apiAs(isolatedMaster, "/cabinet/places");
+    assert(
+      "до приглашения другой мастер не видит чужой филиал и сеть",
+      isolatedPlaces.status === 200 &&
+        !isolatedPlaces.data.networks.some((row) => row.id === network.data.network.id) &&
+        !isolatedPlaces.data.salons.some((row) => row.id === branch.data.salon.id),
+    );
+
+    const selfInvite = await apiAs(master, `/cabinet/places/salons/${branch.data.salon.id}/invitations`, {
+      method: "POST",
+      body: { phone: "+7 (999) 000-00-01", role: "master" },
+    });
+    const unknownPhone = `+7996${String(Date.now()).slice(-7)}`;
+    const unknownInvite = await apiAs(master, `/cabinet/places/salons/${branch.data.salon.id}/invitations`, {
+      method: "POST",
+      body: { phone: unknownPhone, role: "master" },
+    });
+    const invalidRoleInvite = await apiAs(master, `/cabinet/places/salons/${branch.data.salon.id}/invitations`, {
+      method: "POST",
+      body: { phone: isolatedMasterPhone, role: "owner" },
+    });
+    assert("владелец не может пригласить собственный аккаунт", selfInvite.status === 400 && selfInvite.data.error === "cannot_invite_self");
+    assert("приглашается только подтверждённый аккаунт мастера", unknownInvite.status === 404 && invalidRoleInvite.status === 400);
+
+    const invitation = await apiAs(master, `/cabinet/places/salons/${branch.data.salon.id}/invitations`, {
+      method: "POST",
+      body: { phone: isolatedMasterPhone, role: "master" },
+    });
+    const expiry = Date.parse(invitation.data?.invitation?.expiresAt ?? "");
+    assert(
+      "владелец отправляет приглашение с ограниченным сроком и ролью",
+      invitation.status === 201 && invitation.data.invitation.role === "master" &&
+        invitation.data.invitation.status === "invited" && expiry > Date.now() && expiry < Date.now() + 8 * 24 * 60 * 60 * 1000,
+    );
+
+    const pendingPlaces = await apiAs(isolatedMaster, "/cabinet/places");
+    const pendingInvite = pendingPlaces.data?.invitations?.find((row) => row.id === invitation.data?.invitation?.id);
+    const notifications = await apiAs(isolatedMaster, "/notifications");
+    assert(
+      "приглашённому приходит внутренняя notification без SMS",
+      notifications.status === 200 && notifications.data.items.some((item) => item.type === "salon_invitation"),
+    );
     const deniedSalonUpdate = await apiAs(isolatedMaster, `/cabinet/places/salons/${branch.data.salon.id}`, {
       method: "PATCH",
       body: { name: "Попытка изменить чужой филиал" },
@@ -127,14 +168,86 @@ try {
       body: { name: "Попытка добавить филиал в чужую сеть", locationId: location?.id },
     });
     assert(
-      "другой мастер видит только собственные memberships",
-      isolatedPlaces.status === 200 &&
-        !isolatedPlaces.data.networks.some((row) => row.id === network.data.network.id) &&
-        !isolatedPlaces.data.salons.some((row) => row.id === branch.data.salon.id),
+      "приглашение видно только целевому мастеру, но ещё не даёт доступ к филиалу",
+      Boolean(pendingInvite) && !pendingPlaces.data.salons.some((row) => row.id === branch.data.salon.id),
     );
     assert(
-      "другой мастер не изменяет чужой филиал или сеть",
+      "другой мастер не изменяет чужой филиал или сеть до принятия приглашения",
       deniedSalonUpdate.status === 404 && deniedNetworkBranch.status === 404,
+    );
+
+    const inviteePage = makeDom("/pro/places", { session: isolatedMaster });
+    await wait(700);
+    assert(
+      "кабинет приглашённого показывает действия принятия и отказа",
+      inviteePage.window.document.querySelector(`[data-invitation="${invitation.data.invitation.id}"]`) !== null &&
+        inviteePage.window.document.querySelector(`[data-action="accept-place-invitation-${invitation.data.invitation.id}"]`) !== null &&
+        inviteePage.window.document.querySelector(`[data-action="decline-place-invitation-${invitation.data.invitation.id}"]`) !== null,
+    );
+    inviteePage.dom.window.close();
+
+    const accepted = await apiAs(isolatedMaster, `/cabinet/places/invitations/${invitation.data.invitation.id}/accept`, { method: "POST" });
+    const placesAfterAccept = await apiAs(isolatedMaster, "/cabinet/places");
+    const assignedSalon = placesAfterAccept.data?.salons?.find((row) => row.id === branch.data.salon.id);
+    assert(
+      "только адресат принимает приглашение и получает собственное рабочее место",
+      accepted.status === 200 && accepted.data.membership.role === "master" &&
+        assignedSalon?.workspace?.id === accepted.data.workspace.id && assignedSalon.role === "master",
+    );
+    assert("мастер не получает список коллег и их профилей", assignedSalon && !("team" in assignedSalon));
+
+    const ownerPlaces = await apiAs(master, "/cabinet/places");
+    const ownerBranch = ownerPlaces.data?.salons?.find((row) => row.id === branch.data.salon.id);
+    const employee = ownerBranch?.team?.find((row) => row.id === invitation.data.invitation.id);
+    assert(
+      "список команды доступен владельцу без телефонов и клиентских данных",
+      ownerBranch?.canManageTeam === true && employee?.name === "Изолированный мастер" &&
+        employee.status === "active" && !("phone" in employee),
+    );
+    const ownerMembership = ownerBranch?.team?.find((row) => row.role === "owner");
+    const deniedOwnerDowngrade = ownerMembership
+      ? await apiAs(master, `/cabinet/places/salons/${branch.data.salon.id}/members/${ownerMembership.id}`, {
+          method: "PATCH",
+          body: { role: "master" },
+        })
+      : { status: 200 };
+    assert("владелец не может понизить или заменить собственное членство", deniedOwnerDowngrade.status === 404);
+
+    const roleChange = await apiAs(master, `/cabinet/places/salons/${branch.data.salon.id}/members/${invitation.data.invitation.id}`, {
+      method: "PATCH",
+      body: { role: "manager" },
+    });
+    const rolePlaces = await apiAs(isolatedMaster, "/cabinet/places");
+    const roleSalon = rolePlaces.data?.salons?.find((row) => row.id === branch.data.salon.id);
+    const deniedRoleChange = await apiAs(isolatedMaster, `/cabinet/places/salons/${branch.data.salon.id}/members/${invitation.data.invitation.id}`, {
+      method: "PATCH",
+      body: { role: "master" },
+    });
+    assert("владелец меняет роль сотрудника, а сам сотрудник не управляет membership", roleChange.status === 200 && roleSalon?.role === "manager" && deniedRoleChange.status === 404);
+
+    const suspended = await apiAs(master, `/cabinet/places/salons/${branch.data.salon.id}/members/${invitation.data.invitation.id}`, {
+      method: "PATCH",
+      body: { status: "suspended" },
+    });
+    const suspendedPlaces = await apiAs(isolatedMaster, "/cabinet/places");
+    const ownerAfterSuspend = await apiAs(master, "/cabinet/places");
+    const suspendedMember = ownerAfterSuspend.data?.salons?.find((row) => row.id === branch.data.salon.id)?.team?.find((row) => row.id === invitation.data.invitation.id);
+    assert(
+      "приостановка членства отзывает доступ к филиалу и деактивирует workspace",
+      suspended.status === 200 && !suspendedPlaces.data.salons.some((row) => row.id === branch.data.salon.id) &&
+        suspendedMember?.status === "suspended" && suspendedMember.workspace?.active === false,
+    );
+
+    const secondInvitation = await apiAs(master, `/cabinet/places/salons/${standalone.data.salon.id}/invitations`, {
+      method: "POST",
+      body: { phone: isolatedMasterPhone, role: "manager" },
+    });
+    const declined = await apiAs(isolatedMaster, `/cabinet/places/invitations/${secondInvitation.data?.invitation?.id}/decline`, { method: "POST" });
+    const afterDecline = await apiAs(isolatedMaster, "/cabinet/places");
+    assert(
+      "повторное приглашение после приостановки можно отклонить",
+      secondInvitation.status === 201 && declined.status === 200 &&
+        !afterDecline.data.invitations.some((row) => row.id === secondInvitation.data.invitation.id),
     );
   }
 
@@ -144,7 +257,16 @@ try {
     method: "POST",
     body: { name: "Чужой филиал", locationId: location?.id },
   });
+  const deniedClientInvite = await apiAs(master, `/cabinet/places/salons/${branch.data.salon.id}/invitations`, {
+    method: "POST",
+    body: { phone: "+79990001122", role: "master" },
+  });
+  const deniedAdminInvite = await apiAs(admin, `/cabinet/places/salons/${branch.data.salon.id}/invitations`, {
+    method: "POST",
+    body: { phone: isolatedMasterPhone, role: "master" },
+  });
   assert("клиент не читает и не изменяет структуру салона", deniedClient.status === 403 && deniedBranch.status === 403);
+  assert("в филиал нельзя пригласить клиентский аккаунт, администратор не управляет membership", deniedClientInvite.status === 404 && deniedAdminInvite.status === 403);
 
   const page = makeDom("/pro/places", { session: master });
   await wait(800);
@@ -156,6 +278,11 @@ try {
       page.window.document.querySelector(`[data-salon="${branch.data.salon.id}"]`) !== null &&
       pageText.includes(location.name),
     pageText.slice(0, 120),
+  );
+  assert(
+    "владелец управляет командой, а экран показывает приостановленный доступ",
+    page.window.document.querySelector("[data-block='invite-salon-member']") !== null &&
+      pageText.includes("Пригласить сотрудника") && pageText.includes("Доступ приостановлен"),
   );
   assert("страница мест отрисована без ошибок", page.errors.length === 0 && page.consoleErrors.length === 0, page.errors[0] ?? "");
   page.dom.window.close();

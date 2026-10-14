@@ -14,6 +14,7 @@ export type PlaceWorkspace = {
 export type PlaceTeamMember = {
   id: string;
   name: string;
+  registered: boolean;
   role: SalonMemberRole;
   status: "active" | "invited" | "suspended" | "declined" | "expired";
   masterSlug: string | null;

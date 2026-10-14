@@ -16,6 +16,15 @@ let failures = 0;
 const assert = (label, ok, extra = "") => {
   if (!check(label, ok, extra)) failures += 1;
 };
+const waitForSelector = async (window, selector, timeoutMs = 5000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const element = window.document.querySelector(selector);
+    if (element) return element;
+    await wait(50);
+  }
+  return null;
+};
 
 const master = await loginMaster();
 
@@ -139,7 +148,48 @@ try {
       body: { phone: isolatedMasterPhone, role: "owner" },
     });
     assert("владелец не может пригласить собственный аккаунт", selfInvite.status === 400 && selfInvite.data.error === "cannot_invite_self");
-    assert("приглашается только подтверждённый аккаунт мастера", unknownInvite.status === 404 && invalidRoleInvite.status === 400);
+    assert(
+      "неизвестный номер получает приглашение без раскрытия телефона",
+      unknownInvite.status === 201 && unknownInvite.data.invitation.status === "invited" &&
+        !("phone" in unknownInvite.data.invitation) && invalidRoleInvite.status === 400,
+    );
+    const duplicateUnknownInvite = await apiAs(master, `/cabinet/places/salons/${branch.data.salon.id}/invitations`, {
+      method: "POST",
+      body: { phone: unknownPhone, role: "master" },
+    });
+    assert("повторное активное приглашение блокируется", duplicateUnknownInvite.status === 409 && duplicateUnknownInvite.data.error === "invite_exists");
+    const ownerPendingPlaces = await apiAs(master, "/cabinet/places");
+    const unregisteredTeamInvite = ownerPendingPlaces.data?.salons
+      ?.find((row) => row.id === branch.data.salon.id)?.team
+      ?.find((row) => row.id === unknownInvite.data?.invitation?.id);
+    assert(
+      "владелец видит статус ожидания регистрации без телефона",
+      unregisteredTeamInvite?.name === "Новый сотрудник" && unregisteredTeamInvite.registered === false &&
+        unregisteredTeamInvite.status === "invited" && !("phone" in unregisteredTeamInvite),
+    );
+    const unregisteredOwnerPage = makeDom("/pro/places", { session: master });
+    const unregisteredMemberRow = await waitForSelector(
+      unregisteredOwnerPage.window,
+      `[data-member="${unknownInvite.data.invitation.id}"]`,
+    );
+    assert(
+      "интерфейс мастера подписывает приглашение как ожидание регистрации, не показывая номер",
+      Boolean(unregisteredMemberRow?.textContent?.includes("Ожидает регистрации")) &&
+        !unregisteredMemberRow?.textContent?.includes(unknownPhone),
+    );
+    unregisteredOwnerPage.dom.window.close();
+    const revokeUnregistered = await apiAs(master,
+      `/cabinet/places/salons/${branch.data.salon.id}/members/${unknownInvite.data.invitation.id}`,
+      { method: "PATCH", body: { status: "suspended" } });
+    const resendUnregistered = await apiAs(master, `/cabinet/places/salons/${branch.data.salon.id}/invitations`, {
+      method: "POST",
+      body: { phone: unknownPhone, role: "master" },
+    });
+    assert(
+      "владелец отзывает и повторно отправляет приглашение до регистрации",
+      revokeUnregistered.status === 200 && resendUnregistered.status === 201 &&
+        resendUnregistered.data.invitation.id === unknownInvite.data.invitation.id,
+    );
 
     const invitation = await apiAs(master, `/cabinet/places/salons/${branch.data.salon.id}/invitations`, {
       method: "POST",
@@ -167,9 +217,12 @@ try {
       method: "POST",
       body: { name: "Попытка добавить филиал в чужую сеть", locationId: location?.id },
     });
+    const unrelatedAccept = await apiAs(isolatedMaster,
+      `/cabinet/places/invitations/${unknownInvite.data?.invitation?.id}/accept`, { method: "POST" });
     assert(
-      "приглашение видно только целевому мастеру, но ещё не даёт доступ к филиалу",
-      Boolean(pendingInvite) && !pendingPlaces.data.salons.some((row) => row.id === branch.data.salon.id),
+      "приглашение видно только целевому мастеру и не даёт доступ до принятия",
+      Boolean(pendingInvite) && !pendingPlaces.data.salons.some((row) => row.id === branch.data.salon.id) &&
+        !pendingPlaces.data.invitations.some((row) => row.id === unknownInvite.data?.invitation?.id) && unrelatedAccept.status === 404,
     );
     assert(
       "другой мастер не изменяет чужой филиал или сеть до принятия приглашения",
@@ -177,10 +230,13 @@ try {
     );
 
     const inviteePage = makeDom("/pro/places", { session: isolatedMaster });
-    await wait(700);
+    const inviteeCard = await waitForSelector(
+      inviteePage.window,
+      `[data-invitation="${invitation.data.invitation.id}"]`,
+    );
     assert(
       "кабинет приглашённого показывает действия принятия и отказа",
-      inviteePage.window.document.querySelector(`[data-invitation="${invitation.data.invitation.id}"]`) !== null &&
+      inviteeCard !== null &&
         inviteePage.window.document.querySelector(`[data-action="accept-place-invitation-${invitation.data.invitation.id}"]`) !== null &&
         inviteePage.window.document.querySelector(`[data-action="decline-place-invitation-${invitation.data.invitation.id}"]`) !== null,
     );
@@ -249,6 +305,52 @@ try {
       secondInvitation.status === 201 && declined.status === 200 &&
         !afterDecline.data.invitations.some((row) => row.id === secondInvitation.data.invitation.id),
     );
+
+    const unregisteredCode = await api("/auth/request-otp", {
+      method: "POST",
+      body: { phone: unknownPhone },
+    });
+    const unregisteredRegistration = unregisteredCode.data?.devCode
+      ? await api("/auth/verify-otp", {
+          method: "POST",
+          body: {
+            phone: unknownPhone,
+            code: unregisteredCode.data.devCode,
+            name: "Новый приглашённый",
+            role: "master",
+            mode: "register",
+          },
+        })
+      : { status: unregisteredCode.status, data: null };
+    assert("приглашённый номер может зарегистрировать мастерский кабинет", unregisteredRegistration.status === 200 && Boolean(unregisteredRegistration.data?.accessToken));
+    if (unregisteredRegistration.status === 200) {
+      const newMaster = unregisteredRegistration.data;
+      const placesForNewMaster = await apiAs(newMaster, "/cabinet/places");
+      const phoneInvite = placesForNewMaster.data?.invitations?.find((row) => row.id === unknownInvite.data?.invitation?.id);
+      assert(
+        "после подтверждения телефона приглашение появляется только в кабинете нового мастера",
+        Boolean(phoneInvite) && phoneInvite.salonId === branch.data.salon.id &&
+          !placesForNewMaster.data.salons.some((row) => row.id === branch.data.salon.id),
+      );
+      const acceptedPhoneInvite = await apiAs(newMaster,
+        `/cabinet/places/invitations/${unknownInvite.data.invitation.id}/accept`, { method: "POST" });
+      const newMasterPlaces = await apiAs(newMaster, "/cabinet/places");
+      const assignedBranch = newMasterPlaces.data?.salons?.find((row) => row.id === branch.data.salon.id);
+      assert(
+        "новый мастер принимает своё приглашение и получает workspace филиала",
+        acceptedPhoneInvite.status === 200 && acceptedPhoneInvite.data.membership.status === "active" &&
+          assignedBranch?.workspace?.id === acceptedPhoneInvite.data.workspace.id,
+      );
+      const ownerAfterRegistration = await apiAs(master, "/cabinet/places");
+      const registeredMember = ownerAfterRegistration.data?.salons
+        ?.find((row) => row.id === branch.data.salon.id)?.team
+        ?.find((row) => row.id === unknownInvite.data.invitation.id);
+      assert(
+        "после принятия владелец видит имя нового участника без его телефона",
+        registeredMember?.name === "Новый приглашённый" && registeredMember.registered === true &&
+          registeredMember.status === "active" && !("phone" in registeredMember),
+      );
+    }
   }
 
   const client = await login("+79990001122", "Тест Клиент");

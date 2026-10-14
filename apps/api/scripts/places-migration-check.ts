@@ -8,7 +8,7 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { eq } from "drizzle-orm";
 import * as schema from "../src/db/schema.js";
 
-/** Upgrade-path check: preserve a pre-stage master while applying migration 0024. */
+/** Upgrade-path check: preserve a pre-stage master and verify unregistered invitation rows. */
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nailgo-places-migration-"));
 const beforeStageFolder = path.join(tempDir, "before-stage-10");
 const sourceFolder = path.resolve(import.meta.dirname, "../drizzle");
@@ -107,7 +107,20 @@ try {
     .limit(1);
   assert.equal(expiryRoundTrip?.invitationExpiresAt?.toISOString(), invitationExpiry.toISOString());
 
-  console.log("OK  migrations 0024–0025 backfill private master places and store invite expiry");
+  const pendingPhone = "+79991234567";
+  const [unregisteredInvite] = await db.insert(schema.salonMemberships).values({
+    salonId: salon!.id,
+    userId: null,
+    invitationPhone: pendingPhone,
+    role: "master",
+    status: "invited",
+    invitationExpiresAt: invitationExpiry,
+  }).returning();
+  assert.equal(unregisteredInvite?.userId, null);
+  assert.equal(unregisteredInvite?.invitationPhone, pendingPhone);
+  assert.equal(unregisteredInvite?.status, "invited");
+
+  console.log("OK  migrations 0024–0027 backfill private places and support invitations by phone");
 } finally {
   await client.close();
   fs.rmSync(tempDir, { recursive: true, force: true });

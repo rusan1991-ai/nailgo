@@ -8,13 +8,16 @@ import { Card, CardTitle, GhostButton, PageHeader, PrimaryButton, Select, TextFi
 const locationLabel = (kind: string, name: string, region: string) =>
   `${kind === "metro" ? "м. " : "г. "}${name} · ${region}`;
 const teamRoleLabel = (role: string) => role === "owner" ? "Владелец" : role === "manager" ? "Менеджер" : "Мастер";
-const teamStatusLabel = (status: string) => ({
-  active: "Доступ активен",
-  invited: "Ожидает ответа",
-  suspended: "Доступ приостановлен",
-  declined: "Отклонено",
-  expired: "Срок приглашения истёк",
-}[status] ?? status);
+const teamStatusLabel = (status: string, registered = true) => {
+  if (status === "invited" && !registered) return "Ожидает регистрации";
+  return ({
+    active: "Доступ активен",
+    invited: "Ожидает ответа",
+    suspended: "Доступ приостановлен",
+    declined: "Отклонено",
+    expired: "Срок приглашения истёк",
+  }[status] ?? status);
+};
 
 export function PlacesPage() {
   const places = useMasterPlaces();
@@ -96,13 +99,13 @@ export function PlacesPage() {
       return;
     }
     if (phone.length < 7) {
-      setError("Введите телефон мастера с подтверждённым аккаунтом");
+      setError("Введите полный номер телефона мастера");
       return;
     }
     void runSave(async () => {
       await placesApi.inviteMember(inviteSalonId, { phone, role: inviteRole });
       setInvitePhone("");
-    }, "Приглашение отправлено. Мастер должен принять его в своём кабинете.");
+    }, "Приглашение создано. После регистрации и подтверждения этого номера мастер сможет принять его в кабинете.");
   };
 
   const acceptInvitation = (id: string) =>
@@ -221,7 +224,7 @@ export function PlacesPage() {
         <Card data-block="invite-salon-member">
           <CardTitle>Пригласить сотрудника</CardTitle>
           <p className="mb-4 text-sm text-slate-500">
-            Приглашение доступно мастеру с подтверждённым телефонным входом. Новый участник появится в филиале после принятия приглашения.
+            Можно пригласить по номеру мастера, даже если он ещё не зарегистрирован. После регистрации с подтверждением этого номера приглашение появится в кабинете; SMS не отправляются.
           </p>
           <div className="grid gap-3 md:grid-cols-[1.1fr_1fr_1fr_auto] md:items-end">
             <label className="block">
@@ -299,7 +302,7 @@ export function PlacesPage() {
                           <div key={member.id} data-member={member.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2">
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm font-medium text-slate-700">{member.name}{member.role === "owner" ? " · вы" : ""}</p>
-                              <p className="text-xs text-slate-500">{teamRoleLabel(member.role)} · {teamStatusLabel(member.status)}{member.workspace ? ` · ${member.workspace.name}` : ""}</p>
+                              <p className="text-xs text-slate-500">{teamRoleLabel(member.role)} · {teamStatusLabel(member.status, member.registered)}{member.workspace ? ` · ${member.workspace.name}` : ""}</p>
                               {member.invitationExpiresAt && member.status === "invited" && (
                                 <p className="text-[11px] text-slate-400">до {new Date(member.invitationExpiresAt).toLocaleDateString("ru-RU")}</p>
                               )}
@@ -343,9 +346,8 @@ export function PlacesPage() {
       </Card>
 
       <p className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs leading-relaxed text-slate-500">
-        Приглашение доступно только по номеру, связанному с подтверждённым аккаунтом мастера; оно истекает через 7 дней.
-        Роли филиала не открывают чужие кабинеты, записи, услуги, отзывы или клиентские карточки. Расписание по филиалам
-        и выбор места клиентом будут добавлены следующим шагом этапа 10.
+        Приглашение действует 7 дней. Если мастер ещё не зарегистрирован, он увидит его после входа с подтверждённым номером; SMS не отправляются.
+        Роли филиала не открывают чужие кабинеты, записи, услуги, отзывы или клиентские карточки. Расписание, блокировки и записи изолированы по рабочим местам, клиент выбирает филиал на странице записи.
       </p>
     </div>
   );

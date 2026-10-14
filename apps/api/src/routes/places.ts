@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { and, asc, eq, gt, inArray, isNull, ne } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import {
@@ -93,6 +93,32 @@ async function locationFromDirectory(locationId: string) {
   return location ?? null;
 }
 
+/** A contact phone is not proof of ownership; only a matching phone identity is. */
+async function verifiedPhoneForUser(userId: string, contactPhone: string | null): Promise<string | null> {
+  if (!contactPhone) return null;
+  const phone = normalizePhone(contactPhone);
+  if (!/^\+\d{10,15}$/.test(phone)) return null;
+  const [identity] = await db
+    .select({ id: identities.id })
+    .from(identities)
+    .where(and(
+      eq(identities.userId, userId),
+      eq(identities.provider, "phone"),
+      eq(identities.providerUserId, phone),
+    ))
+    .limit(1);
+  return identity ? phone : null;
+}
+
+function invitationRecipientScope(userId: string, verifiedPhone: string | null) {
+  return verifiedPhone
+    ? or(
+        eq(salonMemberships.userId, userId),
+        and(isNull(salonMemberships.userId), eq(salonMemberships.invitationPhone, verifiedPhone)),
+      )
+    : eq(salonMemberships.userId, userId);
+}
+
 export async function placesRoutes(app: FastifyInstance) {
   /**
    * The master sees organization records they own or were explicitly assigned
@@ -104,6 +130,7 @@ export async function placesRoutes(app: FastifyInstance) {
     const masterId = user.masterId;
     if (!masterId) return reply.code(404).send({ error: "not_found", message: "Кабинет мастера не найден" });
     const [masterProfile] = await db.select({ salonId: masters.salonId }).from(masters).where(eq(masters.id, masterId)).limit(1);
+    const verifiedPhone = await verifiedPhoneForUser(user.id, user.phone);
 
     const [networkMembershipRows, salonMembershipRows, invitationRows] = await Promise.all([
       db
@@ -130,7 +157,7 @@ export async function placesRoutes(app: FastifyInstance) {
         .leftJoin(locations, eq(salons.locationId, locations.id))
         .leftJoin(salonNetworks, eq(salons.networkId, salonNetworks.id))
         .where(and(
-          eq(salonMemberships.userId, user.id),
+          invitationRecipientScope(user.id, verifiedPhone),
           eq(salonMemberships.status, "invited"),
           gt(salonMemberships.invitationExpiresAt, new Date()),
           eq(salons.active, true),
@@ -185,6 +212,7 @@ export async function placesRoutes(app: FastifyInstance) {
             .select({
               membershipId: salonMemberships.id,
               salonId: salonMemberships.salonId,
+              userId: salonMemberships.userId,
               name: users.name,
               role: salonMemberships.role,
               status: salonMemberships.status,
@@ -194,8 +222,8 @@ export async function placesRoutes(app: FastifyInstance) {
               invitationExpiresAt: salonMemberships.invitationExpiresAt,
             })
             .from(salonMemberships)
-            .innerJoin(users, eq(salonMemberships.userId, users.id))
-            .leftJoin(masters, eq(masters.userId, users.id))
+            .leftJoin(users, eq(salonMemberships.userId, users.id))
+            .leftJoin(masters, eq(masters.userId, salonMemberships.userId))
             .leftJoin(salonWorkspaces, and(
               eq(salonWorkspaces.masterId, masters.id),
               eq(salonWorkspaces.salonId, salonMemberships.salonId),
@@ -211,6 +239,7 @@ export async function placesRoutes(app: FastifyInstance) {
     const teamBySalonId = new Map<string, Array<{
       id: string;
       name: string;
+      registered: boolean;
       role: string;
       status: string;
       masterSlug: string | null;
@@ -222,7 +251,8 @@ export async function placesRoutes(app: FastifyInstance) {
       const expired = member.status === "invited" && (!member.invitationExpiresAt || member.invitationExpiresAt <= now);
       team.push({
         id: member.membershipId,
-        name: member.name,
+        name: member.name ?? "Новый сотрудник",
+        registered: member.userId !== null,
         role: member.role,
         status: expired ? "expired" : member.status,
         masterSlug: member.masterSlug,
@@ -474,7 +504,7 @@ export async function placesRoutes(app: FastifyInstance) {
     };
   });
 
-  /** Invite an already registered, phone-verified master to a salon. */
+  /** Invite a verified master or create a pending phone invitation for someone not registered yet. */
   app.post("/cabinet/places/salons/:id/invitations", masterOnly, async (request, reply) => {
     const { id: salonId } = z.object({ id: z.string().trim().min(1) }).parse(request.params);
     const input = inviteSalonMemberSchema.parse(request.body ?? {});
@@ -499,23 +529,40 @@ export async function placesRoutes(app: FastifyInstance) {
         isNull(users.blockedAt),
       ))
       .limit(1);
-    if (!target) {
-      return reply.code(404).send({
-        error: "master_not_found",
-        message: "Номер не связан с подтверждённым аккаунтом мастера",
-      });
+    const targetUserId = target?.userId ?? null;
+    if (!targetUserId) {
+      // Do not reinterpret an existing client/admin/contact as a new employee.
+      // The generic error avoids returning any user details to the salon owner.
+      const [assignedPhone] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.phone, phone))
+        .limit(1);
+      if (assignedPhone) {
+        return reply.code(404).send({
+          error: "master_not_found",
+          message: "Номер не связан с подтверждённым аккаунтом мастера",
+        });
+      }
     }
-    if (target.userId === user.id) {
+    if (targetUserId === user.id) {
       return reply.code(400).send({ error: "cannot_invite_self", message: "Нельзя пригласить свой аккаунт" });
     }
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + invitationLifetimeMs);
-    const [existing] = await db
+    const existingScope = targetUserId
+      ? or(eq(salonMemberships.userId, targetUserId), eq(salonMemberships.invitationPhone, phone))
+      : eq(salonMemberships.invitationPhone, phone);
+    const existingRows = await db
       .select()
       .from(salonMemberships)
-      .where(and(eq(salonMemberships.salonId, salonId), eq(salonMemberships.userId, target.userId)))
-      .limit(1);
+      .where(and(eq(salonMemberships.salonId, salonId), existingScope))
+      .limit(2);
+    if (existingRows.length > 1) {
+      return reply.code(409).send({ error: "membership_conflict", message: "Для этого номера уже есть несколько записей членства" });
+    }
+    const existing = existingRows[0];
     if (existing?.role === "owner") {
       return reply.code(409).send({ error: "owner_membership_protected", message: "Нельзя заменить приглашением членство владельца" });
     }
@@ -531,6 +578,8 @@ export async function placesRoutes(app: FastifyInstance) {
         ? await tx
             .update(salonMemberships)
             .set({
+              userId: targetUserId,
+              invitationPhone: phone,
               role: input.role,
               status: "invited",
               invitedByUserId: user.id,
@@ -543,20 +592,23 @@ export async function placesRoutes(app: FastifyInstance) {
             .insert(salonMemberships)
             .values({
               salonId,
-              userId: target.userId,
+              userId: targetUserId,
+              invitationPhone: phone,
               role: input.role,
               status: "invited",
               invitedByUserId: user.id,
               invitationExpiresAt: expiresAt,
             })
             .returning({ id: salonMemberships.id, role: salonMemberships.role, status: salonMemberships.status });
-      await tx.insert(notifications).values({
-        audience: "master",
-        userId: target.userId,
-        type: "salon_invitation",
-        title: "Приглашение в салон",
-        body: `Вас пригласили в филиал «${salon.name}». Проверьте приглашение в разделе «Салоны и места».`,
-      });
+      if (targetUserId) {
+        await tx.insert(notifications).values({
+          audience: "master",
+          userId: targetUserId,
+          type: "salon_invitation",
+          title: "Приглашение в салон",
+          body: `Вас пригласили в филиал «${salon.name}». Проверьте приглашение в разделе «Салоны и места».`,
+        });
+      }
       return membership!;
     });
 
@@ -569,6 +621,8 @@ export async function placesRoutes(app: FastifyInstance) {
     const user = request.currentUser!;
     const masterId = user.masterId;
     if (!masterId) return reply.code(404).send({ error: "not_found", message: "Кабинет мастера не найден" });
+    const verifiedPhone = await verifiedPhoneForUser(user.id, user.phone);
+    const recipientScope = invitationRecipientScope(user.id, verifiedPhone);
     const now = new Date();
 
     const outcome = await db.transaction(async (tx) => {
@@ -584,24 +638,24 @@ export async function placesRoutes(app: FastifyInstance) {
         })
         .from(salonMemberships)
         .innerJoin(salons, eq(salonMemberships.salonId, salons.id))
-        .where(and(eq(salonMemberships.id, id), eq(salonMemberships.userId, user.id)))
+        .where(and(eq(salonMemberships.id, id), recipientScope))
         .limit(1);
       if (!invite) return { error: "not_found" as const };
       if (invite.status !== "invited") return { error: "invite_not_pending" as const };
       if (!invite.expiresAt || invite.expiresAt <= now) {
         await tx.update(salonMemberships)
           .set({ status: "expired", invitationExpiresAt: null })
-          .where(eq(salonMemberships.id, id));
+          .where(and(eq(salonMemberships.id, id), recipientScope, eq(salonMemberships.status, "invited")));
         return { error: "invite_expired" as const };
       }
       if (!invite.salonActive) return { error: "salon_inactive" as const };
 
       const [updated] = await tx
         .update(salonMemberships)
-        .set({ status: active, invitationExpiresAt: null })
+        .set({ userId: user.id, invitationPhone: null, status: active, invitationExpiresAt: null })
         .where(and(
           eq(salonMemberships.id, id),
-          eq(salonMemberships.userId, user.id),
+          recipientScope,
           eq(salonMemberships.status, "invited"),
         ))
         .returning({ id: salonMemberships.id, salonId: salonMemberships.salonId, role: salonMemberships.role });
@@ -641,10 +695,12 @@ export async function placesRoutes(app: FastifyInstance) {
   app.post("/cabinet/places/invitations/:id/decline", masterOnly, async (request, reply) => {
     const { id } = z.object({ id: z.string().trim().min(1) }).parse(request.params);
     const user = request.currentUser!;
+    const verifiedPhone = await verifiedPhoneForUser(user.id, user.phone);
+    const recipientScope = invitationRecipientScope(user.id, verifiedPhone);
     const [invite] = await db
       .select({ id: salonMemberships.id, status: salonMemberships.status, expiresAt: salonMemberships.invitationExpiresAt })
       .from(salonMemberships)
-      .where(and(eq(salonMemberships.id, id), eq(salonMemberships.userId, user.id)))
+      .where(and(eq(salonMemberships.id, id), recipientScope))
       .limit(1);
     if (!invite || invite.status !== "invited") {
       return reply.code(404).send({ error: "not_found", message: "Приглашение не найдено" });
@@ -652,7 +708,7 @@ export async function placesRoutes(app: FastifyInstance) {
     if (!invite.expiresAt || invite.expiresAt <= new Date()) {
       await db.update(salonMemberships)
         .set({ status: "expired", invitationExpiresAt: null })
-        .where(eq(salonMemberships.id, id));
+        .where(and(eq(salonMemberships.id, id), recipientScope, eq(salonMemberships.status, "invited")));
       return reply.code(410).send({ error: "invite_expired", message: "Срок приглашения истёк" });
     }
 
@@ -660,7 +716,7 @@ export async function placesRoutes(app: FastifyInstance) {
       .set({ status: "declined", invitationExpiresAt: null })
       .where(and(
         eq(salonMemberships.id, id),
-        eq(salonMemberships.userId, user.id),
+        recipientScope,
         eq(salonMemberships.status, "invited"),
       ));
     return { ok: true };
@@ -696,7 +752,7 @@ export async function placesRoutes(app: FastifyInstance) {
         .returning({ id: salonMemberships.id, userId: salonMemberships.userId, role: salonMemberships.role, status: salonMemberships.status });
       if (!row) return null;
 
-      if (input.status === "suspended") {
+      if (input.status === "suspended" && row.userId) {
         const [master] = await tx.select({ id: masters.id }).from(masters).where(eq(masters.userId, row.userId)).limit(1);
         if (master) {
           await tx.update(salonWorkspaces)

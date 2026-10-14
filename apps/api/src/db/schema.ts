@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { boolean, doublePrecision, index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { boolean, check, doublePrecision, index, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 /**
  * Схема Nail 2 Go (Postgres).
@@ -211,7 +212,9 @@ export const salonMemberships = pgTable(
   {
     id: id(),
     salonId: text("salon_id").notNull().references(() => salons.id, { onDelete: "cascade" }),
-    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    /** Null only for an invitation that is waiting for its phone owner to register. */
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    invitationPhone: text("invitation_phone"),
     role: text("role").notNull(), // owner | manager | master
     status: text("status").notNull().default("active"), // active | invited | suspended | declined | expired
     invitedByUserId: text("invited_by_user_id").references(() => users.id, { onDelete: "set null" }),
@@ -220,8 +223,13 @@ export const salonMemberships = pgTable(
   },
   (table) => [
     uniqueIndex("salon_memberships_salon_user").on(table.salonId, table.userId),
+    uniqueIndex("salon_memberships_salon_invite_phone")
+      .on(table.salonId, table.invitationPhone)
+      .where(sql`${table.invitationPhone} IS NOT NULL`),
     index("salon_memberships_user").on(table.userId, table.status),
     index("salon_memberships_invites").on(table.userId, table.status, table.invitationExpiresAt),
+    index("salon_memberships_invitation_phone").on(table.invitationPhone, table.status, table.invitationExpiresAt),
+    check("salon_memberships_invitee_required", sql`${table.userId} IS NOT NULL OR (${table.invitationPhone} IS NOT NULL AND ${table.status} <> 'active')`),
   ],
 );
 

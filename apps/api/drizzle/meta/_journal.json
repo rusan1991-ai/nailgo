@@ -190,6 +190,13 @@
       "when": 1791992404719,
       "tag": "0026_workspace_schedules_bookings",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791995573819,
+      "tag": "0027_unregistered_salon_invites",
+      "breakpoints": true
     }
   ]
 }

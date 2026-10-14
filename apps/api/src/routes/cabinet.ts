@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import { and, asc, desc, eq, gt, gte, lt, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNull, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { bookings, locations, masterClients, masters, reviews, salons, serviceCategories, services, timeBlocks, users, workingHours } from "../db/schema.js";
+import { bookings, comboBookingSteps, locations, masterClients, masters, reviews, salonMemberships, salonWorkspaces, salons, serviceCategories, services, timeBlocks, users, workingHours } from "../db/schema.js";
 import { env, isDev } from "../env.js";
 import {
   addDaysISO,
@@ -25,7 +25,7 @@ import { clientPolicy, registerNoShow } from "../lib/booking-policy.js";
 import { normalizePhone } from "../lib/phone.js";
 import { serializeBooking } from "../lib/serialize.js";
 import { requireAuth, requireMaster } from "../lib/auth.js";
-import { createBooking, createBookingSchema, rescheduleSchema, rescheduleBooking, withRelations } from "./bookings.js";
+import { createBooking, createBookingSchema, notifyComboTeam, rescheduleSchema, rescheduleBooking, withRelations } from "./bookings.js";
 import { notifyBookingEvent, notifyClient, notifyStudio } from "../lib/notifications.js";
 import { markPaid, refundBookingPayment } from "../lib/payments.js";
 import { paymentRowsForBooking } from "./payments.js";
@@ -33,6 +33,7 @@ import { notifyFavoritesAboutWindow, windowService } from "../lib/favorites.js";
 import { freeSlotsForDay } from "../lib/slots.js";
 import { checkUsername, masterPublicPath, usernameTaken } from "../lib/username.js";
 import { resolveMasterWorkspace, workspacesByIds, workspaceDisplayName } from "../lib/workspaces.js";
+import { comboBookingStepsByBookingIds, serializeComboBookingSteps } from "../lib/combos.js";
 
 const listQuery = z.object({
   status: z.enum(["all", "pending", "confirmed", "completed", "cancelled", "no_show"]).optional(),
@@ -423,7 +424,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
     const needle = query?.toLowerCase();
 
     const master = await currentMaster(request.currentUser?.id ?? null);
-    if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
+    if (!master || !master.userId) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
     const workspace = workspaceId
       ? await resolveMasterWorkspace(master.id, workspaceId, { preferredSalonId: master.salonId, requireActive: false })
       : null;
@@ -451,14 +452,73 @@ export async function cabinetRoutes(app: FastifyInstance) {
       )
       .orderBy(asc(bookings.startAt));
 
-    const workspaceById = await workspacesByIds(rows.map((row) => row.booking.workspaceId));
-    const items = rows
-      .map((row) => serializeBooking(row.booking, row.master, row.service, workspaceById.get(row.booking.workspaceId)))
-      .filter((booking) =>
-        needle
-          ? `${booking.clientName} ${booking.clientPhone} ${booking.serviceName}`.toLowerCase().includes(needle)
-          : true,
-      );
+    const assignmentRows = await db
+      .select({ step: comboBookingSteps, booking: bookings, owner: masters, service: services })
+      .from(comboBookingSteps)
+      .innerJoin(bookings, eq(comboBookingSteps.bookingId, bookings.id))
+      .innerJoin(masters, eq(bookings.masterId, masters.id))
+      .innerJoin(services, eq(bookings.serviceId, services.id))
+      .innerJoin(salonWorkspaces, and(eq(comboBookingSteps.workspaceId, salonWorkspaces.id), eq(salonWorkspaces.active, true)))
+      .innerJoin(salons, and(eq(salonWorkspaces.salonId, salons.id), eq(salons.active, true)))
+      .innerJoin(salonMemberships, and(
+        eq(salonMemberships.salonId, salonWorkspaces.salonId),
+        eq(salonMemberships.userId, master.userId),
+        eq(salonMemberships.status, "active"),
+      ))
+      .where(and(
+        eq(comboBookingSteps.performerMasterId, master.id),
+        ne(bookings.masterId, master.id),
+        workspace ? eq(comboBookingSteps.workspaceId, workspace.id) : undefined,
+        status && status !== "all" ? eq(bookings.status, status) : undefined,
+        fromDate ? gte(comboBookingSteps.startAt, dayBounds(fromDate, timezone).start) : undefined,
+        toDate ? lt(comboBookingSteps.startAt, dayBounds(toDate, timezone).end) : undefined,
+      ))
+      .orderBy(asc(comboBookingSteps.startAt));
+
+    const workspaceById = await workspacesByIds([
+      ...rows.map((row) => row.booking.workspaceId),
+      ...assignmentRows.map((row) => row.step.workspaceId),
+    ]);
+    const comboSnapshots = await comboBookingStepsByBookingIds(rows.map((row) => row.booking.id));
+    const primaryItems = rows.map((row) => ({
+      ...serializeBooking(row.booking, row.master, row.service, workspaceById.get(row.booking.workspaceId)),
+      comboSteps: serializeComboBookingSteps(comboSnapshots.get(row.booking.id) ?? [], true),
+    }));
+    const assignedItems = assignmentRows.map(({ step, booking, owner, service }) => {
+      const durationMinutes = step.durationMinutes + step.gapAfterMinutes;
+      const stepBooking = {
+        ...booking,
+        id: `combo-assignment-${step.id}`,
+        workspaceId: step.workspaceId,
+        startAt: step.startAt,
+        endAt: step.reservedEndAt,
+        price: step.price,
+        prepaymentAmount: 0,
+        paymentStatus: "none",
+      };
+      const stepService = {
+        ...service,
+        name: `${booking.comboNameSnapshot ?? service.name} · ${step.stepOrder + 1}. ${step.stepName}`,
+        durationMinutes,
+        price: 0,
+      };
+      return {
+        ...serializeBooking(stepBooking, owner, stepService, workspaceById.get(step.workspaceId)),
+        masterName: step.performerName,
+        clientName: booking.clientName.trim().split(/\s+/)[0] || "Клиент",
+        clientPhone: "",
+        comment: null,
+        price: 0,
+        prepaymentAmount: 0,
+        paymentStatus: "none",
+        parentBookingId: booking.id,
+        readOnly: true,
+        comboSteps: serializeComboBookingSteps([step]),
+      };
+    });
+    const items = [...primaryItems, ...assignedItems]
+      .filter((booking) => !needle || `${booking.clientName} ${booking.clientPhone} ${booking.serviceName}`.toLowerCase().includes(needle))
+      .sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt));
 
     return { items, total: items.length };
   });
@@ -508,7 +568,11 @@ export async function cabinetRoutes(app: FastifyInstance) {
     });
     if (!change.changed) return { ok: true };
 
-    await notifyBookingEvent(booking, await serviceOf(booking.serviceId), "cancelled_by_master");
+    const service = await serviceOf(booking.serviceId);
+    await notifyBookingEvent(booking, { ...service, name: booking.comboNameSnapshot ?? service.name }, "cancelled_by_master");
+    if (booking.comboNameSnapshot) {
+      await notifyComboTeam(booking.id, "combo_step_cancelled", "Комбо-запись отменена");
+    }
 
     // Мастер отменил визит — предоплата возвращается клиенту.
     if (booking.paymentStatus === "paid") await refundBookingPayment(booking);
@@ -688,7 +752,7 @@ export async function cabinetRoutes(app: FastifyInstance) {
     if ("reply" in found) return reply.code(found.reply.code).send(found.reply);
 
     await rescheduleBooking(found.booking, input, "master");
-    return { booking: await withRelations(id) };
+    return { booking: await withRelations(id, { includeComboPrices: true }) };
   });
 
   /** Расписание на диапазон дат — для недельной сетки. */

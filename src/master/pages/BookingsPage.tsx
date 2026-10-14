@@ -111,6 +111,7 @@ export function BookingsPage() {
         price: booking.price,
         prepaymentAmount: booking.prepaymentAmount,
         paymentStatus: booking.paymentStatus,
+        readOnly: booking.readOnly,
       })),
     [stored],
   );
@@ -248,9 +249,9 @@ export function BookingsPage() {
             </thead>
             <tbody>
               {rows.map((row) => {
-                const actions = [...actionsFor(row.status), ...paymentActionsFor(row)];
+                const actions = row.readOnly ? [] : [...actionsFor(row.status), ...paymentActionsFor(row)];
                 return (
-                  <tr key={row.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
+                  <tr key={row.id} data-combo-assignment={row.readOnly ? row.id : undefined} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
                     <td className="px-2 py-3.5 sm:px-5">
                       <p className="text-slate-700">{row.date}</p>
                       <p className="text-xs text-slate-400">{row.time}</p>
@@ -266,7 +267,7 @@ export function BookingsPage() {
                     </td>
                     <td className="px-2 py-3.5 sm:px-5">
                       <p className="break-words text-slate-700">{row.service}</p>
-                      <p className="text-xs text-slate-400">{row.duration}</p>
+                      <p className="text-xs text-slate-400">{row.duration}{row.readOnly ? " · назначенный шаг, запись ведёт владелец комбо" : ""}</p>
                     </td>
                     <td className="hidden px-2 py-3.5 sm:px-5 lg:table-cell">
                       <div className="flex items-center gap-2">
@@ -278,8 +279,8 @@ export function BookingsPage() {
                       <Chip tone={statusChips[row.status].tone}>{statusChips[row.status].label}</Chip>
                     </td>
                     <td className="px-2 py-3.5 sm:px-5 font-medium text-slate-700">
-                      {formatRub(row.price)}
-                      {row.prepaymentAmount && row.prepaymentAmount > 0 ? (
+                      {row.readOnly ? "—" : formatRub(row.price)}
+                      {!row.readOnly && row.prepaymentAmount && row.prepaymentAmount > 0 ? (
                         <span
                           data-payment={row.paymentStatus}
                           className={cn(
@@ -303,6 +304,7 @@ export function BookingsPage() {
                       <div className="flex flex-col items-end justify-center gap-1 sm:flex-row sm:gap-1.5">
                         <button
                           type="button"
+                          title={row.readOnly ? "Просмотреть назначенный шаг (без редактирования)" : "Открыть запись"}
                           onClick={() => liveById.has(row.id) && setDetails(liveById.get(row.id) ?? null)}
                           className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-400 transition hover:bg-white"
                         >
@@ -382,7 +384,7 @@ export function BookingsPage() {
         title="Детали записи"
         subtitle={details ? `${details.clientName} · ${details.clientPhone}` : undefined}
         footer={
-          details && actionsFor(details.status).length > 0 ? (
+          details && !details.readOnly && actionsFor(details.status).length > 0 ? (
             <>
               {actionsFor(details.status).map((item) => (
                 <button
@@ -426,7 +428,7 @@ export function BookingsPage() {
             </div>
             <div>
               <dt className="text-slate-400">Стоимость</dt>
-              <dd className="mt-1 text-slate-700">{formatRub(details.price)}</dd>
+              <dd className="mt-1 text-slate-700">{details.readOnly ? "—" : formatRub(details.price)}</dd>
             </div>
             <div>
               <dt className="text-slate-400">Адрес</dt>
@@ -455,7 +457,7 @@ export function BookingsPage() {
             </div>
           </dl>
         )}
-        {details && (details.status === "pending" || details.status === "confirmed") && (
+        {details && !details.readOnly && (details.status === "pending" || details.status === "confirmed") && (
           <ReschedulePanel
             booking={details}
             as="master"

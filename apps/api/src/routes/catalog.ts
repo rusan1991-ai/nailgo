@@ -10,6 +10,8 @@ import { collectWindows } from "../lib/lastMinute.js";
 import { windowService } from "../lib/favorites.js";
 import { cartAvatars, masterGallery } from "./media.js";
 import { masterPublicPath } from "../lib/username.js";
+import { comboParticipants } from "../lib/combos.js";
+import { assertSlotFree, BookingError } from "./bookings.js";
 import { listMasterWorkspaces, resolveMasterWorkspace, workspaceDisplayName } from "../lib/workspaces.js";
 
 /**
@@ -481,7 +483,9 @@ export async function catalogRoutes(app: FastifyInstance) {
       .select({ service: services, master: masters })
       .from(services)
       .innerJoin(masters, eq(services.masterId, masters.id))
-      .where(masterFilter ? and(eq(services.active, true), masterFilter) : eq(services.active, true))
+      .where(masterFilter
+        ? and(eq(services.active, true), eq(services.kind, "service"), masterFilter)
+        : and(eq(services.active, true), eq(services.kind, "service")))
       .orderBy(asc(services.price));
 
     return {
@@ -513,18 +517,44 @@ export async function catalogRoutes(app: FastifyInstance) {
       .where(and(eq(services.masterId, master.id), eq(services.active, true)))
       .orderBy(asc(services.price));
 
-    return {
-      masterSlug: master.slug,
-      masterName: master.name,
-      items: rows.map((service) => ({
-        id: service.id,
-        name: service.name,
-        category: service.category,
-        durationMinutes: service.durationMinutes,
-        price: service.price,
-        prepaymentPercent: service.prepaymentPercent,
-      })),
-    };
+    const items = [];
+    for (const service of rows) {
+      if (service.kind === "combo") {
+        if (!service.comboSalonId) continue;
+        const participants = await comboParticipants(service.id, service.comboSalonId);
+        if (!participants) continue;
+        items.push({
+          id: service.id,
+          name: service.name,
+          category: service.category,
+          durationMinutes: service.durationMinutes,
+          price: service.price,
+          prepaymentPercent: service.prepaymentPercent,
+          kind: "combo" as const,
+          comboSalonId: service.comboSalonId,
+          comboSteps: participants.map(({ step, performer }) => ({
+            order: step.stepOrder,
+            name: step.name,
+            performerName: performer.name,
+            durationMinutes: step.durationMinutes,
+            gapAfterMinutes: step.gapAfterMinutes,
+          })),
+        });
+      } else {
+        items.push({
+          id: service.id,
+          name: service.name,
+          category: service.category,
+          durationMinutes: service.durationMinutes,
+          price: service.price,
+          prepaymentPercent: service.prepaymentPercent,
+          kind: "service" as const,
+          comboSalonId: null,
+          comboSteps: [],
+        });
+      }
+    }
+    return { masterSlug: master.slug, masterName: master.name, items };
   });
 
   /**
@@ -653,7 +683,7 @@ export async function catalogRoutes(app: FastifyInstance) {
           await db
             .select()
             .from(services)
-            .where(and(eq(services.masterId, master.id), eq(services.active, true)))
+            .where(and(eq(services.masterId, master.id), eq(services.active, true), eq(services.kind, "service")))
             .orderBy(asc(services.durationMinutes))
             .limit(1)
         )[0];
@@ -662,17 +692,64 @@ export async function catalogRoutes(app: FastifyInstance) {
     }
     const workspace = await resolveMasterWorkspace(master.id, workspaceId, { preferredSalonId: master.salonId });
     if (!workspace) return reply.code(404).send({ error: "workspace_not_found", message: "Филиал не найден у этого мастера" });
+    if (service.kind === "combo" && service.comboSalonId !== workspace.salonId) {
+      return reply.code(409).send({ error: "combo_branch_required", message: "Это комбо доступно только в выбранном филиале" });
+    }
+    const combo = service.kind === "combo" && service.comboSalonId
+      ? await comboParticipants(service.id, service.comboSalonId)
+      : null;
+    if (service.kind === "combo" && !combo) {
+      return reply.code(409).send({ error: "combo_unavailable", message: "В комбо есть сотрудник без активного места в филиале" });
+    }
 
-    // Окна считаются для выбранного филиала; занятую запись мастера в другом
-    // месте расчёт тоже учитывает, чтобы исключить двойное бронирование.
+    // A combo's first assigned performer defines the start grid. The salon
+    // owner manages the booking but does not occupy their own schedule unless
+    // explicitly assigned to a step.
+    const firstParticipant = combo?.[0];
+    const slotMaster = firstParticipant?.performer ?? master;
+    const slotWorkspace = firstParticipant?.workspace ?? workspace;
+    const initialDuration = firstParticipant
+      ? firstParticipant.step.durationMinutes + firstParticipant.step.gapAfterMinutes
+      : service.durationMinutes;
     const daySlots = await freeSlotsForDay({
-      id: master.id,
-      timezone: workspace.timezone,
-      slotStepMinutes: master.slotStepMinutes,
-      workspaceId: workspace.id,
-      primarySalonId: master.salonId,
-    }, date, service.durationMinutes);
+      id: slotMaster.id,
+      timezone: slotWorkspace.timezone,
+      slotStepMinutes: slotMaster.slotStepMinutes,
+      workspaceId: slotWorkspace.id,
+      primarySalonId: service.comboSalonId ?? slotMaster.salonId,
+    }, date, initialDuration);
     if (!daySlots) return reply.code(400).send({ error: "bad_request", message: "Некорректная дата" });
+
+    let slotStarts = daySlots.slots;
+    if (combo && daySlots.working) {
+      const fitting: number[] = [];
+      for (const startMinute of daySlots.slots) {
+        let offsetMinutes = 0;
+        let available = true;
+        for (const participant of combo) {
+          try {
+            await assertSlotFree({
+              masterId: participant.performer.id,
+              workspaceId: participant.workspace.id,
+              primarySalonId: service.comboSalonId,
+              timezone: participant.workspace.timezone,
+              dateISO: date,
+              startMinutes: startMinute + offsetMinutes,
+              durationMinutes: participant.step.durationMinutes + participant.step.gapAfterMinutes,
+            });
+          } catch (error) {
+            if (error instanceof BookingError) {
+              available = false;
+              break;
+            }
+            throw error;
+          }
+          offsetMinutes += participant.step.durationMinutes + participant.step.gapAfterMinutes;
+        }
+        if (available) fitting.push(startMinute);
+      }
+      slotStarts = fitting;
+    }
 
     if (!daySlots.working) {
       return {
@@ -703,7 +780,7 @@ export async function catalogRoutes(app: FastifyInstance) {
       workingHours: { start: daySlots.start, end: daySlots.end },
       dayOff: false,
       past: daySlots.past,
-      slots: daySlots.slots.map((start) => ({ startMinute: start, label: windowLabel(start) })),
+      slots: slotStarts.map((start) => ({ startMinute: start, label: windowLabel(start) })),
     };
   });
 }

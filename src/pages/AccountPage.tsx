@@ -136,6 +136,16 @@ export function AccountPage() {
                     <p className="text-sm text-slate-500">{booking.time}</p>
                     <p className="mt-3 font-medium">{booking.master}</p>
                     <p className="text-sm text-slate-500">{booking.service}</p>
+                    {booking.comboSteps && booking.comboSteps.length > 0 && (
+                      <ol className="mt-2 space-y-1 rounded-xl bg-[#fff8fb] px-3 py-2 text-xs text-slate-600" data-booking-combo-steps>
+                        {booking.comboSteps.map((step) => (
+                          <li key={step.order}>
+                            {step.order + 1}. {step.name} — {step.performerName} · {step.durationMinutes} мин
+                            {step.gapAfterMinutes > 0 ? ` + пауза ${step.gapAfterMinutes} мин` : ""}
+                          </li>
+                        ))}
+                      </ol>
+                    )}
                     <p className="text-sm text-slate-500">{booking.address}</p>
                     {booking.workspaceName && (
                       <p className="text-xs text-slate-500" data-field="booking-workspace">

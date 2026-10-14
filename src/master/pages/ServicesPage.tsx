@@ -24,6 +24,7 @@ import {
   type CabinetServiceCategory,
 } from "../../api/services";
 import { ApiError } from "../../api/client";
+import { ComboServicesPanel } from "../components/ComboServicesPanel";
 
 const categoryTone: Record<string, string> = {
   Маникюр: "from-pink-200 to-rose-300",
@@ -325,6 +326,7 @@ export function ServicesPage() {
       <Tabs
         tabs={[
           { id: "services", label: "Услуги" },
+          { id: "combos", label: "Комбо" },
           { id: "categories", label: "Категории" },
         ]}
         active={tab}
@@ -454,7 +456,7 @@ export function ServicesPage() {
             label={`Показано ${visible.length} из ${services.length} услуг`}
           />
         </>
-      ) : (
+      ) : tab === "categories" ? (
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {categories.map((category) => (
             <Card key={category.id ?? category.name} data-category-row={category.id ?? ""}>
@@ -503,6 +505,8 @@ export function ServicesPage() {
             </Card>
           )}
         </div>
+      ) : (
+        <ComboServicesPanel />
       )}
 
       <Modal

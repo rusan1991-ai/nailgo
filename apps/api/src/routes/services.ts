@@ -78,7 +78,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     const rows = await db
       .select()
       .from(services)
-      .where(eq(services.masterId, master.id))
+      .where(and(eq(services.masterId, master.id), eq(services.kind, "service")))
       .orderBy(asc(services.category), asc(services.name));
 
     // Записи по каждой услуге: отменённые не считаем — они не история визитов.
@@ -131,7 +131,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     const { name } = serviceCategoryInput.parse(request.body ?? {});
     const [savedCategories, existingServices] = await Promise.all([
       db.select({ name: serviceCategories.name }).from(serviceCategories).where(eq(serviceCategories.masterId, master.id)),
-      db.select({ name: services.category }).from(services).where(eq(services.masterId, master.id)),
+      db.select({ name: services.category }).from(services).where(and(eq(services.masterId, master.id), eq(services.kind, "service"))),
     ]);
     const normalizedName = name.toLocaleLowerCase("ru-RU");
     const alreadyExists = [...savedCategories, ...existingServices].some(
@@ -177,7 +177,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         .where(eq(serviceCategories.masterId, master.id)),
       db.select({ category: services.category })
         .from(services)
-        .where(eq(services.masterId, master.id)),
+        .where(and(eq(services.masterId, master.id), eq(services.kind, "service"))),
     ]);
     const duplicateCategory = savedCategories.some(
       (item) => item.id !== category.id && normalizeCategoryName(item.name) === normalizedName,
@@ -204,6 +204,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         .set({ category: name, categoryId: category.id })
         .where(and(
           eq(services.masterId, master.id),
+          eq(services.kind, "service"),
           or(
             eq(services.categoryId, category.id),
             and(isNull(services.categoryId), eq(services.category, category.name)),
@@ -240,6 +241,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         .from(services)
         .where(and(
           eq(services.masterId, master.id),
+          eq(services.kind, "service"),
           or(
             eq(services.categoryId, category.id),
             and(isNull(services.categoryId), eq(services.category, category.name)),
@@ -256,7 +258,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         await tx
           .update(services)
           .set({ categoryId: null, category: UNCATEGORIZED })
-          .where(and(eq(services.masterId, master.id), inArray(services.id, serviceIds)));
+          .where(and(eq(services.masterId, master.id), eq(services.kind, "service"), inArray(services.id, serviceIds)));
       } else if (serviceIds.length > 0 && action === "delete") {
         const usedRows = await tx
           .select({ serviceId: bookings.serviceId })
@@ -268,7 +270,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         if (removableIds.length > 0) {
           const deleted = await tx
             .delete(services)
-            .where(and(eq(services.masterId, master.id), inArray(services.id, removableIds)))
+            .where(and(eq(services.masterId, master.id), eq(services.kind, "service"), inArray(services.id, removableIds)))
             .returning({ id: services.id });
           removedServices = deleted.length;
         }
@@ -276,7 +278,7 @@ export async function serviceRoutes(app: FastifyInstance) {
           const archived = await tx
             .update(services)
             .set({ categoryId: null, category: UNCATEGORIZED, active: false })
-            .where(and(eq(services.masterId, master.id), inArray(services.id, archivedIds)))
+            .where(and(eq(services.masterId, master.id), eq(services.kind, "service"), inArray(services.id, archivedIds)))
             .returning({ id: services.id });
           archivedServices = archived.length;
         }
@@ -355,7 +357,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const [service] = await db.select().from(services).where(eq(services.id, id)).limit(1);
-    if (!service) return reply.code(404).send({ error: "not_found", message: "Услуга не найдена" });
+    if (!service || service.kind !== "service") return reply.code(404).send({ error: "not_found", message: "Услуга не найдена" });
     if (service.masterId !== master.id) {
       return reply.code(403).send({ error: "forbidden", message: "Это услуга другого мастера" });
     }
@@ -396,7 +398,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     if (!master) return reply.code(404).send({ error: "not_found", message: "Кабинет не найден" });
 
     const [service] = await db.select().from(services).where(eq(services.id, id)).limit(1);
-    if (!service) return reply.code(404).send({ error: "not_found", message: "Услуга не найдена" });
+    if (!service || service.kind !== "service") return reply.code(404).send({ error: "not_found", message: "Услуга не найдена" });
     if (service.masterId !== master.id) {
       return reply.code(403).send({ error: "forbidden", message: "Это услуга другого мастера" });
     }

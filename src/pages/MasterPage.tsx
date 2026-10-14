@@ -177,15 +177,24 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
                 >
                   <div>
                     <p className="font-medium">{service.name}</p>
-                    <p data-service-category={service.category} className="text-xs text-pink-600">{service.category}</p>
+                    <p data-service-category={service.category} className="text-xs text-pink-600">{service.kind === "combo" ? `Комбо · ${service.comboSteps?.length ?? 0} шага` : service.category}</p>
                     <p className="text-sm text-slate-500">{durationLabel(service.durationMinutes)}</p>
+                    {service.kind === "combo" && service.comboSteps && (
+                      <ol className="mt-2 space-y-1 text-xs text-slate-500" data-combo-steps={service.id}>
+                        {service.comboSteps.map((step) => (
+                          <li key={step.order}>{step.order + 1}. {step.name} — {step.performerName} · {durationLabel(step.durationMinutes)}{step.gapAfterMinutes > 0 ? ` + пауза ${step.gapAfterMinutes} мин` : ""}</li>
+                        ))}
+                      </ol>
+                    )}
                   </div>
                   <p className="font-semibold">{formatRub(service.price)}</p>
                   <Link
                     to={bookingLinkFor(
-                      nextWindows[0]
-                        ? `workspace=${encodeURIComponent(nextWindows[0].workspaceId)}&service=${service.id}&date=${nextWindows[0].dateISO}&slot=${encodeURIComponent(nextWindows[0].label)}`
-                        : `service=${service.id}`,
+                      service.kind === "combo"
+                        ? `service=${encodeURIComponent(service.id)}`
+                        : nextWindows[0]
+                          ? `workspace=${encodeURIComponent(nextWindows[0].workspaceId)}&service=${encodeURIComponent(service.id)}&date=${nextWindows[0].dateISO}&slot=${encodeURIComponent(nextWindows[0].label)}`
+                          : `service=${encodeURIComponent(service.id)}`,
                     )}
                     onClick={() => recordPromotionEvent(master.slug, "booking_click", "profile")}
                     className="rounded-lg border border-pink-200 px-3 py-1 text-sm text-pink-600 hover:bg-pink-50"

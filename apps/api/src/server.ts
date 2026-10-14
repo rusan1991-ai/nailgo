@@ -28,6 +28,7 @@ import { promotionRoutes } from "./routes/promotion.js";
 import { placesRoutes } from "./routes/places.js";
 import { reviewRoutes } from "./routes/reviews.js";
 import { serviceRoutes } from "./routes/services.js";
+import { comboRoutes } from "./routes/combos.js";
 
 export async function buildServer() {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? (isDev ? "warn" : "info") } });
@@ -107,6 +108,7 @@ export async function buildServer() {
       await instance.register(messageRoutes);
       await instance.register(reviewRoutes);
       await instance.register(serviceRoutes);
+      await instance.register(comboRoutes);
       await instance.register(favoriteRoutes);
       await instance.register(clientRoutes);
       await instance.register(paymentRoutes);

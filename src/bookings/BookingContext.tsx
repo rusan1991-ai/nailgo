@@ -38,6 +38,17 @@ export type BookingItem = {
    */
   canCancel: boolean;
   cancelBlockedReason: string | null;
+  comboSteps?: {
+    order: number;
+    name: string;
+    performerName: string;
+    durationMinutes: number;
+    price?: number;
+    gapAfterMinutes: number;
+    startAt: string;
+    endAt: string;
+    reservedEndAt: string;
+  }[];
   /** Отзыв по визиту: null, если его ещё нет — тогда интерфейс предлагает оставить. */
   review: {
     id: string;
@@ -67,6 +78,7 @@ type ApiBooking = {
   status: "pending" | "confirmed" | "completed" | "cancelled" | "no_show";
   canCancel?: boolean;
   cancelBlockedReason?: string | null;
+  comboSteps?: BookingItem["comboSteps"];
   address: string;
   /** Отзыв по визиту: null, если отзыва ещё нет. */
   review: {
@@ -135,6 +147,7 @@ function toItem(booking: ApiBooking): BookingItem {
           : "upcoming",
     canCancel: booking.canCancel ?? false,
     cancelBlockedReason: booking.cancelBlockedReason ?? null,
+    comboSteps: booking.comboSteps,
     review: booking.review ?? null,
   };
 }

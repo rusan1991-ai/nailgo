@@ -142,7 +142,7 @@ export async function windowService(
       price: services.price,
     })
     .from(services)
-    .where(and(eq(services.masterId, masterId), eq(services.active, true)))
+    .where(and(eq(services.masterId, masterId), eq(services.active, true), eq(services.kind, "service")))
     .orderBy(desc(services.durationMinutes))
     .limit(1);
   return service ?? null;

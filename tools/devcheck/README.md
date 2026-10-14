@@ -22,6 +22,7 @@ npm run client-cabinet                     # визиты, повторная з
 npm run analytics                          # выручка по периодам и доли услуг/категорий
 npm run promotion                          # event tracking, scope мастера и страница продвижения
 npm run places                             # филиалы, verified-master invites/roles, /pro/places и migration 0024–0025 checks
+npm run combos                             # состав/цены без утечки, графики, гонка слотов, snapshot/перенос/отмена и migration bootstrap
 npm run smart-notifications                # авторегистрация, magic-link, loader и шаринг
 npm run deployment                          # Compose/Docker contract + isolated bootstrap test
 ```

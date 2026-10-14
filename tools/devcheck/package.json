@@ -41,7 +41,8 @@
     "journal": "node journal.mjs",
     "promotion": "node promotion.mjs",
     "places": "node places.mjs && npm --prefix ../../apps/api run db:places-migration-check",
-    "workspaces": "node workspaces.mjs && npm --prefix ../../apps/api run db:workspaces-migration-check"
+    "workspaces": "node workspaces.mjs && npm --prefix ../../apps/api run db:workspaces-migration-check",
+    "combos": "node combos.mjs && npm --prefix ../../apps/api run db:bootstrap-check"
   },
   "dependencies": {
     "jsdom": "^30.1.2"

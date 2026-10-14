@@ -8,7 +8,7 @@
  */
 import { and, eq, gt, lt, ne } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { bookings, timeBlocks } from "../db/schema.js";
+import { bookings, comboBookingSteps, services, timeBlocks } from "../db/schema.js";
 import { env } from "../env.js";
 import { scheduleForDay, slotStepOf } from "./schedule.js";
 import { resolveMasterWorkspace } from "./workspaces.js";
@@ -87,11 +87,25 @@ export async function freeSlotsForDay(
   const booked = await db
     .select({ startAt: bookings.startAt, endAt: bookings.endAt })
     .from(bookings)
+    .innerJoin(services, eq(bookings.serviceId, services.id))
     .where(and(
       eq(bookings.masterId, master.id),
+      ne(services.kind, "combo"),
       ne(bookings.status, "cancelled"),
       lt(bookings.startAt, dayEnd),
       gt(bookings.endAt, dayStart),
+    ));
+
+  // Team-combo phases reserve the assigned performer's work interval and its trailing buffer.
+  const comboAssigned = await db
+    .select({ startAt: comboBookingSteps.startAt, endAt: comboBookingSteps.reservedEndAt })
+    .from(comboBookingSteps)
+    .innerJoin(bookings, eq(comboBookingSteps.bookingId, bookings.id))
+    .where(and(
+      eq(comboBookingSteps.performerMasterId, master.id),
+      ne(bookings.status, "cancelled"),
+      lt(comboBookingSteps.startAt, dayEnd),
+      gt(comboBookingSteps.reservedEndAt, dayStart),
     ));
 
   // A personal/technical block closes only the selected workspace.
@@ -105,7 +119,7 @@ export async function freeSlotsForDay(
       gt(timeBlocks.endAt, dayStart),
     ));
 
-  const busy = [...booked, ...blocked].map((item) => ({
+  const busy = [...booked, ...comboAssigned, ...blocked].map((item) => ({
     start: minutesOfDay(item.startAt, tz),
     end: minutesOfDay(item.endAt, tz),
   }));

@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import { and, desc, eq, gt, inArray, lt, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, ne, or } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "../db/index.js";
-import { bookings, masterClients, masters, reviews, services, timeBlocks, users } from "../db/schema.js";
+import { db, withLocalTransactionLock } from "../db/index.js";
+import { bookings, comboBookingSteps, masterClients, masters, notifications, reviews, services, timeBlocks, users } from "../db/schema.js";
 import { optionalUserId, ownsBooking, requireAuth } from "../lib/auth.js";
 import { applyBookingStatus, bookingHistory, logBookingEvent } from "../lib/booking-status.js";
 import {
@@ -23,6 +23,13 @@ import { atMinutes, devNow, isValidISODate, minutesOfDay, toISODate } from "../l
 import { linkIdentity } from "../lib/identities.js";
 import { serializeBooking } from "../lib/serialize.js";
 import { resolveMasterWorkspace, workspacesByIds } from "../lib/workspaces.js";
+import {
+  comboBookingParticipants,
+  comboBookingStepsByBookingIds,
+  comboParticipants,
+  comboTimeline,
+  serializeComboBookingSteps,
+} from "../lib/combos.js";
 
 export const createBookingSchema = z.object({
   masterSlug: z.string().min(1),
@@ -86,15 +93,15 @@ export async function assertSlotFree(params: {
   durationMinutes: number;
   excludeBookingId?: string;
   now?: Date;
-}): Promise<{ startAt: Date; endAt: Date; dayStart: number; dayEnd: number; workspaceId: string }> {
+}, queryer: Pick<typeof db, "select"> = db): Promise<{ startAt: Date; endAt: Date; dayStart: number; dayEnd: number; workspaceId: string }> {
   if (!isValidISODate(params.dateISO)) throw new DomainError(400, "bad_date", "Некорректная дата");
 
   const workspace = await resolveMasterWorkspace(params.masterId, params.workspaceId, {
     preferredSalonId: params.primarySalonId,
-  });
+  }, queryer);
   if (!workspace) throw new DomainError(404, "workspace_not_found", "Рабочее место не найдено у этого мастера");
   const timezone = workspace.timezone || params.timezone;
-  const schedule = await scheduleForDay(params.masterId, params.dateISO, workspace.id);
+  const schedule = await scheduleForDay(params.masterId, params.dateISO, workspace.id, queryer);
   if (!schedule.working) throw new DomainError(409, "day_off", "В этот день мастер не принимает");
 
   const dayStart = schedule.start;
@@ -121,11 +128,13 @@ export async function assertSlotFree(params: {
 
   // Конфликт бронирования остаётся на уровне мастера: он не может быть
   // одновременно в двух филиалах, даже если workspace разные.
-  const [conflict] = await db
+  const [conflict] = await queryer
     .select({ id: bookings.id })
     .from(bookings)
+    .innerJoin(services, eq(bookings.serviceId, services.id))
     .where(and(
       eq(bookings.masterId, params.masterId),
+      ne(services.kind, "combo"),
       ne(bookings.status, "cancelled"),
       lt(bookings.startAt, endAt),
       gt(bookings.endAt, startAt),
@@ -134,8 +143,22 @@ export async function assertSlotFree(params: {
     .limit(1);
   if (conflict) throw new DomainError(409, "slot_taken", "Это время уже занято, выберите другое");
 
+  const [comboConflict] = await queryer
+    .select({ id: comboBookingSteps.id })
+    .from(comboBookingSteps)
+    .innerJoin(bookings, eq(comboBookingSteps.bookingId, bookings.id))
+    .where(and(
+      eq(comboBookingSteps.performerMasterId, params.masterId),
+      ne(bookings.status, "cancelled"),
+      lt(comboBookingSteps.startAt, endAt),
+      gt(comboBookingSteps.reservedEndAt, startAt),
+      params.excludeBookingId ? ne(comboBookingSteps.bookingId, params.excludeBookingId) : undefined,
+    ))
+    .limit(1);
+  if (comboConflict) throw new DomainError(409, "slot_taken", "В это время исполнитель занят на шаге другого комбо");
+
   // Блокировка относится только к выбранному рабочему месту.
-  const [blocked] = await db
+  const [blocked] = await queryer
     .select({ id: timeBlocks.id, reason: timeBlocks.reason })
     .from(timeBlocks)
     .where(and(
@@ -156,6 +179,38 @@ export async function assertSlotFree(params: {
   }
 
   return { startAt, endAt, dayStart, dayEnd, workspaceId: workspace.id };
+}
+
+async function assertComboParticipantsFree(
+  participants: Array<{
+    step: { durationMinutes: number; gapAfterMinutes: number };
+    performer: { id: string };
+    workspace: { id: string; timezone: string };
+  }>,
+  salonId: string,
+  dateISO: string,
+  startMinutes: number,
+  options: {
+    now?: Date;
+    excludeBookingId?: string;
+    queryer?: Pick<typeof db, "select">;
+  } = {},
+) {
+  let offsetMinutes = 0;
+  for (const participant of participants) {
+    await assertSlotFree({
+      masterId: participant.performer.id,
+      workspaceId: participant.workspace.id,
+      primarySalonId: salonId,
+      timezone: participant.workspace.timezone,
+      dateISO,
+      startMinutes: startMinutes + offsetMinutes,
+      durationMinutes: participant.step.durationMinutes + participant.step.gapAfterMinutes,
+      excludeBookingId: options.excludeBookingId,
+      now: options.now,
+    }, options.queryer ?? db);
+    offsetMinutes += participant.step.durationMinutes + participant.step.gapAfterMinutes;
+  }
 }
 
 /**
@@ -239,8 +294,14 @@ export async function createBooking(
   if (!service || !service.active || service.masterId !== master.id) {
     throw new DomainError(404, "service_not_found", "Услуга не найдена у этого мастера");
   }
+  const participants = service.kind === "combo" && service.comboSalonId
+    ? await comboParticipants(service.id, service.comboSalonId)
+    : null;
+  if (service.kind === "combo" && (!service.comboSalonId || service.comboSalonId !== workspace.salonId || !participants)) {
+    throw new DomainError(409, "combo_unavailable", "Комбо больше недоступно в выбранном филиале");
+  }
 
-  const { startAt, endAt } = await assertSlotFree({
+  const slotParams = {
     masterId: master.id,
     workspaceId: workspace.id,
     primarySalonId: master.salonId,
@@ -249,15 +310,12 @@ export async function createBooking(
     startMinutes: input.startMinutes,
     durationMinutes: service.durationMinutes,
     now: options.now,
-  });
-
-  // Предоплата фиксируется на момент записи: процент по услуге мастер может
-  // поменять хоть завтра, но по этой записи сумма уже согласована.
-  // Клиенту с ограничением («много поздних отмен») нужна полная предоплата —
-  // иначе записываться он сможет, только оплатив визит целиком.
-  const prepaymentAmount = policy?.prepaymentRequired
-    ? service.price
-    : prepaymentFor(service.price, service.prepaymentPercent);
+  };
+  if (participants && service.comboSalonId) {
+    await assertComboParticipantsFree(participants, service.comboSalonId, input.dateISO, input.startMinutes, { now: options.now });
+  } else {
+    await assertSlotFree(slotParams);
+  }
 
   /**
    * Новый клиент получает полноценный аккаунт прямо перед сохранением записи.
@@ -288,27 +346,129 @@ export async function createBooking(
     }
   }
 
-  const [booking] = await db
-    .insert(bookings)
-    .values({
-      masterId: master.id,
-      workspaceId: workspace.id,
-      serviceId: service.id,
-      // Вошедший клиент или аккаунт, который мы только что завели по номеру:
-      // запись сразу привязана к кабинету, и «магия»-ссылка откроет её карточку.
-      userId: options.userId ?? (options.source === "master" ? clientUser?.id : null) ?? null,
-      clientName,
-      clientPhone,
-      comment: input.comment,
-      startAt,
-      endAt,
-      price: service.price,
-      prepaymentAmount,
-      paymentStatus: prepaymentAmount > 0 ? "pending" : "none",
-      status: options.status,
-      source: options.source,
-    })
-    .returning();
+  const saved = await withLocalTransactionLock(() => db.transaction(async (tx) => {
+    let bookingService = service;
+    let bookingParticipants = participants;
+
+    // Lock the combo definition before resolving its current steps. An edit of
+    // this service cannot race the immutable booking snapshot below.
+    if (service.kind === "combo") {
+      const [lockedService] = await tx
+        .select()
+        .from(services)
+        .where(and(eq(services.id, service.id), eq(services.masterId, master.id)))
+        .for("update")
+        .limit(1);
+      if (!lockedService || !lockedService.active || !lockedService.comboSalonId || lockedService.comboSalonId !== workspace.salonId) {
+        throw new DomainError(409, "combo_unavailable", "Комбо больше недоступно в выбранном филиале");
+      }
+      bookingService = lockedService;
+      bookingParticipants = await comboParticipants(lockedService.id, lockedService.comboSalonId, tx);
+      if (!bookingParticipants) {
+        throw new DomainError(409, "combo_unavailable", "В комбо есть сотрудник без активного места в филиале");
+      }
+    }
+
+    const masterIds = [...new Set(
+      bookingParticipants?.map((participant) => participant.performer.id) ?? [master.id],
+    )].sort();
+    // Every booking writer takes participant locks in stable order before its
+    // final conflict check, so ordinary and multi-performer bookings serialize.
+    await tx.select({ id: masters.id })
+      .from(masters)
+      .where(inArray(masters.id, masterIds))
+      .orderBy(asc(masters.id))
+      .for("update");
+
+    const comboDuration = bookingParticipants?.reduce(
+      (sum, participant) => sum + participant.step.durationMinutes + participant.step.gapAfterMinutes,
+      0,
+    );
+    const comboPrice = bookingParticipants?.reduce((sum, participant) => sum + participant.step.price, 0);
+    const checkedParent = bookingParticipants
+      ? {
+          startAt: atMinutes(input.dateISO, input.startMinutes, workspace.timezone),
+          endAt: atMinutes(input.dateISO, input.startMinutes + comboDuration!, workspace.timezone),
+        }
+      : await assertSlotFree({ ...slotParams, durationMinutes: bookingService.durationMinutes }, tx);
+
+    if (bookingParticipants && bookingService.comboSalonId) {
+      await assertComboParticipantsFree(
+        bookingParticipants,
+        bookingService.comboSalonId,
+        input.dateISO,
+        input.startMinutes,
+        { now: options.now, queryer: tx },
+      );
+    }
+
+    const bookingPrice = comboPrice ?? bookingService.price;
+    // Price and prepayment are fixed from the actual locked definition.
+    const prepaymentAmount = policy?.prepaymentRequired
+      ? bookingPrice
+      : prepaymentFor(bookingPrice, bookingService.prepaymentPercent);
+    const [created] = await tx.insert(bookings)
+      .values({
+        masterId: master.id,
+        workspaceId: workspace.id,
+        serviceId: bookingService.id,
+        comboNameSnapshot: bookingParticipants ? bookingService.name : null,
+        // Вошедший клиент или аккаунт, который мы только что завели по номеру:
+        // запись сразу привязана к кабинету, и «магия»-ссылка откроет её карточку.
+        userId: options.userId ?? (options.source === "master" ? clientUser?.id : null) ?? null,
+        clientName,
+        clientPhone,
+        comment: input.comment,
+        startAt: checkedParent.startAt,
+        endAt: checkedParent.endAt,
+        price: bookingPrice,
+        prepaymentAmount,
+        paymentStatus: prepaymentAmount > 0 ? "pending" : "none",
+        status: options.status,
+        source: options.source,
+      })
+      .returning();
+
+    if (bookingParticipants && bookingParticipants.length > 0) {
+      const timeline = comboTimeline(bookingParticipants.map((participant) => participant.step));
+      const participantByOrder = new Map(bookingParticipants.map((participant) => [participant.step.stepOrder, participant]));
+      const snapshots = timeline.map(({ step, offsetMinutes }) => {
+        const participant = participantByOrder.get(step.stepOrder)!;
+        const startStepMinute = input.startMinutes + offsetMinutes;
+        const endStepMinute = startStepMinute + step.durationMinutes;
+        return {
+          bookingId: created!.id,
+          stepOrder: step.stepOrder,
+          performerMasterId: participant.performer.id,
+          workspaceId: participant.workspace.id,
+          stepName: step.name,
+          performerName: participant.performer.name,
+          durationMinutes: step.durationMinutes,
+          price: step.price,
+          gapAfterMinutes: step.gapAfterMinutes,
+          startAt: atMinutes(input.dateISO, startStepMinute, workspace.timezone),
+          endAt: atMinutes(input.dateISO, endStepMinute, workspace.timezone),
+          reservedEndAt: atMinutes(input.dateISO, endStepMinute + step.gapAfterMinutes, workspace.timezone),
+        };
+      });
+      await tx.insert(comboBookingSteps).values(snapshots);
+      for (const participant of bookingParticipants) {
+        if (!participant.performer.userId || participant.performer.id === master.id) continue;
+        const stepStart = input.startMinutes + timeline[participant.step.stepOrder]!.offsetMinutes;
+        await tx.insert(notifications).values({
+          audience: "master",
+          userId: participant.performer.userId,
+          type: "combo_step_assigned",
+          title: "В комбо назначен ваш шаг",
+          body: `«${bookingService.name}»: ${participant.step.name} · ${input.dateISO} ${String(Math.floor(stepStart / 60)).padStart(2, "0")}:${String(stepStart % 60).padStart(2, "0")}. Состав и время зафиксированы в записи.`,
+        });
+      }
+    }
+    return { booking: created!, service: bookingService };
+  }));
+  const booking = saved.booking;
+  const savedService = saved.service;
+  const prepaymentAmount = booking.prepaymentAmount;
 
   await logBookingEvent({
     bookingId: booking!.id,
@@ -316,7 +476,7 @@ export async function createBooking(
     toStatus: booking!.status,
     actor: options.source === "master" ? { role: "master" } : { role: "client" },
     reason:
-      policy?.prepaymentRequired && prepaymentAmount === service.price
+      policy?.prepaymentRequired && prepaymentAmount === savedService.price
         ? "клиенту нужна полная предоплата: накоплены поздние отмены"
         : null,
   });
@@ -334,8 +494,47 @@ export async function createBooking(
     }
   }
 
-  // Возвращаем и строку записи: по ней строятся уведомления участникам.
-  return { row: booking!, service, payload: serializeBooking(booking!, master, service, workspace), policy };
+  // Return one customer booking with immutable combo-step details; single services carry an empty list.
+  const snapshots = (await comboBookingStepsByBookingIds([booking!.id])).get(booking!.id) ?? [];
+  const payload = {
+    ...serializeBooking(booking, master, savedService, workspace),
+    comboSteps: serializeComboBookingSteps(snapshots),
+  };
+  return { row: booking, service: savedService, payload, policy };
+}
+
+export async function notifyComboTeam(bookingId: string, type: string, title: string): Promise<void> {
+  const [parent] = await db
+    .select({ masterId: bookings.masterId, comboName: bookings.comboNameSnapshot })
+    .from(bookings)
+    .where(eq(bookings.id, bookingId))
+    .limit(1);
+  if (!parent) return;
+
+  const assigned = await db
+    .select({ step: comboBookingSteps, userId: users.id })
+    .from(comboBookingSteps)
+    .innerJoin(masters, eq(comboBookingSteps.performerMasterId, masters.id))
+    .innerJoin(users, eq(masters.userId, users.id))
+    .where(and(
+      eq(comboBookingSteps.bookingId, bookingId),
+      ne(comboBookingSteps.performerMasterId, parent.masterId),
+    ));
+  if (assigned.length === 0) return;
+  const workspaces = await workspacesByIds(assigned.map(({ step }) => step.workspaceId));
+  await db.insert(notifications).values(assigned.map(({ step, userId }) => {
+    const timezone = workspaces.get(step.workspaceId)?.timezone ?? env.platformTimezone;
+    const day = toISODate(step.startAt, timezone);
+    const minute = minutesOfDay(step.startAt, timezone);
+    const time = `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+    return {
+      audience: "master" as const,
+      userId,
+      type,
+      title,
+      body: `«${parent.comboName ?? "Комбо"}»: ${step.stepName} · ${day} ${time}.`,
+    };
+  }));
 }
 
 export const rescheduleSchema = z.object({
@@ -366,12 +565,19 @@ export async function rescheduleBooking(
 
   const [master] = await db.select().from(masters).where(eq(masters.id, booking.masterId)).limit(1);
   if (!master) throw new DomainError(404, "master_not_found", "Мастер не найден");
+  const [service] = await db.select().from(services).where(eq(services.id, booking.serviceId)).limit(1);
+  if (!service) throw new DomainError(404, "service_not_found", "Услуга записи не найдена");
+
   const workspace = await resolveMasterWorkspace(
     master.id,
     input.workspaceId ?? booking.workspaceId,
     { preferredSalonId: master.salonId },
   );
   if (!workspace) throw new DomainError(404, "workspace_not_found", "Рабочее место не найдено у этого мастера");
+  const isCombo = service.kind === "combo";
+  if (isCombo && (!service.comboSalonId || workspace.salonId !== service.comboSalonId)) {
+    throw new DomainError(409, "combo_branch_required", "Комбо можно перенести только в исходный филиал");
+  }
   const oldWorkspace = await resolveMasterWorkspace(master.id, booking.workspaceId, {
     preferredSalonId: master.salonId,
     requireActive: false,
@@ -390,23 +596,103 @@ export async function rescheduleBooking(
     }
   }
 
-  const durationMinutes = Math.round((booking.endAt.getTime() - booking.startAt.getTime()) / 60_000);
-  const { startAt, endAt } = await assertSlotFree({
-    masterId: booking.masterId,
-    workspaceId: workspace.id,
-    primarySalonId: master.salonId,
-    timezone: workspace.timezone,
-    dateISO: input.dateISO,
-    startMinutes: input.startMinutes,
-    durationMinutes,
-    excludeBookingId: booking.id,
-  });
+  const originalParticipants = isCombo && service.comboSalonId
+    ? await comboBookingParticipants(booking.id, service.comboSalonId)
+    : null;
+  if (isCombo && !originalParticipants) {
+    throw new DomainError(409, "combo_unavailable", "Не все исполнители комбо доступны для переноса в исходный филиал");
+  }
 
-  const [updated] = await db
-    .update(bookings)
-    .set({ workspaceId: workspace.id, startAt, endAt, updatedAt: new Date() })
-    .where(eq(bookings.id, booking.id))
-    .returning();
+  if (originalParticipants && service.comboSalonId) {
+    await assertComboParticipantsFree(
+      originalParticipants,
+      service.comboSalonId,
+      input.dateISO,
+      input.startMinutes,
+      { excludeBookingId: booking.id },
+    );
+  } else {
+    const durationMinutes = Math.round((booking.endAt.getTime() - booking.startAt.getTime()) / 60_000);
+    await assertSlotFree({
+      masterId: booking.masterId,
+      workspaceId: workspace.id,
+      primarySalonId: master.salonId,
+      timezone: workspace.timezone,
+      dateISO: input.dateISO,
+      startMinutes: input.startMinutes,
+      durationMinutes,
+      excludeBookingId: booking.id,
+    });
+  }
+
+  const updated = await withLocalTransactionLock(() => db.transaction(async (tx) => {
+    const [current] = await tx.select().from(bookings).where(eq(bookings.id, booking.id)).for("update").limit(1);
+    if (!current || current.status === "cancelled" || current.status === "completed" || current.status === "no_show") {
+      throw new DomainError(409, "booking_changed", "Запись уже изменилась и больше не может быть перенесена");
+    }
+
+    const participantRows = originalParticipants
+      ? await comboBookingParticipants(booking.id, service.comboSalonId!, tx)
+      : null;
+    if (originalParticipants && !participantRows) {
+      throw new DomainError(409, "combo_unavailable", "Не все исполнители комбо доступны для переноса в исходный филиал");
+    }
+    const masterIds = [...new Set(
+      participantRows?.map((participant) => participant.performer.id) ?? [master.id],
+    )].sort();
+    await tx.select({ id: masters.id })
+      .from(masters)
+      .where(inArray(masters.id, masterIds))
+      .orderBy(asc(masters.id))
+      .for("update");
+
+    let startAt: Date;
+    let endAt: Date;
+    if (participantRows && service.comboSalonId) {
+      await assertComboParticipantsFree(
+        participantRows,
+        service.comboSalonId,
+        input.dateISO,
+        input.startMinutes,
+        { excludeBookingId: booking.id, queryer: tx },
+      );
+      const timeline = comboTimeline(participantRows.map((participant) => participant.step));
+      const durationMinutes = timeline.reduce((sum, item) => sum + item.reservedMinutes, 0);
+      startAt = atMinutes(input.dateISO, input.startMinutes, workspace.timezone);
+      endAt = atMinutes(input.dateISO, input.startMinutes + durationMinutes, workspace.timezone);
+      for (const { step, offsetMinutes } of timeline) {
+        const participant = participantRows.find((row) => row.step.stepOrder === step.stepOrder)!;
+        const stepStart = input.startMinutes + offsetMinutes;
+        const stepEnd = stepStart + step.durationMinutes;
+        await tx.update(comboBookingSteps)
+          .set({
+            startAt: atMinutes(input.dateISO, stepStart, workspace.timezone),
+            endAt: atMinutes(input.dateISO, stepEnd, workspace.timezone),
+            reservedEndAt: atMinutes(input.dateISO, stepEnd + step.gapAfterMinutes, workspace.timezone),
+          })
+          .where(eq(comboBookingSteps.id, participant.step.id));
+      }
+    } else {
+      const checked = await assertSlotFree({
+        masterId: booking.masterId,
+        workspaceId: workspace.id,
+        primarySalonId: master.salonId,
+        timezone: workspace.timezone,
+        dateISO: input.dateISO,
+        startMinutes: input.startMinutes,
+        durationMinutes: Math.round((current.endAt.getTime() - current.startAt.getTime()) / 60_000),
+        excludeBookingId: booking.id,
+      }, tx);
+      startAt = checked.startAt;
+      endAt = checked.endAt;
+    }
+
+    const [row] = await tx.update(bookings)
+      .set({ workspaceId: workspace.id, startAt, endAt, updatedAt: new Date() })
+      .where(eq(bookings.id, booking.id))
+      .returning();
+    return row!;
+  }));
 
   await logBookingEvent({
     bookingId: booking.id,
@@ -417,12 +703,14 @@ export async function rescheduleBooking(
     reason: `новое время: ${input.dateISO} ${input.startMinutes}`,
   });
 
-  const [service] = await db.select().from(services).where(eq(services.id, booking.serviceId)).limit(1);
   await notifyBookingEvent(
-    updated!,
-    service ?? { name: "Услуга" },
+    updated,
+    { ...service, name: booking.comboNameSnapshot ?? service.name },
     by === "client" ? "rescheduled_by_client" : "rescheduled_by_master",
   );
+  if (isCombo) {
+    await notifyComboTeam(booking.id, "combo_step_rescheduled", "Время шага комбо изменено");
+  }
 
   // Старое время освободилось — у избранных клиентов появился шанс записаться.
   // Того, кто перенёс, не уведомляем: он про своё окно знает.
@@ -438,11 +726,11 @@ export async function rescheduleBooking(
     });
   }
 
-  return updated!;
+  return updated;
 }
 
 /** Запись со связями (мастер, услуга) — общий ответ ручек работы с записью. */
-export async function withRelations(bookingId: string) {
+export async function withRelations(bookingId: string, options: { includeComboPrices?: boolean } = {}) {
   const [row] = await db
     .select({ booking: bookings, master: masters, service: services })
     .from(bookings)
@@ -455,7 +743,11 @@ export async function withRelations(bookingId: string) {
     preferredSalonId: row.master.salonId,
     requireActive: false,
   });
-  return serializeBooking(row.booking, row.master, row.service, workspace);
+  const snapshots = (await comboBookingStepsByBookingIds([bookingId])).get(bookingId) ?? [];
+  return {
+    ...serializeBooking(row.booking, row.master, row.service, workspace),
+    comboSteps: serializeComboBookingSteps(snapshots, options.includeComboPrices ?? false),
+  };
 }
 
 export async function bookingRoutes(app: FastifyInstance) {
@@ -508,6 +800,7 @@ export async function bookingRoutes(app: FastifyInstance) {
     // К каждой записи прикладываем её отзыв: интерфейс по этому полю решает,
     // показывать «Оставить отзыв» или уже оставленный отзыв и его статус.
     const ids = rows.map((row) => row.booking.id);
+    const comboSnapshots = await comboBookingStepsByBookingIds(ids);
     const reviewRows = ids.length
       ? await db
           .select()
@@ -522,6 +815,7 @@ export async function bookingRoutes(app: FastifyInstance) {
         const review = reviewByBooking.get(row.booking.id);
         return {
           ...serializeBooking(row.booking, row.master, row.service, workspaceById.get(row.booking.workspaceId)),
+          comboSteps: serializeComboBookingSteps(comboSnapshots.get(row.booking.id) ?? []),
           review: review
             ? {
                 id: review.id,
@@ -607,6 +901,9 @@ export async function bookingRoutes(app: FastifyInstance) {
     const [service] = await db.select().from(services).where(eq(services.id, booking.serviceId)).limit(1);
     if (change.changed) {
       await notifyBookingEvent(booking, service ?? { name: "Услуга" }, "cancelled_by_client");
+      if (booking.comboNameSnapshot) {
+        await notifyComboTeam(booking.id, "combo_step_cancelled", "Комбо-запись отменена");
+      }
 
       // Внесённая предоплата не остаётся у мастера: отмена возвращает деньги.
       if (booking.paymentStatus === "paid") await refundBookingPayment(booking);

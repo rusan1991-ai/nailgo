@@ -19,16 +19,17 @@ export async function scheduleForDay(
   masterId: string,
   dateISO: string,
   requestedWorkspaceId?: string,
+  queryer: Pick<typeof db, "select"> = db,
 ): Promise<DaySchedule> {
   let preferredSalonId: string | null = null;
   if (!requestedWorkspaceId) {
-    const [master] = await db.select({ salonId: masters.salonId }).from(masters).where(eq(masters.id, masterId)).limit(1);
+    const [master] = await queryer.select({ salonId: masters.salonId }).from(masters).where(eq(masters.id, masterId)).limit(1);
     preferredSalonId = master?.salonId ?? null;
   }
-  const workspace = await resolveMasterWorkspace(masterId, requestedWorkspaceId, { preferredSalonId });
+  const workspace = await resolveMasterWorkspace(masterId, requestedWorkspaceId, { preferredSalonId }, queryer);
   if (!workspace) return { working: false, start: 0, end: 0 };
 
-  const rows = await db
+  const rows = await queryer
     .select()
     .from(workingHours)
     .where(and(

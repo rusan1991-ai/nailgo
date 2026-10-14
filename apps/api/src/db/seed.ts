@@ -21,6 +21,8 @@ import {
   authFlows,
   bookingEvents,
   bookings,
+  comboBookingSteps,
+  comboServiceSteps,
   conversations,
   deliveries,
   clientFavoriteMasters,
@@ -310,8 +312,13 @@ export async function seed() {
   // предсказуемый старт (иначе антиспам «не чаще раза в 6 часов» находил бы
   // уведомления прошлых прогонов).
   await db.delete(notifications);
-  // Booking.workspace_id is RESTRICT so reset records before their workspaces.
+  // Snapshot-шаги и записи нужно убрать до филиалов/рабочих мест:
+  // booking.workspace_id и combo_booking_steps.workspace_id имеют RESTRICT.
+  await db.delete(comboBookingSteps);
   await db.delete(bookings);
+  await db.delete(timeBlocks);
+  await db.delete(workingHours);
+  await db.delete(masterClients);
   await db.delete(salonWorkspaces);
   await db.delete(salonMemberships);
   await db.delete(salonNetworkMemberships);
@@ -323,7 +330,7 @@ export async function seed() {
   // а настройки провайдера (таблица settings) остаются.
   await db.delete(deliveries);
   await db.delete(reviews);
-  await db.delete(workingHours);
+  await db.delete(comboServiceSteps);
   await db.delete(services);
   await db.delete(masters);
   await db.delete(otpCodes);

@@ -90,6 +90,16 @@ export function BookingPage() {
     () => masterServices.find((item) => item.id === serviceId) ?? masterServices[0],
     [masterServices, serviceId],
   );
+  const comboWorkspace = service?.kind === "combo" && service.comboSalonId
+    ? workspaces.find((workspace) => workspace.salonId === service.comboSalonId)
+    : undefined;
+
+  useEffect(() => {
+    if (service?.kind !== "combo" || !service.comboSalonId || !comboWorkspace || comboWorkspace.id === workspaceId) return;
+    setWorkspaceId(comboWorkspace.id);
+    setSlots([]);
+    setSelectedSlot("");
+  }, [comboWorkspace, service, workspaceId]);
 
   /** Свободные окна считает сервер для пары «мастер + выбранное рабочее место». */
   useEffect(() => {
@@ -130,6 +140,10 @@ export function BookingPage() {
     event.preventDefault();
     if (!workspaceId) {
       setError("Выберите активный филиал мастера.");
+      return;
+    }
+    if (service.kind === "combo" && (!comboWorkspace || comboWorkspace.id !== workspaceId)) {
+      setError("Для этого комбо у владельца нет активного рабочего места в выбранном филиале.");
       return;
     }
     if (!clientName.trim() || !clientPhone.trim()) {
@@ -188,7 +202,7 @@ export function BookingPage() {
                     >
                       {masterServices.map((item) => (
                         <option key={item.id} value={item.id}>
-                          {item.name} · {formatRub(item.price)}
+                          {item.name}{item.kind === "combo" ? ` · комбо, ${item.comboSteps?.length ?? 0} шага` : ""} · {formatRub(item.price)}
                         </option>
                       ))}
                     </select>
@@ -198,6 +212,19 @@ export function BookingPage() {
                   <p className="mt-1 text-sm text-slate-500">
                     {formatRub(service.price)} · {durationLabel(service.durationMinutes)}
                   </p>
+                  {service.kind === "combo" && service.comboSteps && (
+                    <div className="mt-3 rounded-lg bg-[#fff8fb] p-3" data-booking-combo={service.id}>
+                      <p className="text-xs font-semibold text-slate-700">Шаги комбо · занятость всех исполнителей проверяется по расписанию филиала</p>
+                      <ol className="mt-2 space-y-1 text-xs text-slate-600">
+                        {service.comboSteps.map((step) => (
+                          <li key={step.order}>
+                            {step.order + 1}. {step.name} — {step.performerName} · {durationLabel(step.durationMinutes)}
+                            {step.gapAfterMinutes > 0 ? ` · пауза ${step.gapAfterMinutes} мин (время исполнителя зарезервировано)` : ""}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
                 </>
               ) : (
                 <p className="text-sm text-slate-400" data-state="empty-master-services">
@@ -218,8 +245,18 @@ export function BookingPage() {
 
             <div className="mt-3 rounded-xl border border-[#f2dfe7] p-3" data-field="booking-workspace">
               <label className="block">
-                <span className="text-xs text-slate-500">Филиал мастера</span>
-                {workspaces.length > 0 ? (
+                <span className="text-xs text-slate-500">{service?.kind === "combo" ? "Филиал комбо" : "Филиал мастера"}</span>
+                {service?.kind === "combo" ? (
+                  comboWorkspace ? (
+                    <p className="mt-1 rounded-lg border border-[#f1dde6] px-3 py-2 font-medium text-slate-700" data-field="workspace">
+                      {comboWorkspace.salonName} · фиксированный филиал
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-sm text-rose-500" data-field="workspace">
+                      У владельца нет активного рабочего места в филиале комбо.
+                    </p>
+                  )
+                ) : workspaces.length > 0 ? (
                   <select
                     value={workspaceId}
                     onChange={(event) => {
@@ -249,7 +286,11 @@ export function BookingPage() {
               {selectedWorkspace && (
                 <div className="mt-2 space-y-1 text-sm text-slate-600">
                   {selectedWorkspace.locationName && <p>Место: {selectedWorkspace.locationName}{selectedWorkspace.locationRegion ? ` · ${selectedWorkspace.locationRegion}` : ""}</p>}
-                  <p data-field="workspace-hours">График: {hoursLabel(selectedWorkspace)}</p>
+                  <p data-field="workspace-hours">
+                    {service?.kind === "combo"
+                      ? "Расписание проверяется отдельно для каждого исполнителя и шага."
+                      : `График: ${hoursLabel(selectedWorkspace)}`}
+                  </p>
                 </div>
               )}
             </div>

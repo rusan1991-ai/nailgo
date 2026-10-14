@@ -1,0 +1,1 @@
+ALTER TABLE "bookings" ADD COLUMN "combo_name_snapshot" text;

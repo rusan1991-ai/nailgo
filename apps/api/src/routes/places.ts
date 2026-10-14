@@ -51,7 +51,7 @@ const active = "active";
 const invitationLifetimeMs = 7 * 24 * 60 * 60 * 1000;
 
 /** Owners are established only by an active direct or network membership. */
-async function salonManagedByOwner(salonId: string, userId: string) {
+export async function salonManagedByOwner(salonId: string, userId: string) {
   const [salon] = await db.select().from(salons).where(eq(salons.id, salonId)).limit(1);
   if (!salon) return null;
 

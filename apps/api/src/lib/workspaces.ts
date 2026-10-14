@@ -27,8 +27,9 @@ export type MasterWorkspace = {
 export async function listMasterWorkspaces(
   masterId: string,
   options: { includeInactive?: boolean } = {},
+  queryer: Pick<typeof db, "select"> = db,
 ): Promise<MasterWorkspace[]> {
-  const rows = await db
+  const rows = await queryer
     .select({
       id: salonWorkspaces.id,
       masterId: salonWorkspaces.masterId,
@@ -66,10 +67,11 @@ export async function resolveMasterWorkspace(
   masterId: string,
   workspaceId?: string | null,
   options: { preferredSalonId?: string | null; requireActive?: boolean } = {},
+  queryer: Pick<typeof db, "select"> = db,
 ): Promise<MasterWorkspace | null> {
   const workspaces = await listMasterWorkspaces(masterId, {
     includeInactive: options.requireActive === false,
-  });
+  }, queryer);
   const workspace = workspaceId
     ? workspaces.find((item) => item.id === workspaceId)
     : workspaces.find((item) => item.salonId === options.preferredSalonId) ?? workspaces[0];

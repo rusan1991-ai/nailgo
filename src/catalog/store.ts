@@ -61,6 +61,16 @@ export type Service = {
   /** Услуга принадлежит мастеру: страница записи показывает прайс выбранного. */
   masterSlug?: string;
   masterName?: string;
+  kind?: "service" | "combo";
+  comboSalonId?: string | null;
+  comboSteps?: {
+    order: number;
+    name: string;
+    performerName: string;
+    durationMinutes: number;
+    gapAfterMinutes: number;
+    price?: number;
+  }[];
 };
 
 export type CatalogStatus = "idle" | "loading" | "ready" | "offline";

@@ -57,6 +57,20 @@ export type Booking = {
   address?: string;
   /** Отзыв по этой записи или null, если его ещё нет. */
   review?: BookingReview | null;
+  /** A read-only step assigned to this employee from a salon combo. */
+  readOnly?: boolean;
+  parentBookingId?: string;
+  comboSteps?: {
+    order: number;
+    name: string;
+    performerName: string;
+    durationMinutes: number;
+    price?: number;
+    gapAfterMinutes: number;
+    startAt: string;
+    endAt: string;
+    reservedEndAt: string;
+  }[];
 };
 
 type NewBookingFields = {
@@ -223,6 +237,9 @@ type ApiBooking = {
   createdAt: string;
   address: string;
   review: BookingReview | null;
+  readOnly?: boolean;
+  parentBookingId?: string;
+  comboSteps?: Booking["comboSteps"];
 };
 
 function mapBooking(item: ApiBooking): Booking {
@@ -256,6 +273,9 @@ function mapBooking(item: ApiBooking): Booking {
     createdAt: item.createdAt,
     address: item.address,
     review: item.review,
+    readOnly: item.readOnly,
+    parentBookingId: item.parentBookingId,
+    comboSteps: item.comboSteps,
   };
 }
 

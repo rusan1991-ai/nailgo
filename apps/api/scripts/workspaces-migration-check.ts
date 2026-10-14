@@ -53,13 +53,13 @@ try {
     priceFrom: 0,
     experience: "Не указано",
   }).returning();
-  const [service] = await db.insert(schema.services).values({
-    masterId: master!.id,
-    name: "Тестовая услуга",
-    category: "Маникюр",
-    durationMinutes: 60,
-    price: 1000,
-  }).returning();
+  const serviceId = randomUUID();
+  // 0028 adds combo-only columns after this upgrade fixture's starting point,
+  // so preserve the historical service row shape instead of using today's schema.
+  await client.query(
+    'INSERT INTO "services" ("id", "master_id", "name", "category", "duration_minutes", "price") VALUES ($1, $2, $3, $4, 60, 1000)',
+    [serviceId, master!.id, "Тестовая услуга", "Маникюр"],
+  );
 
   const startAt = new Date("2030-01-07T07:00:00.000Z");
   const endAt = new Date("2030-01-07T08:00:00.000Z");
@@ -74,7 +74,7 @@ try {
   );
   await client.query(
     'INSERT INTO "bookings" ("id", "master_id", "service_id", "client_name", "client_phone", "start_at", "end_at", "price", "status", "source") VALUES ($1, $2, $3, $4, $5, $6, $7, 1000, $8, $9)',
-    [randomUUID(), master!.id, service!.id, "Клиент миграции", "+79990009999", startAt, endAt, "confirmed", "client"],
+    [randomUUID(), master!.id, serviceId, "Клиент миграции", "+79990009999", startAt, endAt, "confirmed", "client"],
   );
 
   await migrate(db, { migrationsFolder: sourceFolder });

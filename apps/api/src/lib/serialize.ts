@@ -27,8 +27,10 @@ export function serializeBooking(booking: Booking, master: Master, service: Serv
     locationName: workspace?.locationName ?? null,
     locationRegion: workspace?.locationRegion ?? null,
     serviceId: service.id,
-    serviceName: service.name,
-    durationMinutes: service.durationMinutes,
+    serviceName: booking.comboNameSnapshot ?? service.name,
+    durationMinutes: booking.comboNameSnapshot
+      ? Math.round((booking.endAt.getTime() - booking.startAt.getTime()) / 60_000)
+      : service.durationMinutes,
     price: booking.price,
     prepaymentAmount: booking.prepaymentAmount,
     paymentStatus: booking.paymentStatus,

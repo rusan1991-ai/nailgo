@@ -62,6 +62,25 @@ const local = isPostgres ? null : await createLocalDb();
 
 export const db: Database = local ? local.db : createPostgresDb();
 
+/**
+ * PGlite exposes one embedded connection, so two simultaneous multi-statement
+ * transactions from HTTP requests must not interleave. PostgreSQL production
+ * uses row locks and needs no process-local queue.
+ */
+let localTransactionTail: Promise<void> = Promise.resolve();
+export async function withLocalTransactionLock<T>(operation: () => Promise<T>): Promise<T> {
+  if (isPostgres) return operation();
+  const previous = localTransactionTail;
+  let release!: () => void;
+  localTransactionTail = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
 export const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 export async function runMigrations(): Promise<void> {

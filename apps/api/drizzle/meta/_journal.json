@@ -197,6 +197,20 @@
       "when": 1791995573819,
       "tag": "0027_unregistered_salon_invites",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1791997967676,
+      "tag": "0028_combo_services",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791999810830,
+      "tag": "0029_long_bill_hollister",
+      "breakpoints": true
     }
   ]
 }

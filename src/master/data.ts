@@ -145,6 +145,7 @@ export type BookingRow = {
   /** Предоплата: у строк макета её нет, у живых записей — есть. */
   prepaymentAmount?: number;
   paymentStatus?: "none" | "pending" | "paid" | "refunded";
+  readOnly?: boolean;
 };
 
 export const bookingRows: BookingRow[] = [

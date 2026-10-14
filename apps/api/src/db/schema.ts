@@ -284,6 +284,9 @@ export const services = pgTable(
     categoryId: text("category_id").references(() => serviceCategories.id, { onDelete: "set null" }),
     durationMinutes: integer("duration_minutes").notNull(),
     price: integer("price").notNull(),
+    /** service — single service, combo — salon-owned multi-step offer. */
+    kind: text("kind").notNull().default("service"),
+    comboSalonId: text("combo_salon_id").references(() => salons.id, { onDelete: "set null" }),
     /**
      * Предоплата по услуге в процентах от цены: 0 — платить не нужно.
      * Мастер решает по каждой услуге отдельно: на дорогое наращивание просят
@@ -293,6 +296,31 @@ export const services = pgTable(
     active: boolean("active").notNull().default(true),
   },
   (table) => [index("services_master").on(table.masterId), index("services_category").on(table.categoryId)],
+);
+
+/** The creator's private combo definition; step prices/names are authored here, not read from coworkers' service catalogues. */
+export const comboServiceSteps = pgTable(
+  "combo_service_steps",
+  {
+    id: id(),
+    serviceId: text("service_id").notNull().references(() => services.id, { onDelete: "cascade" }),
+    stepOrder: integer("step_order").notNull(),
+    performerMasterId: text("performer_master_id").notNull().references(() => masters.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    durationMinutes: integer("duration_minutes").notNull(),
+    price: integer("price").notNull(),
+    /** The break is reserved for this step's performer and moves the next step forward. */
+    gapAfterMinutes: integer("gap_after_minutes").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("combo_service_steps_service_order").on(table.serviceId, table.stepOrder),
+    index("combo_service_steps_performer").on(table.performerMasterId),
+    check("combo_service_steps_order_nonnegative", sql`${table.stepOrder} >= 0`),
+    check("combo_service_steps_duration_positive", sql`${table.durationMinutes} > 0`),
+    check("combo_service_steps_price_nonnegative", sql`${table.price} >= 0`),
+    check("combo_service_steps_gap_nonnegative", sql`${table.gapAfterMinutes} >= 0`),
+  ],
 );
 
 export const workingHours = pgTable(
@@ -335,6 +363,8 @@ export const bookings = pgTable(
     serviceId: text("service_id")
       .notNull()
       .references(() => services.id),
+    /** Combo title as agreed at booking time; later edits do not rewrite history. */
+    comboNameSnapshot: text("combo_name_snapshot"),
     clientName: text("client_name").notNull(),
     clientPhone: text("client_phone").notNull(),
     comment: text("comment"),
@@ -366,6 +396,37 @@ export const bookings = pgTable(
     index("bookings_workspace_start").on(table.workspaceId, table.startAt),
     index("bookings_phone").on(table.clientPhone),
     index("bookings_status").on(table.status),
+  ],
+);
+
+/** Immutable, per-performer reservations and price/name snapshot for each booked combo step. */
+export const comboBookingSteps = pgTable(
+  "combo_booking_steps",
+  {
+    id: id(),
+    bookingId: text("booking_id").notNull().references(() => bookings.id, { onDelete: "cascade" }),
+    stepOrder: integer("step_order").notNull(),
+    performerMasterId: text("performer_master_id").notNull().references(() => masters.id, { onDelete: "restrict" }),
+    workspaceId: text("workspace_id").notNull().references(() => salonWorkspaces.id, { onDelete: "restrict" }),
+    stepName: text("step_name").notNull(),
+    performerName: text("performer_name").notNull(),
+    durationMinutes: integer("duration_minutes").notNull(),
+    price: integer("price").notNull(),
+    gapAfterMinutes: integer("gap_after_minutes").notNull().default(0),
+    startAt: timestamp("start_at", { withTimezone: true }).notNull(),
+    endAt: timestamp("end_at", { withTimezone: true }).notNull(),
+    /** End of the reserved buffer; next step starts after this instant. */
+    reservedEndAt: timestamp("reserved_end_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("combo_booking_steps_booking_order").on(table.bookingId, table.stepOrder),
+    index("combo_booking_steps_performer_start").on(table.performerMasterId, table.startAt),
+    index("combo_booking_steps_workspace_start").on(table.workspaceId, table.startAt),
+    check("combo_booking_steps_order_nonnegative", sql`${table.stepOrder} >= 0`),
+    check("combo_booking_steps_duration_positive", sql`${table.durationMinutes} > 0`),
+    check("combo_booking_steps_price_nonnegative", sql`${table.price} >= 0`),
+    check("combo_booking_steps_reserved_interval", sql`${table.endAt} > ${table.startAt} AND ${table.reservedEndAt} >= ${table.endAt}`),
   ],
 );
 

@@ -5,9 +5,9 @@
 продвижения и отдельная аналитическая страница мастера. Ранее прошёл полный набор из 33 сценариев
 devcheck, TypeScript и production-сборки. Для журнала проверены API, редактор и публичные страницы;
 для продвижения прошли `promotion`, `data`, `routes`, TypeScript и сборки фронтенда/API. Проверка
-`deployment`/bootstrap также прошла с новой миграцией. Изолированный Docker Compose smoke-test ранее
-успешно прошёл на GitHub runner (`Deployment smoke`, run `38565233231`): сборка, миграции, health,
-update, backup и restore. В локальном sandbox Docker отсутствует.
+`deployment`/bootstrap также прошла с новой миграцией. Изолированный Docker Compose smoke-test
+после этапа 9 успешно прошёл на GitHub runner (`Deployment smoke`, run `38575577447`); ранее run
+`38565233231` проверил сборку, миграции, health, update, backup и restore. В локальном sandbox Docker отсутствует.
 Маршруты взяты из `src/App.tsx`, API — из `apps/api/src/routes/*.ts`.
 
 Легенда:

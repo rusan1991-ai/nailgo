@@ -21,7 +21,7 @@ export function AdminLayout() {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-dvh bg-[#f8f7fb] text-slate-900">
+    <div className="n2g-min-h-viewport bg-[#f8f7fb] text-slate-900">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-3">
           <div className="flex min-w-0 flex-wrap items-center gap-3">

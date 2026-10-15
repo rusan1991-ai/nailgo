@@ -22,7 +22,7 @@ export function ClientShell({ title, children }: { title: string; children: Reac
   const { user } = useAuth();
 
   return (
-    <main className="min-h-dvh w-full max-w-full overflow-x-hidden bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
+    <main className="n2g-min-h-viewport w-full max-w-full overflow-x-hidden bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
       <div className="mx-auto grid w-full min-w-0 max-w-[1450px] gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="rounded-3xl border border-[#f1dde6] bg-white p-5">
           <Link to="/" className="flex items-center gap-2 text-3xl font-semibold">

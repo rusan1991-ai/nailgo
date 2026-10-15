@@ -135,7 +135,7 @@ export function HomePage() {
   const serviceLink = (serviceId: string) => bookingLinkForShowcase({ serviceId });
 
   return (
-    <main className="min-h-dvh w-full max-w-full min-w-0 overflow-x-hidden bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
+    <main className="n2g-min-h-viewport w-full max-w-full min-w-0 overflow-x-hidden bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
       <div className="mx-auto max-w-[1380px] rounded-[26px] border border-[#ffe6ef] bg-white p-5 shadow-[0_20px_80px_-40px_rgba(236,72,153,0.45)] sm:p-8">
         <AppHeader />
 
@@ -358,7 +358,7 @@ export function HomePage() {
                     <span className="text-xs text-slate-400">из расписания мастера</span>
                   </div>
                   {showcaseWindows.length > 0 ? (
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {showcaseWindows.map((window, index) => (
                         <Link
                           key={`${window.dateISO}-${window.startMinutes}`}
@@ -370,7 +370,7 @@ export function HomePage() {
                             date: window.dateISO,
                             slot: window.label,
                           })}
-                          className={`rounded-xl border px-3 py-2 text-center text-sm ${
+                          className={`mr-2 mb-2 flex-[1_1_9rem] min-w-0 rounded-xl border px-3 py-2 text-center text-sm ${
                             index === 0 ? "border-pink-500 bg-pink-50 text-pink-600" : "border-[#f1dde6] hover:border-pink-300"
                           }`}
                         >

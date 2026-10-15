@@ -155,9 +155,9 @@ export function MasterLayout() {
   const profileName = layoutProfile?.profile.name ?? user?.name ?? "Мастер";
 
   return (
-    <div className="min-h-dvh w-full max-w-full overflow-x-hidden bg-[#f5f6f8] text-slate-800">
-      <div className="flex min-h-dvh min-w-0">
-        <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 bg-[#0d1b2e] lg:block">
+    <div className="n2g-min-h-viewport w-full max-w-full overflow-x-hidden bg-[#f5f6f8] text-slate-800">
+      <div className="flex n2g-min-h-viewport min-w-0">
+        <aside className="sticky top-0 hidden n2g-h-viewport w-60 shrink-0 bg-[#0d1b2e] lg:block">
           <SidebarContent />
         </aside>
 

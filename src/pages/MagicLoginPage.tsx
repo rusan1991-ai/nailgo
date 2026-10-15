@@ -71,7 +71,7 @@ export function MagicLoginPage({ magic }: { magic: string }) {
 
   return (
     <main
-      className="n2g-magic-root relative grid min-h-dvh overflow-hidden place-items-center bg-[#fff1f6] px-6 text-center"
+      className="n2g-magic-root relative grid n2g-min-h-viewport overflow-hidden place-items-center bg-[#fff1f6] px-6 text-center"
       data-page="magic-login"
       data-state={error ? "error" : leaving ? "redirecting" : "loading"}
     >

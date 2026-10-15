@@ -15,6 +15,21 @@ body {
   overflow-x: hidden;
 }
 
+/*
+ * iOS Safari 15.1 does not understand the dynamic viewport unit `dvh`.
+ * Keep 100vh as a parser-safe fallback, then use the JS-measured viewport
+ * height when the CSS custom property is available.
+ */
+.n2g-min-h-viewport {
+  min-height: 100vh;
+  min-height: calc(var(--vh, 1vh) * 100);
+}
+
+.n2g-h-viewport {
+  height: 100vh;
+  height: calc(var(--vh, 1vh) * 100);
+}
+
 @keyframes n2g-soft-pulse {
   0%, 100% { transform: scale(1); filter: drop-shadow(0 5px 14px rgba(191, 93, 132, 0.12)); }
   50% { transform: scale(1.07); filter: drop-shadow(0 10px 24px rgba(191, 93, 132, 0.28)); }

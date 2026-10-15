@@ -50,7 +50,7 @@ export function AuthCallbackPage() {
   }, [navigate]);
 
   return (
-    <main className="grid min-h-dvh place-items-center bg-[#fff7fa] px-6 text-center">
+    <main className="grid n2g-min-h-viewport place-items-center bg-[#fff7fa] px-6 text-center">
       <div className="max-w-md">
         <p className="text-sm uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
         {error ? (

@@ -22,7 +22,7 @@ export function ShortLinkPage() {
 
   if (loading) {
     return (
-      <main className="grid min-h-dvh place-items-center bg-[#fff7fa] p-6 text-center text-slate-500">
+      <main className="grid n2g-min-h-viewport place-items-center bg-[#fff7fa] p-6 text-center text-slate-500">
         <div>
           <p className="text-sm uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
           <h1 className="mt-3 text-2xl font-semibold text-slate-900">Открываем витрину мастера…</h1>
@@ -33,7 +33,7 @@ export function ShortLinkPage() {
 
   if (!data?.slug) {
     return (
-      <main className="min-h-dvh bg-[#fff7fa] p-4 sm:p-8">
+      <main className="n2g-min-h-viewport bg-[#fff7fa] p-4 sm:p-8">
         <div className="mx-auto max-w-[1280px] rounded-[26px] border border-[#ffe6ef] bg-white p-5 shadow-[0_20px_80px_-40px_rgba(236,72,153,0.45)] sm:p-8">
           <AppHeader />
           <div data-block="short-link-missing" className="mt-16 text-center">

@@ -11,6 +11,16 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
+const sourceFiles = [];
+function collectSourceFiles(directory) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) collectSourceFiles(fullPath);
+    else if (/\.(?:tsx?|css)$/.test(entry.name)) sourceFiles.push(fullPath);
+  }
+}
+collectSourceFiles(path.join(root, "src"));
+const allUiSource = sourceFiles.map((file) => fs.readFileSync(file, "utf8")).join("\n");
 let failures = 0;
 const check = (label, ok, detail = "") => {
   console.log(`${ok ? "OK  " : "FAIL"} ${label}${detail ? ` → ${detail}` : ""}`);
@@ -19,7 +29,10 @@ const check = (label, ok, detail = "") => {
 
 const app = read("src/App.tsx");
 const css = read("src/index.css");
+const indexHtml = read("index.html");
 const home = read("src/pages/HomePage.tsx");
+const booking = read("src/pages/BookingPage.tsx");
+const reschedule = read("src/components/ReschedulePanel.tsx");
 const cityMap = read("src/components/CityMap.tsx");
 const authShared = read("src/pages/auth-shared.tsx");
 const masterLayout = read("src/master/MasterLayout.tsx");
@@ -53,9 +66,33 @@ check(
     !/(?<!max-)w-screen|(?<!max-)w-\[100vw\]|width:\s*100vw|(?<!max-)w-\[\d+px\]/.test(home + cityMap),
 );
 check(
-  "оболочки кабинетов используют динамическую высоту и min-width: 0",
-  masterLayout.includes("min-h-dvh") && masterLayout.includes("h-dvh") && !/h-screen|min-h-screen/.test(masterLayout) &&
-    clientShell.includes("min-h-dvh") && clientShell.includes("min-w-0") && clientShell.includes("overflow-x-hidden"),
+  "витрина и личные кабинеты используют fallback viewport height для старого WebKit",
+  masterLayout.includes("n2g-min-h-viewport") && masterLayout.includes("n2g-h-viewport") &&
+    clientShell.includes("n2g-min-h-viewport") && clientShell.includes("min-w-0") &&
+    clientShell.includes("overflow-x-hidden") && home.includes("n2g-min-h-viewport") &&
+    css.includes("min-height: 100vh;") && css.includes("min-height: calc(var(--vh, 1vh) * 100);") &&
+    css.includes("height: 100vh;") && css.includes("height: calc(var(--vh, 1vh) * 100);"),
+);
+check(
+  "--vh вычисляется из innerHeight и обновляется при изменении размера окна",
+  /window\.innerHeight\s*\*\s*0\.01/.test(indexHtml) &&
+    /style\.setProperty\([\"']--vh[\"']/.test(indexHtml) &&
+    /addEventListener\([\"']resize[\"']/.test(indexHtml) &&
+    /addEventListener\([\"']orientationchange[\"']/.test(indexHtml),
+);
+check(
+  "исходники не используют dvh/svh, фиксированный h-screen или content-visibility оптимизации",
+  !/\b(?:min|max)-h-(?:dvh|svh|lvh)\b|\bh-(?:dvh|svh|lvh|screen)\b|\bmin-h-screen\b/.test(allUiSource) &&
+    !/content-visibility|contain-intrinsic-size/i.test(allUiSource),
+);
+check(
+  "временные слоты на витрине, записи и переносе переносятся с запасными margin",
+  home.includes('className="flex flex-wrap gap-2"') &&
+    home.includes("mr-2 mb-2 flex-[1_1_9rem]") &&
+    booking.includes('className="mt-2 flex flex-wrap gap-2"') &&
+    booking.includes("mr-2 mb-2 rounded-lg border") &&
+    reschedule.includes('className="mt-2 flex flex-wrap gap-2"') &&
+    reschedule.includes("mr-2 mb-2 rounded-lg border"),
 );
 check(
   "календарь на экранах уже 768 px принудительно переключается на День",

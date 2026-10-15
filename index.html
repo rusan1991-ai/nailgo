@@ -9,6 +9,19 @@
     />
     <title>Nail 2 Go — мастера маникюра рядом</title>
     <script>
+      // iOS Safari 15.1 does not implement `dvh`; maintain the visible viewport
+      // height as a CSS variable and refresh it after browser chrome/orientation changes.
+      (function updateViewportHeight() {
+        function setViewportHeight() {
+          var vh = window.innerHeight * 0.01;
+          document.documentElement.style.setProperty("--vh", vh + "px");
+        }
+        setViewportHeight();
+        window.addEventListener("resize", setViewportHeight, { passive: true });
+        window.addEventListener("orientationchange", setViewportHeight);
+      })();
+    </script>
+    <script>
       // Диагностика запуска: если приложение не смонтировалось, показываем
       // причину текстом вместо пустого белого экрана.
       window.__nailgoBootErrors = [];

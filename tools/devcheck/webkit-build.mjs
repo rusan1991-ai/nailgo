@@ -40,6 +40,11 @@ assert.ok(
   inlineStyles.every((css) => !/@layer\b/i.test(css)),
   "Safari 14 / iOS 14-15.3 must not receive unsupported @layer rules in inline styles",
 );
+const inlineCss = inlineStyles.join("\n");
+assert.ok(inlineCss.includes(".n2g-min-h-viewport") && inlineCss.includes(".n2g-h-viewport"), "viewport fallbacks must survive CSS processing");
+assert.ok(inlineCss.includes("min-height:100vh") && inlineCss.includes("height:100vh"), "legacy WebKit must retain 100vh fallbacks");
+assert.ok(inlineCss.includes("calc(var(--vh,1vh)*100)"), "the JS-measured viewport height must be used when available");
+assert.ok(!/\b\d+(?:\.\d+)?(?:dvh|svh|lvh)\b/i.test(inlineCss), "inline CSS must not contain unsupported dynamic viewport units");
 
 console.log("OK  production build targets ES2020, Safari 14 and iOS 14");
-console.log("OK  inlined production CSS contains no unsupported @layer rules");
+console.log("OK  inlined CSS retains 100vh/--vh fallbacks and contains no @layer or dynamic viewport units");

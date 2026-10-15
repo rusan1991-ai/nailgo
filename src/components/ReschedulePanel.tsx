@@ -131,7 +131,7 @@ export function ReschedulePanel({ booking, as, onDone }: Props) {
               disabled={busy}
               onClick={() => setChosen(slot.startMinute)}
               data-slot={slot.startMinute}
-              className={`rounded-lg border px-3 py-1.5 text-sm transition ${
+              className={`mr-2 mb-2 rounded-lg border px-3 py-1.5 text-sm transition ${
                 chosen === slot.startMinute
                   ? "border-pink-500 bg-pink-500 text-white"
                   : "border-[#f1dde6] text-slate-600 hover:border-pink-300"

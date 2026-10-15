@@ -181,7 +181,7 @@ export function BookingPage() {
   };
 
   return (
-    <main className="min-h-dvh bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
+    <main className="n2g-min-h-viewport bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
       <div className="mx-auto max-w-[1050px] rounded-[26px] border border-[#ffe6ef] bg-white p-5 shadow-[0_20px_80px_-40px_rgba(236,72,153,0.45)] sm:p-8">
         <AppHeader />
 
@@ -324,12 +324,12 @@ export function BookingPage() {
                 На эту дату свободных окон нет. Выберите другой день.
               </p>
             )}
-            <div className="mt-2 grid grid-cols-4 gap-2">
+            <div className="mt-2 flex flex-wrap gap-2">
               {slots.map((slot) => (
                 <button
                   key={slot.label}
                   onClick={() => setSelectedSlot(slot.label)}
-                  className={`rounded-lg border px-3 py-2 text-sm transition ${
+                  className={`mr-2 mb-2 rounded-lg border px-3 py-2 text-sm transition ${
                     selectedSlot === slot.label
                       ? "border-pink-500 bg-pink-500 text-white"
                       : "border-[#f1dde6] hover:border-pink-300"

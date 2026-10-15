@@ -24,7 +24,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!error) return this.props.children;
 
     return (
-      <main className="min-h-dvh bg-[#fff7fa] p-6 text-slate-800">
+      <main className="n2g-min-h-viewport bg-[#fff7fa] p-6 text-slate-800">
         <div className="mx-auto max-w-2xl rounded-3xl border border-[#f1dde6] bg-white p-6 shadow-sm">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-pink-500">Nail 2 Go</p>
           <h1 className="mt-3 text-2xl font-semibold">Что-то сломалось на этой странице</h1>

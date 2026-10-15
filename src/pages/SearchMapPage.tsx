@@ -62,13 +62,13 @@ export function SearchMapPage() {
     <ClientShell title="Карта мастеров">
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap">
             {place ? (
               <button
                 type="button"
                 onClick={() => setPlace(null)}
                 data-action="clear-place"
-                className="rounded-xl border border-pink-300 bg-pink-50 px-3 py-2 text-sm text-pink-600"
+                className="mr-2 mb-2 rounded-xl border border-[#fce7f3] bg-[#fdf2f8] px-3 py-2 text-sm text-[#db2777]"
               >
                 {place.kind === "metro" ? "м. " : "г. "}
                 {place.name} ✕
@@ -81,7 +81,7 @@ export function SearchMapPage() {
                     type="button"
                     onClick={() => setPlace({ kind: "metro", slug: item.slug, name: item.name })}
                     data-place={`metro:${item.slug}`}
-                    className="rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 hover:border-pink-300"
+                    className="mr-2 mb-2 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 hover:border-[#f9a8d4]"
                   >
                     м. {item.name}
                     <span className="ml-1 text-xs text-slate-400">{item.masters}</span>
@@ -93,7 +93,7 @@ export function SearchMapPage() {
                     type="button"
                     onClick={() => setPlace({ kind: "district", slug: item.slug, name: item.name })}
                     data-place={`district:${item.slug}`}
-                    className="rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 hover:border-pink-300"
+                    className="mr-2 mb-2 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 hover:border-[#f9a8d4]"
                   >
                     г. {item.name}
                     <span className="ml-1 text-xs text-slate-400">{item.masters}</span>
@@ -101,8 +101,8 @@ export function SearchMapPage() {
                 ))}
                 {!popular && (
                   <>
-                    <span className="rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-400">Рядом</span>
-                    <span className="rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-400">
+                    <span className="mr-2 mb-2 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-400">Рядом</span>
+                    <span className="mr-2 mb-2 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-400">
                       Маникюр + гель-лак
                     </span>
                   </>
@@ -138,8 +138,8 @@ export function SearchMapPage() {
                 transition={{ delay: idx * 0.05 }}
                 className="rounded-2xl border border-[#f1dde6] p-4"
               >
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-12 w-12" src={master.avatarUrl} name={master.name} />
+                <div className="flex items-center space-x-3">
+                  <Avatar size={48} src={master.avatarUrl} name={master.name} />
                   <div className="min-w-0 flex-1">
                     <Link
                       to={`/master/${master.slug}`}
@@ -153,21 +153,21 @@ export function SearchMapPage() {
                       {master.metro}, {master.distance}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center space-x-2">
                     <p className="text-sm font-semibold">
                       {master.priceFrom > 0 ? `от ${formatRub(master.priceFrom)}` : "цена по запросу"}
                     </p>
                     <FavoriteButton masterSlug={master.slug} masterName={master.name} />
                   </div>
                 </div>
-                <div className="mt-2 flex flex-wrap gap-1 text-xs" data-field="windows">
+                <div className="mt-2 flex flex-wrap text-xs" data-field="windows">
                   {(master.nextWindows ?? []).map((window) => (
                     <Link
                       key={`${window.dateISO}-${window.startMinutes}`}
                       to={`/booking?master=${master.slug}&workspace=${encodeURIComponent(window.workspaceId)}${window.serviceId ? `&service=${window.serviceId}` : ""}&date=${window.dateISO}&slot=${encodeURIComponent(window.label)}`}
                       onClick={() => recordPromotionEvent(master.slug, "booking_click", "search")}
                       data-window={`${master.slug}:${window.dateISO}:${window.label}`}
-                      className="rounded-lg border border-[#f1dde6] px-2 py-1 hover:border-pink-300"
+                      className="mr-1 mb-1 rounded-lg border border-[#f1dde6] px-2 py-1 hover:border-[#f9a8d4]"
                     >
                       {window.label} · {window.workspaceName}
                     </Link>

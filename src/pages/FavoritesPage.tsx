@@ -36,21 +36,21 @@ export function FavoritesPage() {
             data-favorite={master.slug}
             className="rounded-2xl border border-[#f1dde6] p-4"
           >
-            <div className="flex items-start gap-3">
-              <Avatar className="h-12 w-12" src={master.avatarUrl} name={master.name} />
+            <div className="flex items-start space-x-3">
+              <Avatar size={48} src={master.avatarUrl} name={master.name} />
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center">
                   <Link
                     to={`/master/${master.slug}`}
                     onClick={() => recordPromotionEvent(master.slug, "profile_click", "favorites")}
-                    className="truncate font-semibold hover:text-pink-600"
+                    className="mr-2 mb-2 truncate font-semibold hover:text-pink-600"
                   >
                     {master.name}
                   </Link>
-                  <span className="inline-flex items-center gap-1 text-sm text-slate-500">
-                    <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                  <span className="mr-2 mb-2 inline-flex items-center text-sm text-slate-500">
+                    <Star className="mr-1 h-3.5 w-3.5 fill-amber-400 text-amber-400" />
                     {master.rating}
-                    <span className="text-slate-400">· {master.reviewsCount} отзывов</span>
+                    <span className="ml-1 text-slate-400">· {master.reviewsCount} отзывов</span>
                   </span>
                 </div>
                 <p className="truncate text-sm text-slate-500">{master.tags}</p>
@@ -68,20 +68,20 @@ export function FavoritesPage() {
               <FavoriteButton masterSlug={master.slug} masterName={master.name} />
             </div>
 
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#f7e9ef] pt-3">
+            <div className="mt-3 flex flex-wrap items-center justify-between border-t border-[#f7e9ef] pt-3">
               {master.nextWindow ? (
-                <p className="inline-flex items-center gap-2 text-sm text-slate-600" data-field="next-window">
+                <p className="mr-2 mb-2 inline-flex items-center gap-2 text-sm text-slate-600" data-field="next-window">
                   <CalendarClock className="h-4 w-4 text-[#e11d48]" />
                   Ближайшее окно: <span className="font-medium">{windowWhen(master.nextWindow)}</span>
                   <span className="text-slate-400">· {master.nextWindow.durationMinutes} мин</span>
                   <span className="text-slate-500" data-field="window-workspace">· {master.nextWindow.workspaceName}</span>
                 </p>
               ) : (
-                <p className="text-sm text-slate-400" data-field="next-window">
+                <p className="mr-2 mb-2 text-sm text-slate-400" data-field="next-window">
                   Свободных окон в ближайшие две недели нет
                 </p>
               )}
-              <div className="flex gap-2">
+              <div className="flex space-x-2">
                 {master.nextWindow && (
                   <Link
                     to={`/booking?master=${master.slug}&workspace=${encodeURIComponent(master.nextWindow.workspaceId)}&service=${master.nextWindow.serviceId}&date=${master.nextWindow.dateISO}&slot=${encodeURIComponent(master.nextWindow.label)}`}

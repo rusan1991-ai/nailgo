@@ -54,11 +54,11 @@ export function CityPicker({ variant = "compact", className }: Props) {
   if (variant === "wide") {
     return (
       <div className={cn("rounded-2xl border border-[#f1dde6] p-4", className)} data-city-picker>
-        <p className="flex items-center gap-2 text-sm font-medium text-slate-700">
-          <MapPin className="h-4 w-4 text-pink-500" />
+        <p className="flex items-center text-sm font-medium text-slate-700">
+          <MapPin className="mr-2 h-4 w-4 text-pink-500" />
           Ваш город
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap">
           {regions.map((item) => (
             <button
               key={item.region}
@@ -67,7 +67,7 @@ export function CityPicker({ variant = "compact", className }: Props) {
               data-region={item.region}
               aria-pressed={region === item.region}
               className={cn(
-                "rounded-xl border px-4 py-2 text-left text-sm transition",
+                "mr-2 mb-2 rounded-xl border px-4 py-2 text-left text-sm transition",
                 region === item.region
                   ? "border-pink-400 bg-[#fff4f8] text-slate-900"
                   : "border-[#f1dde6] text-slate-600 hover:border-pink-200",
@@ -94,9 +94,9 @@ export function CityPicker({ variant = "compact", className }: Props) {
         type="button"
         onClick={() => setOpen((value) => !value)}
         data-action="city-open"
-        className="flex items-center gap-2 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 transition hover:border-pink-200"
+        className="flex items-center rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 transition hover:border-pink-200"
       >
-        <MapPin className="h-4 w-4 text-pink-500" />
+        <MapPin className="mr-2 h-4 w-4 text-pink-500" />
         {region}
       </button>
 

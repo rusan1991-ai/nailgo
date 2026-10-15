@@ -180,7 +180,7 @@ export function PersonAvatar({
         alt={`Фото мастера ${name}`}
         loading="lazy"
         className="inline-block shrink-0 rounded-full object-cover"
-        style={{ width: size, height: size }}
+        style={{ width: size, height: size, minWidth: size, minHeight: size, flexShrink: 0 }}
       />
     );
   }
@@ -199,7 +199,7 @@ export function PersonAvatar({
         "inline-grid shrink-0 place-items-center rounded-full bg-gradient-to-br text-xs font-semibold text-white/95",
         avatarPalette[index],
       )}
-      style={{ width: size, height: size }}
+      style={{ width: size, height: size, minWidth: size, minHeight: size, flexShrink: 0 }}
     >
       {initials || "?"}
     </span>

@@ -71,7 +71,7 @@ export function NotificationsPage() {
             key={item.id}
             className={cn(
               "rounded-2xl border p-4",
-              item.read ? "border-[#f1dde6] bg-white" : "border-pink-200 bg-pink-50/60",
+              item.read ? "border-[#f1dde6] bg-white" : "border-pink-200 bg-[#fff7fa]",
             )}
           >
             <div className="flex items-start justify-between gap-3">

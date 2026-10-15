@@ -21,6 +21,7 @@ function collectSourceFiles(directory) {
 }
 collectSourceFiles(path.join(root, "src"));
 const allUiSource = sourceFiles.map((file) => fs.readFileSync(file, "utf8")).join("\n");
+const squareAspectUtility = ["aspect", "square"].join("-");
 let failures = 0;
 const check = (label, ok, detail = "") => {
   console.log(`${ok ? "OK  " : "FAIL"} ${label}${detail ? ` → ${detail}` : ""}`);
@@ -33,6 +34,14 @@ const indexHtml = read("index.html");
 const home = read("src/pages/HomePage.tsx");
 const booking = read("src/pages/BookingPage.tsx");
 const reschedule = read("src/components/ReschedulePanel.tsx");
+const cityPicker = read("src/components/CityPicker.tsx");
+const locationPicker = read("src/components/LocationPicker.tsx");
+const searchMap = read("src/pages/SearchMapPage.tsx");
+const journalPage = read("src/pages/JournalPage.tsx");
+const avatarUi = read("src/components/NailUi.tsx");
+const masterUi = read("src/master/components/ui.tsx");
+const mediaPage = read("src/master/pages/MediaPage.tsx");
+const servicesPage = read("src/master/pages/ServicesPage.tsx");
 const cityMap = read("src/components/CityMap.tsx");
 const authShared = read("src/pages/auth-shared.tsx");
 const masterLayout = read("src/master/MasterLayout.tsx");
@@ -81,6 +90,32 @@ check(
     /addEventListener\([\"']orientationchange[\"']/.test(indexHtml),
 );
 check(
+  "Tailwind OKLCH tokens имеют HEX-палитру для старого WebKit, а розовые фоны не используют alpha-классы",
+  css.includes("@supports not (color: oklch(0% 0 0))") &&
+    css.includes("--color-pink-500: #ec4899 !important;") &&
+    css.includes("--color-pink-50: #fdf2f8 !important;") &&
+    css.includes("--color-rose-50: #fff1f2 !important;") &&
+    !/(?:bg|text|border)-(?:pink|rose)-[0-9]+\/[0-9]+/.test(allUiSource),
+);
+check(
+  "metro/chip, карточки мастеров и категории используют переносы с margin/space вместо flex gap",
+  locationPicker.includes('className="flex flex-wrap px-3 pb-3"') &&
+    locationPicker.includes("mr-1.5 mb-1.5") && cityPicker.includes('className="mt-3 flex flex-wrap"') &&
+    cityPicker.includes("mr-2 mb-2") && journalPage.includes('className="flex flex-wrap" aria-label="Категории журнала"') &&
+    journalPage.includes("mr-2 mb-2") && home.includes('className="space-y-3" data-block="home-masters"') &&
+    home.includes("flex items-center space-x-3") && searchMap.includes("flex items-center space-x-3") &&
+    searchMap.includes("mr-2 mb-2 rounded-xl"),
+);
+check(
+  "аватары и иконки имеют фиксированные размеры без зависимости от квадратной aspect-утилиты",
+  avatarUi.includes("minWidth: size") && avatarUi.includes("minHeight: size") &&
+    masterUi.includes("minWidth: size") && masterUi.includes("minHeight: size") &&
+    mediaPage.includes("min-h-[80px] min-w-[80px] shrink-0") &&
+    servicesPage.includes("min-h-[36px] min-w-[36px] shrink-0") &&
+    !/<Avatar className="h-/.test(allUiSource) && !allUiSource.includes(squareAspectUtility) &&
+    !/aspect-ratio\s*:/.test(allUiSource),
+);
+check(
   "исходники не используют dvh/svh, фиксированный h-screen или content-visibility оптимизации",
   !/\b(?:min|max)-h-(?:dvh|svh|lvh)\b|\bh-(?:dvh|svh|lvh|screen)\b|\bmin-h-screen\b/.test(allUiSource) &&
     !/content-visibility|contain-intrinsic-size/i.test(allUiSource),
@@ -120,7 +155,8 @@ check(
   "таблицы кабинетов не закрепляют минимальную ширину в пикселях",
   ["BookingsPage.tsx", "ClientsPage.tsx", "ServicesPage.tsx"].every((file) => {
     const source = read(`src/master/pages/${file}`);
-    return source.includes("w-full min-w-0 table-fixed") && !/min-w-\[\d+px\]|min-w-max/.test(source);
+    const tableClass = source.match(/<table className="([^"]+)"/)?.[1] ?? "";
+    return tableClass.includes("w-full min-w-0 table-fixed") && !/min-w-\[\d+px\]|min-w-max/.test(tableClass);
   }),
 );
 check(

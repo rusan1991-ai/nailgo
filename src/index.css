@@ -1,5 +1,85 @@
 @import "tailwindcss";
 
+/*
+ * Tailwind v4's palette is expressed in OKLCH. Safari/WebKit 15.1 does not
+ * parse that color space, so give every palette token used by this UI an sRGB
+ * HEX value on older engines. The !important values win over Tailwind's
+ * generated theme tokens; modern engines keep the original OKLCH palette.
+ */
+@supports not (color: oklch(0% 0 0)) {
+  :root {
+    --color-orange-300: #fdba74 !important;
+    --color-orange-400: #fb923c !important;
+    --color-amber-50: #fffbeb !important;
+    --color-amber-200: #fde68a !important;
+    --color-amber-300: #fcd34d !important;
+    --color-amber-400: #fbbf24 !important;
+    --color-amber-500: #f59e0b !important;
+    --color-amber-600: #d97706 !important;
+    --color-amber-700: #b45309 !important;
+    --color-amber-800: #92400e !important;
+    --color-amber-900: #78350f !important;
+    --color-yellow-500: #eab308 !important;
+    --color-emerald-50: #ecfdf5 !important;
+    --color-emerald-100: #d1fae5 !important;
+    --color-emerald-200: #a7f3d0 !important;
+    --color-emerald-300: #6ee7b7 !important;
+    --color-emerald-400: #34d399 !important;
+    --color-emerald-500: #10b981 !important;
+    --color-emerald-600: #059669 !important;
+    --color-emerald-700: #047857 !important;
+    --color-emerald-800: #065f46 !important;
+    --color-teal-50: #f0fdfa !important;
+    --color-teal-300: #5eead4 !important;
+    --color-teal-400: #2dd4bf !important;
+    --color-sky-50: #f0f9ff !important;
+    --color-sky-100: #e0f2fe !important;
+    --color-sky-200: #bae6fd !important;
+    --color-sky-300: #7dd3fc !important;
+    --color-sky-400: #38bdf8 !important;
+    --color-sky-600: #0284c7 !important;
+    --color-sky-700: #0369a1 !important;
+    --color-sky-800: #075985 !important;
+    --color-blue-50: #eff6ff !important;
+    --color-blue-300: #93c5fd !important;
+    --color-blue-600: #2563eb !important;
+    --color-indigo-300: #a5b4fc !important;
+    --color-indigo-400: #818cf8 !important;
+    --color-violet-50: #f5f3ff !important;
+    --color-violet-100: #ede9fe !important;
+    --color-violet-200: #ddd6fe !important;
+    --color-violet-600: #7c3aed !important;
+    --color-purple-400: #c084fc !important;
+    --color-fuchsia-200: #f5d0fe !important;
+    --color-pink-50: #fdf2f8 !important;
+    --color-pink-200: #fbcfe8 !important;
+    --color-pink-300: #f9a8d4 !important;
+    --color-pink-400: #f472b6 !important;
+    --color-pink-500: #ec4899 !important;
+    --color-pink-600: #db2777 !important;
+    --color-pink-700: #be185d !important;
+    --color-rose-50: #fff1f2 !important;
+    --color-rose-100: #ffe4e6 !important;
+    --color-rose-200: #fecdd3 !important;
+    --color-rose-300: #fda4af !important;
+    --color-rose-400: #fb7185 !important;
+    --color-rose-500: #f43f5e !important;
+    --color-rose-600: #e11d48 !important;
+    --color-rose-700: #be123c !important;
+    --color-slate-50: #f8fafc !important;
+    --color-slate-100: #f1f5f9 !important;
+    --color-slate-200: #e2e8f0 !important;
+    --color-slate-300: #cbd5e1 !important;
+    --color-slate-400: #94a3b8 !important;
+    --color-slate-500: #64748b !important;
+    --color-slate-600: #475569 !important;
+    --color-slate-700: #334155 !important;
+    --color-slate-800: #1e293b !important;
+    --color-slate-900: #0f172a !important;
+    --color-slate-950: #020617 !important;
+  }
+}
+
 html,
 body,
 #root {

@@ -44,7 +44,17 @@ const inlineCss = inlineStyles.join("\n");
 assert.ok(inlineCss.includes(".n2g-min-h-viewport") && inlineCss.includes(".n2g-h-viewport"), "viewport fallbacks must survive CSS processing");
 assert.ok(inlineCss.includes("min-height:100vh") && inlineCss.includes("height:100vh"), "legacy WebKit must retain 100vh fallbacks");
 assert.ok(inlineCss.includes("calc(var(--vh,1vh)*100)"), "the JS-measured viewport height must be used when available");
+assert.ok(inlineCss.includes("--color-pink-500:#ec4899!important"), "legacy WebKit must receive a HEX pink accent token");
+assert.ok(inlineCss.includes("--color-pink-50:#fdf2f8!important"), "legacy WebKit must receive a HEX pastel token");
+const oklchTokens = new Set([...inlineCss.matchAll(/--color-([a-z0-9-]+):oklch\(/gi)].map((match) => match[1]));
+const hexFallbackTokens = new Set([...inlineCss.matchAll(/--color-([a-z0-9-]+):#[a-f0-9]{6}!important/gi)].map((match) => match[1]));
+assert.deepEqual(
+  [...oklchTokens].filter((name) => !hexFallbackTokens.has(name)),
+  [],
+  "every Tailwind OKLCH palette token used by the app needs a legacy HEX fallback",
+);
 assert.ok(!/\b\d+(?:\.\d+)?(?:dvh|svh|lvh)\b/i.test(inlineCss), "inline CSS must not contain unsupported dynamic viewport units");
+assert.ok(!/aspect-ratio\s*:/i.test(inlineCss), "production CSS must not depend on aspect-ratio for fixed round assets");
 
 console.log("OK  production build targets ES2020, Safari 14 and iOS 14");
-console.log("OK  inlined CSS retains 100vh/--vh fallbacks and contains no @layer or dynamic viewport units");
+console.log("OK  inlined CSS retains viewport/HEX fallbacks and avoids @layer, dynamic viewport units and aspect-ratio");

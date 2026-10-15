@@ -48,7 +48,7 @@ export function ClientShell({ title, children }: { title: string; children: Reac
 
           <div className="mt-7 rounded-xl border border-[#f1dde6] p-3">
             <div className="flex items-center gap-3">
-              <Avatar className="h-10 w-10" />
+              <Avatar size={40} />
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{user?.name ?? "Гость"}</p>
                 <p className="truncate text-xs text-slate-500">{user?.phone ?? ""}</p>

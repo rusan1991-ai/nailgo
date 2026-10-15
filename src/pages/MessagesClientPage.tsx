@@ -88,10 +88,10 @@ export function MessagesClientPage() {
                     onClick={() => setActiveId(item.id)}
                     className={cn(
                       "flex w-full items-start gap-3 px-4 py-3 text-left transition",
-                      item.id === activeId ? "bg-pink-50/60" : "hover:bg-pink-50/40",
+                      item.id === activeId ? "bg-[#fff7fa]" : "hover:bg-[#fff9fc]",
                     )}
                   >
-                    <Avatar className="h-9 w-9" />
+                    <Avatar size={36} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
                         <p className="truncate text-sm font-medium text-slate-800">{item.masterName}</p>
@@ -119,7 +119,7 @@ export function MessagesClientPage() {
           <div className="flex min-h-[460px] flex-col rounded-2xl border border-[#f1dde6] bg-white">
             {summary && (
               <div className="flex items-center gap-3 border-b border-[#f6e7ed] px-5 py-3">
-                <Avatar className="h-9 w-9" />
+                <Avatar size={36} />
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-slate-800">{summary.masterName}</p>
                   <p className="text-xs text-slate-400">Мастер · отвечает в приложении</p>

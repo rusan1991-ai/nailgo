@@ -405,7 +405,7 @@ export function ClientsPage() {
             </div>
 
             {(activeClient.telegram || activeClient.max || activeClient.note) && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm">
+              <div className="rounded-xl border border-amber-200 bg-[#fffdf5] px-4 py-3 text-sm">
                 <p className="text-xs font-medium uppercase tracking-wide text-amber-600">Заметки мастера</p>
                 {activeClient.note && <p className="mt-1 text-slate-700">{activeClient.note}</p>}
                 <p className="mt-1 flex flex-wrap gap-x-4 text-xs text-slate-500">

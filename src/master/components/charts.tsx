@@ -325,7 +325,10 @@ export function DonutChart({
 
   return (
     <div className="flex min-w-0 flex-col items-center gap-4 sm:flex-row sm:items-center sm:gap-6">
-      <div className="relative aspect-square max-w-full shrink-0" style={{ width: size, maxWidth: "100%" }}>
+      <div
+        className="relative shrink-0"
+        style={{ width: size, height: size, minWidth: size, minHeight: size, flexShrink: 0 }}
+      >
         <svg viewBox="0 0 200 200" className="h-full w-full -rotate-90">
           <circle cx="100" cy="100" r={radius} fill="none" stroke="#f1f5f9" strokeWidth="26" />
           {data.map((segment, index) => {

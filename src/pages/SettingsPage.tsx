@@ -227,11 +227,11 @@ export function SettingsPage() {
           </p>
         </article>
 
-        <article className="rounded-2xl border border-rose-200 bg-rose-50/60 p-4" data-block="danger">
+        <article className="rounded-2xl border border-rose-200 bg-[#fff6f6] p-4" data-block="danger">
           <p className="inline-flex items-center gap-2 font-medium text-rose-700">
             <AlertTriangle className="h-4 w-4" /> Удаление аккаунта
           </p>
-          <p className="mt-1 text-sm text-rose-700/80">
+          <p className="mt-1 text-sm text-[#be123c]">
             Будущие записи отменятся, избранное и переписка удалятся, история визитов у мастеров останется
             обезличенной. Вернуть аккаунт нельзя — вход по этому номеру создаст новый.
           </p>

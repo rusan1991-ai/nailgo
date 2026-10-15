@@ -99,9 +99,9 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
 
         <section className="mt-7 grid gap-6 xl:grid-cols-[1fr_360px]">
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-            <div className="flex items-start gap-4">
+            <div className="flex items-start space-x-4">
               {/* Аватар из кабинета мастера: если фотографии нет — заливка с буквой. */}
-              <Avatar className="h-24 w-24" src={card?.gallery.avatar?.thumbUrl ?? master.avatarUrl} name={master.name} />
+              <Avatar size={96} src={card?.gallery.avatar?.thumbUrl ?? master.avatarUrl} name={master.name} />
               <div className="min-w-0 flex-1">
                 <h1 className="text-4xl font-semibold">{master.name}</h1>
                 <p className="mt-1 text-slate-500">{master.tags}</p>

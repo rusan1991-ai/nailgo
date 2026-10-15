@@ -133,7 +133,7 @@ export function PlacesPage() {
           <CardTitle>Приглашения в филиалы</CardTitle>
           <div className="space-y-3">
             {places.data!.invitations.map((invite) => (
-              <article key={invite.id} data-invitation={invite.id} className="flex flex-col gap-3 rounded-xl border border-violet-100 bg-violet-50/50 p-4 sm:flex-row sm:items-center">
+              <article key={invite.id} data-invitation={invite.id} className="flex flex-col gap-3 rounded-xl border border-violet-100 bg-[#faf9ff] p-4 sm:flex-row sm:items-center">
                 <div className="min-w-0 flex-1">
                   <h3 className="font-medium text-slate-800">{invite.salonName}</h3>
                   <p className="mt-1 text-sm text-slate-500">

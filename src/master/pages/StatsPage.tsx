@@ -215,7 +215,7 @@ export function StatsPage() {
           <p role="alert" className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">Не удалось загрузить аналитику: {analyticsError}</p>
         ) : (
           <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(220px,0.7fr)_minmax(0,1.3fr)]">
-            <div className="rounded-2xl bg-rose-50/70 p-4">
+            <div className="rounded-2xl bg-[#fff4f5] p-4">
               <p className="text-sm text-slate-500">Чистая выручка</p>
               <p data-field="net-revenue" className="mt-1 text-3xl font-semibold tracking-tight text-slate-900">{analytics ? formatRub(analytics.netRevenue) : "—"}</p>
               <p className="mt-2 text-xs text-slate-500">

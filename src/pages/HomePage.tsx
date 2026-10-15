@@ -227,9 +227,9 @@ export function HomePage() {
                     idx === 0 ? "border-pink-300 shadow-sm" : "border-[#f3e2e9]"
                   }`}
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center space-x-3">
                     {/* Фото мастера из портфолио (thumb 320): инициалы — запасной вид. */}
-                    <Avatar className="h-14 w-14" src={master.avatarUrl} name={master.name} />
+                    <Avatar size={56} src={master.avatarUrl} name={master.name} />
                     <div className="min-w-0 flex-1">
                       <Link
                         to={`/master/${master.slug}`}
@@ -300,8 +300,8 @@ export function HomePage() {
           >
             {showcaseMaster ? (
               <>
-                <div className="flex items-start gap-4">
-                  <Avatar className="h-20 w-20" src={showcaseMaster.avatarUrl} name={showcaseMaster.name} />
+                <div className="flex items-start space-x-4">
+                  <Avatar size={80} src={showcaseMaster.avatarUrl} name={showcaseMaster.name} />
                   <div className="min-w-0 flex-1">
                     <Link
                       to={showcaseProfileLink}
@@ -322,13 +322,13 @@ export function HomePage() {
                     <div
                       key={service.id}
                       data-master-service={service.id}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-[#f3e3ea] px-3 py-2"
+                      className="flex items-center justify-between space-x-3 rounded-xl border border-[#f3e3ea] px-3 py-2"
                     >
                       <div className="min-w-0">
                         <p className="truncate font-medium">{service.name}</p>
                         <p className="text-slate-500">{durationLabel(service.durationMinutes)}</p>
                       </div>
-                      <div className="flex shrink-0 items-center gap-3">
+                      <div className="flex shrink-0 items-center space-x-3">
                         <span className="font-semibold">{formatRub(service.price)}</span>
                         <Link
                           to={serviceLink(service.id)}
@@ -353,7 +353,7 @@ export function HomePage() {
                 </div>
 
                 <div className="mt-6">
-                  <div className="mb-3 flex items-center justify-between gap-2">
+                  <div className="mb-3 flex items-center justify-between space-x-2">
                     <p className="text-lg font-semibold">Свободные окна</p>
                     <span className="text-xs text-slate-400">из расписания мастера</span>
                   </div>

@@ -703,10 +703,10 @@ export function SchedulePage() {
                     data-calendar-date={cell.iso}
                     onClick={() => chooseDate(cell.iso)}
                     className={cn(
-                      "min-h-[86px] rounded-xl border p-2 text-left text-xs transition hover:bg-rose-50/50",
+                      "min-h-[86px] rounded-xl border p-2 text-left text-xs transition hover:bg-[#fff8f8]",
                       cell.inMonth ? "border-slate-200 bg-white" : "border-transparent bg-slate-50/60",
                       cell.iso === selectedDayISO && "border-[#e11d48] ring-1 ring-[#e11d48]/20",
-                      cell.iso === TODAY_ISO && "bg-rose-50/60",
+                      cell.iso === TODAY_ISO && "bg-[#fff6f6]",
                     )}
                   >
                     <p className={cn("font-medium", cell.inMonth ? "text-slate-700" : "text-slate-300")}>
@@ -734,7 +734,7 @@ export function SchedulePage() {
                       key={day.iso}
                       className={cn(
                         "border-l border-slate-100 px-2 py-3 text-center",
-                        day.iso === selectedDayISO && "bg-rose-50/40",
+                        day.iso === selectedDayISO && "bg-[#fffbfb]",
                       )}
                     >
                       <p className={cn("text-xs", day.today ? "text-[#e11d48]" : "text-slate-400")}>{day.short}</p>
@@ -770,7 +770,7 @@ export function SchedulePage() {
                     <div
                       key={day.iso}
                       data-scheduler-day={day.iso}
-                      className={cn("relative touch-none border-l border-slate-100", day.iso === selectedDayISO && "bg-rose-50/20")}
+                      className={cn("relative touch-none border-l border-slate-100", day.iso === selectedDayISO && "bg-[#fffdfd]")}
                       style={{ height: hours.length * hourHeight }}
                       onPointerDown={(event) => startBlockSelection(day.iso, event)}
                       onPointerMove={(event) => updateBlockSelection(day.iso, event)}
@@ -783,7 +783,7 @@ export function SchedulePage() {
                       {blockSelection?.dateISO === day.iso && (
                         <div
                           data-block-selection
-                          className="pointer-events-none absolute inset-x-1 z-10 rounded-lg border border-pink-400 bg-pink-200/60"
+                          className="pointer-events-none absolute inset-x-1 z-10 rounded-lg border border-pink-400 bg-[#fce7f3]"
                           style={{
                             top: ((blockSelection.startMinutes - dayStartHour * 60) / 60) * hourHeight,
                             height: ((blockSelection.endMinutes - blockSelection.startMinutes) / 60) * hourHeight,

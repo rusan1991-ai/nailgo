@@ -138,7 +138,7 @@ export function MediaPage() {
         <h2 className="font-medium text-slate-800">Аватар</h2>
         {avatar ? (
           <div className="mt-3 flex items-center gap-4">
-            <img src={avatar.thumbUrl} alt={avatar.caption ?? "Аватар мастера"} className="h-20 w-20 rounded-full object-cover" />
+            <img src={avatar.thumbUrl} alt={avatar.caption ?? "Аватар мастера"} className="h-20 w-20 min-h-[80px] min-w-[80px] shrink-0 rounded-full object-cover" />
             <div className="text-sm text-slate-500">
               <p>
                 {avatar.width}×{avatar.height}, {formatBytes(avatar.sizeBytes)}

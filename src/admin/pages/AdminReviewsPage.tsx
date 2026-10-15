@@ -195,7 +195,7 @@ export function AdminReviewsPage() {
                   </div>
                 )}
                 {hidingId === review.id && (
-                  <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50/60 p-3" data-block="hide-form">
+                  <div className="mt-3 rounded-xl border border-rose-200 bg-[#fff6f6] p-3" data-block="hide-form">
                     <p className="text-xs font-medium text-rose-600">Причина скрытия (обязательно, увидит мастер)</p>
                     <textarea
                       value={hiddenReasonDraft}

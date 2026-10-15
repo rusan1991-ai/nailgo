@@ -75,8 +75,8 @@ export function MagicLoginPage({ magic }: { magic: string }) {
       data-page="magic-login"
       data-state={error ? "error" : leaving ? "redirecting" : "loading"}
     >
-      <div className="pointer-events-none absolute -left-20 -top-20 h-72 w-72 rounded-full bg-[#ffdbe8]/60 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-28 -right-14 h-80 w-80 rounded-full bg-[#f9dce8]/70 blur-3xl" />
+      <div className="pointer-events-none absolute -left-20 -top-20 h-72 w-72 rounded-full bg-[#ffebf1] blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-28 -right-14 h-80 w-80 rounded-full bg-[#fbe4ed] blur-3xl" />
 
       <div className="relative z-10 w-full max-w-md rounded-[2rem] border border-white/80 bg-white/65 px-7 py-10 shadow-[0_24px_80px_rgba(157,84,112,0.12)] backdrop-blur-xl">
         <div className="mx-auto mb-8 inline-flex items-center gap-2 rounded-full border border-[#f7dce7] bg-white/80 px-4 py-2 text-sm font-semibold tracking-wide text-[#a44468]">

@@ -239,7 +239,7 @@ export function AccountPage() {
 
         <aside className="rounded-2xl border border-[#f1dde6] p-4">
           <div className="flex items-center gap-3">
-            <Avatar className="h-14 w-14" />
+            <Avatar size={56} />
             <div className="min-w-0">
               <p className="truncate font-semibold" data-field="client-name">
                 {user?.name ?? "Гость"}

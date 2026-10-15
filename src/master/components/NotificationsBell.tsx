@@ -85,7 +85,7 @@ export function NotificationsBell({ tone = "dark" }: { tone?: "dark" | "light" }
             {items.map((item) => (
               <li
                 key={item.id}
-                className={cn("border-b border-slate-50 px-4 py-3 last:border-0", !item.read && "bg-pink-50/50")}
+                className={cn("border-b border-slate-50 px-4 py-3 last:border-0", !item.read && "bg-[#fff8fb]")}
               >
                 <p className="text-sm font-medium text-slate-800">{item.title}</p>
                 <p className="mt-0.5 text-xs text-slate-500">{item.body}</p>

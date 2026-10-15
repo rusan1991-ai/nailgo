@@ -294,7 +294,7 @@ export function ReviewsProPage() {
               <span className="text-xs text-slate-400">{formatDateLabel(details.dateISO)}</span>
             </div>
             <p className="text-sm text-slate-700">{details.text}</p>
-            <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-3" data-block="complaint">
+            <div className="rounded-2xl border border-amber-200 bg-[#fffdf5] p-3" data-block="complaint">
               <p className="flex items-center gap-2 text-sm font-medium text-amber-800">
                 <Plus className="h-4 w-4" />
                 Жалоба администратору

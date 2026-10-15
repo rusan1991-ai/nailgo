@@ -81,8 +81,8 @@ export function LastMinutePage() {
               </span>
             </div>
 
-            <div className="flex items-center gap-3">
-              <Avatar className="h-12 w-12" src={offer.avatarUrl} name={offer.masterName} />
+            <div className="flex items-center space-x-3">
+              <Avatar size={48} src={offer.avatarUrl} name={offer.masterName} />
               <div className="min-w-0 flex-1">
                 <Link
                   to={`/master/${offer.masterSlug}`}

@@ -37,7 +37,7 @@ const categoryTone: Record<string, string> = {
 function ServiceThumb({ category }: { category: string }) {
   return (
     <span
-      className={`grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br ${
+      className={`grid h-9 w-9 min-h-[36px] min-w-[36px] shrink-0 place-items-center rounded-full bg-gradient-to-br ${
         categoryTone[category] ?? "from-slate-200 to-slate-300"
       }`}
     >

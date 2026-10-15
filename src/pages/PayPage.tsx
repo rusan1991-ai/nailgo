@@ -210,7 +210,7 @@ export function PayPage() {
               )}
 
               {data?.canConfirm && payment.status === "pending" && (
-                <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-800">
+                <div className="mt-5 rounded-2xl border border-emerald-100 bg-[#f4fcf8] p-4 text-sm text-emerald-800">
                   <p className="font-medium">Мастеру и администратору</p>
                   <p className="mt-1">Подтвердите, когда деньги придут на счёт: запись подтвердится автоматически.</p>
                   <button

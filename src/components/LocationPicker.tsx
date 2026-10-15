@@ -83,8 +83,8 @@ export function LocationPicker({
       data-places={tree.totals.metro + tree.totals.districts}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-          <MapPin className="h-4 w-4 text-pink-500" /> Где вам удобно
+        <p className="inline-flex items-center text-sm font-semibold text-slate-800">
+          <MapPin className="mr-1.5 h-4 w-4 text-pink-500" /> Где вам удобно
         </p>
         <p className="text-xs text-slate-400">
           {tree.totals.metro} станций · {tree.totals.districts} городов области
@@ -123,7 +123,7 @@ export function LocationPicker({
                 <span className="ml-auto text-xs text-slate-400">{open ? "свернуть" : "показать"}</span>
               </button>
 
-              <div className="flex flex-wrap gap-1.5 px-3 pb-3">
+              <div className="flex flex-wrap px-3 pb-3">
                 {inside.map((item) => {
                   const active = place?.kind === "metro" && place.slug === item.slug;
                   return (
@@ -134,7 +134,7 @@ export function LocationPicker({
                       data-place={`list-metro:${item.slug}`}
                       aria-pressed={active}
                       className={cn(
-                        "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition",
+                        "mr-1.5 mb-1.5 inline-flex items-center rounded-lg border px-2.5 py-1 text-xs transition",
                         active
                           ? "border-pink-400 bg-pink-50 text-pink-600"
                           : item.masters > 0
@@ -143,7 +143,7 @@ export function LocationPicker({
                       )}
                     >
                       {item.name}
-                      {item.masters > 0 && <span className="text-[10px] text-slate-400">{item.masters}</span>}
+                      {item.masters > 0 && <span className="ml-1.5 text-[10px] text-slate-400">{item.masters}</span>}
                     </button>
                   );
                 })}
@@ -151,7 +151,7 @@ export function LocationPicker({
                   <button
                     type="button"
                     onClick={() => setShowAll(true)}
-                    className="rounded-lg border border-[#f1dde6] px-2.5 py-1 text-xs text-pink-600 hover:bg-pink-50"
+                    className="mr-1.5 mb-1.5 rounded-lg border border-[#f1dde6] px-2.5 py-1 text-xs text-[#db2777] hover:bg-[#fdf2f8]"
                   >
                     +{line.items.length - inside.length} станций
                   </button>
@@ -166,7 +166,7 @@ export function LocationPicker({
         <p className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-700">
           <TrainFront className="h-4 w-4 text-slate-400" /> Ленинградская область
         </p>
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        <div className="mt-2 flex flex-wrap">
           {(compact ? tree.districts.slice(0, 12) : tree.districts).map((district) => {
             const active = place?.kind === "district" && place.slug === district.slug;
             return (
@@ -177,7 +177,7 @@ export function LocationPicker({
                 data-place={`list-district:${district.slug}`}
                 aria-pressed={active}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition",
+                  "mr-1.5 mb-1.5 inline-flex items-center rounded-lg border px-2.5 py-1 text-xs transition",
                   active
                     ? "border-pink-400 bg-pink-50 text-pink-600"
                     : district.masters > 0
@@ -186,7 +186,7 @@ export function LocationPicker({
                 )}
               >
                 {district.name}
-                {district.masters > 0 && <span className="text-[10px] text-slate-400">{district.masters}</span>}
+                {district.masters > 0 && <span className="ml-1.5 text-[10px] text-slate-400">{district.masters}</span>}
               </button>
             );
           })}

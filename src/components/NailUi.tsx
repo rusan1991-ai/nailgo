@@ -6,19 +6,25 @@ export function Avatar({
   className = "",
   src = null,
   name,
+  size = 48,
 }: {
   className?: string;
   /** Ссылка на уменьшенный вариант фото (thumbUrl). */
   src?: string | null;
   name?: string;
+  /** Фиксированные пиксельные размеры не зависят от aspect-ratio и flex-gap. */
+  size?: number;
 }) {
+  const dimensions = { width: size, height: size, minWidth: size, minHeight: size, flexShrink: 0 };
+
   if (src) {
     return (
       <img
         src={src}
         alt={name ? `Фото мастера ${name}` : "Фото мастера"}
         loading="lazy"
-        className={`rounded-full object-cover ${className}`}
+        className={`inline-block shrink-0 rounded-full object-cover ${className}`}
+        style={dimensions}
       />
     );
   }
@@ -26,7 +32,8 @@ export function Avatar({
   return (
     <div
       aria-hidden
-      className={`grid place-items-center rounded-full bg-[radial-gradient(circle_at_30%_20%,#f7d5c8_20%,#a46e58_70%,#4f352b)] text-sm font-semibold text-white ${className}`}
+      className={`grid shrink-0 place-items-center rounded-full bg-[radial-gradient(circle_at_30%_20%,#f7d5c8_20%,#a46e58_70%,#4f352b)] text-sm font-semibold text-white ${className}`}
+      style={dimensions}
     >
       {name ? name.slice(0, 1).toUpperCase() : null}
     </div>
@@ -35,9 +42,9 @@ export function Avatar({
 
 export function NailStrip() {
   return (
-    <div className="flex gap-2">
+    <div className="flex space-x-2">
       {["#d7b1a1", "#b78476", "#4f6da8", "#d26388"].map((color) => (
-        <div key={color} className="h-14 w-14 rounded-lg" style={{ backgroundColor: color }} />
+        <div key={color} className="h-14 w-14 shrink-0 rounded-lg" style={{ backgroundColor: color }} />
       ))}
     </div>
   );

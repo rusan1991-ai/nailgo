@@ -18,15 +18,15 @@ export function JournalPage() {
         </div>
 
         {data && data.categories.length > 0 && (
-          <div className="flex flex-wrap gap-2" aria-label="Категории журнала" data-block="journal-categories">
+          <div className="flex flex-wrap" aria-label="Категории журнала" data-block="journal-categories">
             <button
               type="button"
               data-category="all"
               aria-pressed={category === null}
               onClick={() => setCategory(null)}
               className={cn(
-                "rounded-full border px-3 py-1.5 text-sm transition",
-                category === null ? "border-pink-500 bg-pink-500 text-white" : "border-[#f1dde6] text-slate-600 hover:border-pink-300",
+                "mr-2 mb-2 rounded-full border px-3 py-1.5 text-sm transition",
+                category === null ? "border-[#ec4899] bg-[#ec4899] text-white" : "border-[#f1dde6] text-slate-600 hover:border-[#f9a8d4]",
               )}
             >
               Все статьи
@@ -39,8 +39,8 @@ export function JournalPage() {
                 aria-pressed={category === item}
                 onClick={() => setCategory(item)}
                 className={cn(
-                  "rounded-full border px-3 py-1.5 text-sm transition",
-                  category === item ? "border-pink-500 bg-pink-500 text-white" : "border-[#f1dde6] text-slate-600 hover:border-pink-300",
+                  "mr-2 mb-2 rounded-full border px-3 py-1.5 text-sm transition",
+                  category === item ? "border-[#ec4899] bg-[#ec4899] text-white" : "border-[#f1dde6] text-slate-600 hover:border-[#f9a8d4]",
                 )}
               >
                 {item}

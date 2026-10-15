@@ -179,7 +179,7 @@ export function AdminPaymentsPage() {
               className={cn(
                 "rounded-2xl border p-4 text-left text-sm transition",
                 currentProvider === item.id
-                  ? "border-pink-400 bg-pink-50/50"
+                  ? "border-pink-400 bg-[#fff8fb]"
                   : "border-slate-200 hover:border-pink-200",
               )}
             >

@@ -136,7 +136,7 @@ export function HomePage() {
 
   return (
     <main className="n2g-min-h-viewport w-full max-w-full min-w-0 overflow-x-hidden bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
-      <div className="mx-auto max-w-[1380px] rounded-[26px] border border-[#ffe6ef] bg-white p-5 shadow-[0_20px_80px_-40px_rgba(236,72,153,0.45)] sm:p-8">
+      <div className="mx-auto w-full min-w-0 max-w-[1380px] rounded-[26px] border border-[#ffe6ef] bg-white p-5 shadow-[0_20px_80px_-40px_rgba(236,72,153,0.45)] sm:p-8">
         <AppHeader />
 
         <section className="pt-8">
@@ -144,19 +144,19 @@ export function HomePage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45 }}
-            className="grid gap-6 lg:grid-cols-[1.05fr_2fr]"
+            className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,2fr)]"
           >
-            <div>
-              <h1 className="text-4xl font-semibold leading-tight sm:text-5xl">Найдите своего идеального мастера</h1>
-              <p className="mt-3 max-w-md text-lg text-slate-500">
+            <div className="min-w-0">
+              <h1 className="text-3xl font-semibold leading-tight sm:text-5xl">Найдите своего идеального мастера</h1>
+              <p className="mt-3 max-w-md text-base text-slate-500 sm:text-lg">
                 Маникюр, педикюр, наращивание и другие услуги рядом с вами
               </p>
             </div>
-            <div className="rounded-2xl border border-[#f3dfe8] p-2 shadow-sm">
-              <div className="flex flex-wrap gap-2 sm:flex-nowrap">
+            <div className="min-w-0 rounded-2xl border border-[#f3dfe8] p-2 shadow-sm">
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-nowrap">
                 <CityPicker />
                 <form
-                  className="flex min-w-0 flex-1 flex-wrap gap-2 sm:flex-nowrap"
+                  className="flex w-full min-w-0 gap-2 sm:flex-1 sm:flex-nowrap"
                   onSubmit={(event) => {
                     event.preventDefault();
                     setParam("query", queryText.trim() || null);
@@ -171,7 +171,7 @@ export function HomePage() {
                   />
                   <button
                     type="submit"
-                    className="rounded-xl bg-pink-500 px-8 py-3 text-sm font-semibold text-white transition hover:bg-pink-600"
+                    className="shrink-0 rounded-xl bg-pink-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-pink-600 sm:px-8"
                   >
                     Найти
                   </button>
@@ -181,8 +181,8 @@ export function HomePage() {
           </motion.div>
         </section>
 
-        <section className="mt-8 grid gap-5 xl:grid-cols-[420px_1fr_430px]">
-          <div>
+        <section className="mt-8 grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)_minmax(0,430px)]">
+          <div className="min-w-0">
             <LocationPicker place={place} onPick={choosePlace} className="mb-4" />
 
             <SmartSearchPanel
@@ -294,7 +294,7 @@ export function HomePage() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.35 }}
             ref={showcaseImpressionRef}
-            className="rounded-3xl border border-[#f0d9e4] bg-white p-5 shadow-[0_30px_50px_-35px_rgba(236,72,153,0.45)]"
+            className="min-w-0 rounded-3xl border border-[#f0d9e4] bg-white p-5 shadow-[0_30px_50px_-35px_rgba(236,72,153,0.45)]"
             data-block="home-showcase"
             data-showcase-master={showcaseMaster?.slug ?? ""}
           >

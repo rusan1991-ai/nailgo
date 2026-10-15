@@ -59,7 +59,7 @@ export function SearchMapPage() {
   );
 
   return (
-    <ClientShell title="Карта мастеров">
+    <ClientShell title="Карта мастеров" showCityPicker={false}>
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap">
@@ -127,8 +127,14 @@ export function SearchMapPage() {
           </div>
         </div>
 
-        <div className={`grid gap-4 ${mode === "list" ? "xl:grid-cols-[420px_1fr]" : "xl:grid-cols-[1fr_420px]"}`}>
-          <div ref={searchImpressionsRef} className={`space-y-3 ${mode === "map" ? "xl:order-2" : ""}`}>
+        <div
+          className={`grid min-w-0 grid-cols-1 gap-4 ${
+            mode === "list"
+              ? "xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]"
+              : "xl:grid-cols-[minmax(0,1fr)_minmax(0,420px)]"
+          }`}
+        >
+          <div ref={searchImpressionsRef} className={`min-w-0 space-y-3 ${mode === "map" ? "xl:order-2" : ""}`}>
             {cards.map((master, idx) => (
               <motion.div
                 key={master.slug}
@@ -138,13 +144,13 @@ export function SearchMapPage() {
                 transition={{ delay: idx * 0.05 }}
                 className="rounded-2xl border border-[#f1dde6] p-4"
               >
-                <div className="flex items-center space-x-3">
+                <div className="grid min-w-0 grid-cols-[48px_minmax(0,1fr)] items-start gap-x-3 gap-y-2 sm:grid-cols-[48px_minmax(0,1fr)_auto] sm:items-center">
                   <Avatar size={48} src={master.avatarUrl} name={master.name} />
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0">
                     <Link
                       to={`/master/${master.slug}`}
                       onClick={() => recordPromotionEvent(master.slug, "profile_click", "search")}
-                      className="truncate font-semibold hover:text-pink-600"
+                      className="block truncate font-semibold hover:text-pink-600"
                     >
                       {master.name}
                     </Link>
@@ -153,7 +159,7 @@ export function SearchMapPage() {
                       {master.metro}, {master.distance}
                     </p>
                   </div>
-                  <div className="flex items-center space-x-2">
+                  <div className="col-start-2 mt-1 flex items-center space-x-2 sm:col-start-3 sm:row-start-1 sm:mt-0">
                     <p className="text-sm font-semibold">
                       {master.priceFrom > 0 ? `от ${formatRub(master.priceFrom)}` : "цена по запросу"}
                     </p>
@@ -180,7 +186,7 @@ export function SearchMapPage() {
             ))}
           </div>
 
-          <div className={`space-y-3 ${mode === "map" ? "xl:order-1" : ""}`}>
+          <div className={`min-w-0 space-y-3 ${mode === "map" ? "xl:order-1" : ""}`}>
             {/* Тот же фильтр, что на главной: метро сгруппировано по линиям. */}
             <div data-block="place-filter">
               <LocationPicker place={place} onPick={setPlace} variant="compact" />

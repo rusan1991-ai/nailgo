@@ -37,6 +37,7 @@ const reschedule = read("src/components/ReschedulePanel.tsx");
 const cityPicker = read("src/components/CityPicker.tsx");
 const locationPicker = read("src/components/LocationPicker.tsx");
 const searchMap = read("src/pages/SearchMapPage.tsx");
+const masterPage = read("src/pages/MasterPage.tsx");
 const journalPage = read("src/pages/JournalPage.tsx");
 const avatarUi = read("src/components/NailUi.tsx");
 const masterUi = read("src/master/components/ui.tsx");
@@ -66,6 +67,13 @@ check(
     /<main className="[^"]*w-full[^"]*max-w-full[^"]*overflow-x-hidden/.test(authShared),
 );
 check(
+  "на мобильном все пункты навигации клиента видны в компактной сетке, на широком экране становятся сайдбаром",
+  clientShell.includes("data-mobile-nav") && clientShell.includes("grid-cols-2") &&
+    clientShell.includes("sm:grid-cols-3") && clientShell.includes("lg:block") &&
+    clientShell.includes("lg:space-y-1") && clientShell.includes("showCityPicker = true") &&
+    clientShell.includes("Искать мастеров"),
+);
+check(
   "карта витрины зажата адаптивным w-full wrapper без фиксированной ширины",
   /className="w-full max-w-full overflow-hidden px-4 block[^"]*" data-map-overflow-guard/.test(home) &&
     /className="[^"]*w-full[^"]*min-w-0" data-city-block/.test(home) &&
@@ -73,6 +81,25 @@ check(
     cityMap.includes("block w-full max-w-full min-w-0 overflow-hidden") &&
     cityMap.includes("w-full max-w-full min-w-0 border-0") &&
     !/(?<!max-)w-screen|(?<!max-)w-\[100vw\]|width:\s*100vw|(?<!max-)w-\[\d+px\]/.test(home + cityMap),
+);
+check(
+  "главная и карта мастеров задают minmax(0,1fr) колонки на телефонах, чтобы карточки не распирали экран",
+  home.includes("grid min-w-0 grid-cols-1") &&
+    home.includes("xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)_minmax(0,430px)]") &&
+    searchMap.includes("grid min-w-0 grid-cols-1 gap-4") &&
+    searchMap.includes("min-w-0 space-y-3"),
+);
+check(
+  "карта ограничивает высоту на мобильном экране, сохраняя высоту desktop-настройки",
+  cityMap.includes("n2g-city-map-viewport") && css.includes("height: var(--n2g-map-height, 360px);") &&
+    css.includes("height: min(var(--n2g-map-height, 360px), max(280px, 42vh));"),
+);
+check(
+  "страница мастера переносит вкладки и переносит блок цены/записи под услугу на узком экране",
+  masterPage.includes("flex flex-wrap gap-x-4 gap-y-2 text-sm") &&
+    masterPage.includes("flex min-w-0 flex-col gap-2 rounded-xl") &&
+    masterPage.includes("sm:flex-row sm:items-center sm:justify-between") &&
+    masterPage.includes("firstWindow.label") && !masterPage.includes("Записаться на 19:00"),
 );
 check(
   "витрина и личные кабинеты используют fallback viewport height для старого WebKit",
@@ -103,7 +130,8 @@ check(
     locationPicker.includes("mr-1.5 mb-1.5") && cityPicker.includes('className="mt-3 flex flex-wrap"') &&
     cityPicker.includes("mr-2 mb-2") && journalPage.includes('className="flex flex-wrap" aria-label="Категории журнала"') &&
     journalPage.includes("mr-2 mb-2") && home.includes('className="space-y-3" data-block="home-masters"') &&
-    home.includes("flex items-center space-x-3") && searchMap.includes("flex items-center space-x-3") &&
+    home.includes("flex items-center space-x-3") &&
+    searchMap.includes("grid min-w-0 grid-cols-[48px_minmax(0,1fr)]") &&
     searchMap.includes("mr-2 mb-2 rounded-xl"),
 );
 check(

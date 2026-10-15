@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import { recordPromotionEvent, usePromotionImpressions } from "../api/promotion";
 
@@ -156,6 +156,7 @@ function createMarker(master: MapMaster, popupRoot: HTMLElement): HTMLElement {
 export function CityMap({ masters, center, zoom = 11, height = 360, title = "Мастера на карте" }: Props) {
   const container = useRef<HTMLDivElement | null>(null);
   const mode = YANDEX_KEY ? "yandex" : "widget";
+  const mapHeightStyle = { "--n2g-map-height": `${height}px` } as CSSProperties;
   const pinned = useMemo(
     () => masters.filter(
       (master): master is MapMaster & { lat: number; lng: number } =>
@@ -209,11 +210,11 @@ export function CityMap({ masters, center, zoom = 11, height = 360, title = "М�
       {mode === "yandex" ? (
         <div
           ref={container}
-          className="mt-3 block w-full max-w-full min-w-0 overflow-hidden rounded-2xl bg-slate-100"
-          style={{ height }}
+          className="n2g-city-map-viewport mt-3 block w-full max-w-full min-w-0 overflow-hidden rounded-2xl bg-slate-100"
+          style={mapHeightStyle}
         />
       ) : (
-        <div className="mt-3 block w-full max-w-full min-w-0 overflow-hidden rounded-2xl bg-slate-100" style={{ height }}>
+        <div className="n2g-city-map-viewport mt-3 block w-full max-w-full min-w-0 overflow-hidden rounded-2xl bg-slate-100" style={mapHeightStyle}>
           <iframe
             title={`Карта: ${title}`}
             src={`https://yandex.ru/map-widget/v1/?ll=${center.lng}%2C${center.lat}&z=${zoom}`}
@@ -229,10 +230,10 @@ export function CityMap({ masters, center, zoom = 11, height = 360, title = "М�
         </p>
       )}
 
-      <ul ref={mapImpressionsRef} className="mt-3 grid gap-2 sm:grid-cols-2">
+      <ul ref={mapImpressionsRef} className="mt-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
         {pinned.map((master) => (
-          <li key={master.slug} data-map-master={master.slug} data-promotion-master={master.slug}>
-            <div className="flex items-center justify-between gap-2 rounded-xl border border-[#f1dde6] px-3 py-2">
+          <li key={master.slug} data-map-master={master.slug} data-promotion-master={master.slug} className="min-w-0">
+            <div className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-[#f1dde6] px-3 py-2">
               <Link
                 to={`/master/${master.slug}`}
                 onClick={() => recordPromotionEvent(master.slug, "profile_click", "map")}

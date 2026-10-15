@@ -44,7 +44,7 @@ export function NailStrip() {
   return (
     <div className="flex space-x-2">
       {["#d7b1a1", "#b78476", "#4f6da8", "#d26388"].map((color) => (
-        <div key={color} className="h-14 w-14 shrink-0 rounded-lg" style={{ backgroundColor: color }} />
+        <div key={color} className="h-12 w-12 shrink-0 rounded-lg sm:h-14 sm:w-14" style={{ backgroundColor: color }} />
       ))}
     </div>
   );

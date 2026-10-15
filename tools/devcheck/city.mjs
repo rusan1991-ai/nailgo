@@ -8,7 +8,7 @@
  * Запуск (при живых Vite и API):
  *   cd tools/devcheck && npm run city
  */
-import { api, check, click, loginMaster, makeDom, resetDemo, rootText, wait } from "./harness.mjs";
+import { api, check, loginMaster, makeDom, resetDemo, rootText, wait } from "./harness.mjs";
 
 let failures = 0;
 const assert = (label, ok, extra = "") => {
@@ -128,23 +128,25 @@ assert(
   String(home.dom.window.localStorage.getItem("nailgo_region")),
 );
 
-/* --- Интерфейс: карта мастеров и переключатель в шапке --- */
+/* --- Интерфейс: карта мастеров и переключатель региона без дубля в шапке --- */
 const search = makeDom("/search", { session: null, storage: { nailgo_region: SPB } });
 await wait(1000);
 const searchMap = search.dom.window.document.querySelector("[data-city-map]");
 assert("на странице карты мастеров карта та же", Boolean(searchMap));
 assert("карта на странице поиска открыта на выбранном городе", rootText(search.dom).includes(`Мастера: ${SPB}`));
 
-const headerPick = search.dom.window.document.querySelector("[data-action='city-open']");
-assert("в шапке есть переключатель города", Boolean(headerPick));
-click(search.dom, SPB);
-await wait(200);
-const headerOption = search.dom.window.document.querySelector(`[data-region="${LO}"]`);
-assert("из шапки можно выбрать другой регион", Boolean(headerOption));
-headerOption?.dispatchEvent(new search.dom.window.MouseEvent("click", { bubbles: true }));
+const pageCityPicker = search.dom.window.document.querySelector("[data-city-picker]");
+assert("на странице карты есть отдельный переключатель региона", Boolean(pageCityPicker));
+assert(
+  "общий переключатель города не дублируется в шапке карты",
+  !search.dom.window.document.querySelector("[data-action='city-open']"),
+);
+const pageRegionOption = pageCityPicker?.querySelector(`[data-region="${LO}"]`);
+assert("в блоке карты можно выбрать другой регион", Boolean(pageRegionOption));
+pageRegionOption?.dispatchEvent(new search.dom.window.MouseEvent("click", { bubbles: true }));
 await wait(600);
 assert(
-  "город из шапки применился",
+  "регион из блока карты применился",
   search.dom.window.localStorage.getItem("nailgo_region") === LO,
   String(search.dom.window.localStorage.getItem("nailgo_region")),
 );

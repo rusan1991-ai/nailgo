@@ -103,7 +103,8 @@ export function ClientsPage() {
       // «Давно не был» считается от самой свежей даты в базе, а не от сегодня:
       // демо-данные стоят на прошлой неделе, и без этого все стали бы «давно».
       const dates = data.items.map((client) => client.lastVisitISO).filter((iso): iso is string => Boolean(iso));
-      const newest = dates.sort().at(-1) ?? null;
+      const sortedDates = dates.sort();
+      const newest = sortedDates[sortedDates.length - 1] ?? null;
       const newestTime = newest ? new Date(`${newest}T00:00:00`).getTime() : 0;
 
       return data.items.map((client) => {

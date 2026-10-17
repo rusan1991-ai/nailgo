@@ -496,7 +496,7 @@ export function StatsPage() {
                 ["Средний чек", stats ? formatRub(stats.avgCheckThisMonth) : "—"],
                 ["Записей оплачено (завершено)", stats ? formatInt(stats.byStatus.completed) : "—"],
                 ["Предстоящие записи", stats ? formatInt(stats.byStatus.confirmed) : "—"],
-                ["Выручка прошлого месяца", stats ? formatRub(monthly.at(-2)?.revenue ?? 0) : "—"],
+                ["Выручка прошлого месяца", stats ? formatRub(monthly[monthly.length - 2]?.revenue ?? 0) : "—"],
               ]}
             />
           </Card>

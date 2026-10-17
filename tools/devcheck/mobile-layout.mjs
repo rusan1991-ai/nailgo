@@ -144,6 +144,10 @@ check(
     !/aspect-ratio\s*:/.test(allUiSource),
 );
 check(
+  "клиентский код не вызывает Array.prototype.at, недоступный в Safari/iOS 15.1",
+  !/\.at\s*\(/.test(allUiSource),
+);
+check(
   "исходники не используют dvh/svh, фиксированный h-screen или content-visibility оптимизации",
   !/\b(?:min|max)-h-(?:dvh|svh|lvh)\b|\bh-(?:dvh|svh|lvh|screen)\b|\bmin-h-screen\b/.test(allUiSource) &&
     !/content-visibility|contain-intrinsic-size/i.test(allUiSource),

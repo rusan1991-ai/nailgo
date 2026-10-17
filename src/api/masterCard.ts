@@ -31,6 +31,18 @@ export type MasterWorkspaceView = {
   hours: { weekday: number; startMinute: number; endMinute: number }[];
 };
 
+export type MasterCardReview = {
+  id: string;
+  clientName: string;
+  score: number;
+  text: string;
+  service: string;
+  status: string;
+  replyText: string | null;
+  repliedAt: string | null;
+  createdAt: string;
+};
+
 export type MasterCard = {
   slug: string;
   name: string;
@@ -41,6 +53,8 @@ export type MasterCard = {
   address: string;
   city: string;
   region: string;
+  lat: number | null;
+  lng: number | null;
   rating: number;
   reviewsCount: number;
   priceFrom: number;
@@ -54,6 +68,7 @@ export type MasterCard = {
     portfolio: MasterGalleryPhoto[];
     certificates: MasterGalleryPhoto[];
   };
+  reviews: MasterCardReview[];
 };
 
 export function useMasterCard(slug: string | undefined) {

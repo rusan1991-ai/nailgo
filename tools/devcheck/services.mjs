@@ -281,6 +281,10 @@ assert(
 
 const storefrontAfterRename = makeDom("/master/anna-smirnova", { session: null });
 await wait(1500);
+const allPricesAction = storefrontAfterRename.dom.window.document.querySelector("[data-action='toggle-all-prices']");
+assert("витрина позволяет раскрыть полный прайс", Boolean(allPricesAction));
+allPricesAction?.dispatchEvent(new storefrontAfterRename.window.MouseEvent("click", { bubbles: true }));
+await wait(100);
 const storefrontCategory = storefrontAfterRename.dom.window.document.querySelector(
   `[data-master-service='${uiCreated?.id}'] [data-service-category]`,
 );

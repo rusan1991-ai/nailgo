@@ -58,13 +58,13 @@ export function FavoriteButton({
           data-active={active ? "true" : "false"}
           aria-pressed={active}
           className={cn(
-            "inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition",
+            "inline-flex min-h-[44px] w-full items-center justify-center rounded-xl border px-4 py-2.5 text-sm font-medium transition",
             active
-              ? "border-pink-200 bg-pink-50 text-[#e11d48]"
-              : "border-[#f1dde6] text-slate-600 hover:border-pink-300 hover:text-[#e11d48]",
+              ? "border-[#e9b8ae] bg-[#fff3f0] text-[#bd7168]"
+              : "border-[#f0ddd8] text-[#817774] hover:border-[#e9b8ae] hover:text-[#bd7168]",
           )}
         >
-          <Heart className={cn("h-4 w-4", active && "fill-current")} />
+          <Heart className={cn("mr-2 h-4 w-4 shrink-0", active && "fill-current")} />
           {active ? "В избранном" : "В избранное"}
         </button>
         {hint && <span className="mt-1 block text-xs text-slate-400">{hint}</span>}
@@ -85,16 +85,16 @@ export function FavoriteButton({
         data-active={active ? "true" : "false"}
         aria-pressed={active}
         className={cn(
-          "grid h-9 w-9 place-items-center rounded-xl border transition",
+          "grid h-9 w-9 min-h-[36px] min-w-[36px] place-items-center rounded-full border bg-white transition",
           active
-            ? "border-pink-200 bg-pink-50 text-[#e11d48]"
-            : "border-[#f1dde6] text-slate-400 hover:border-pink-300 hover:text-[#e11d48]",
+            ? "border-[#e9b8ae] bg-[#fff3f0] text-[#bd7168]"
+            : "border-[#f0ddd8] text-[#817774] hover:border-[#e9b8ae] hover:text-[#bd7168]",
         )}
       >
         <Heart className={cn("h-4 w-4", active && "fill-current")} />
       </button>
       {hint && (
-        <span className="absolute right-0 top-10 z-10 whitespace-nowrap rounded-lg bg-slate-900/90 px-2 py-1 text-xs text-white">
+        <span className="absolute right-0 top-10 z-10 whitespace-nowrap rounded-lg bg-[#302a29] px-2 py-1 text-xs text-white">
           {hint}
         </span>
       )}

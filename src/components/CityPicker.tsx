@@ -55,7 +55,7 @@ export function CityPicker({ variant = "compact", className }: Props) {
     return (
       <div className={cn("rounded-2xl border border-[#f1dde6] p-4", className)} data-city-picker>
         <p className="flex items-center text-sm font-medium text-slate-700">
-          <MapPin className="mr-2 h-4 w-4 text-pink-500" />
+          <MapPin className="mr-2 h-4 w-4 text-[#e58e82]" />
           Ваш город
         </p>
         <div className="mt-3 flex flex-wrap">
@@ -69,8 +69,8 @@ export function CityPicker({ variant = "compact", className }: Props) {
               className={cn(
                 "mr-2 mb-2 rounded-xl border px-4 py-2 text-left text-sm transition",
                 region === item.region
-                  ? "border-pink-400 bg-[#fff4f8] text-slate-900"
-                  : "border-[#f1dde6] text-slate-600 hover:border-pink-200",
+                  ? "border-[#e58e82] bg-[#fff3f0] text-slate-900"
+                  : "border-[#f1dde6] text-slate-600 hover:border-[#e9b8ae]",
               )}
             >
               <span className="block font-medium">{item.region}</span>
@@ -95,9 +95,9 @@ export function CityPicker({ variant = "compact", className }: Props) {
         onClick={() => setOpen((value) => !value)}
         data-action="city-open"
         aria-expanded={open}
-        className="flex min-w-0 max-w-full items-center rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 transition hover:border-pink-200"
+        className="flex min-w-0 max-w-full items-center rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 transition hover:border-[#e9b8ae]"
       >
-        <MapPin className="mr-2 h-4 w-4 shrink-0 text-pink-500" />
+        <MapPin className="mr-2 h-4 w-4 shrink-0 text-[#e58e82]" />
         <span className="min-w-0 truncate">{region}</span>
       </button>
 
@@ -114,7 +114,7 @@ export function CityPicker({ variant = "compact", className }: Props) {
               data-region={item.region}
               className={cn(
                 "block w-full rounded-xl px-3 py-2 text-left text-sm transition",
-                region === item.region ? "bg-[#fff4f8] text-slate-900" : "text-slate-600 hover:bg-slate-50",
+                region === item.region ? "bg-[#fff3f0] text-slate-900" : "text-slate-600 hover:bg-slate-50",
               )}
             >
               <span className="block font-medium">{item.region}</span>

@@ -43,6 +43,7 @@ import { StatsPage } from "./master/pages/StatsPage";
 import { MessagesPage } from "./master/pages/MessagesPage";
 import { SettingsProPage } from "./master/pages/SettingsProPage";
 import { MediaPage } from "./master/pages/MediaPage";
+import { MarketplaceFooter } from "./components/MarketplaceFooter";
 
 function NotFoundPage() {
   return (
@@ -133,6 +134,14 @@ function RequireAuth({
   }
 
   return children;
+}
+
+function PublicSiteFooter() {
+  const { pathname } = useLocation();
+  if (pathname === "/pro" || pathname.startsWith("/pro/") || pathname === "/admin" || pathname.startsWith("/admin/")) {
+    return null;
+  }
+  return <MarketplaceFooter compactSearch={pathname === "/search"} />;
 }
 
 export default function App() {
@@ -283,6 +292,7 @@ export default function App() {
             <Route path="/:username" element={<ShortLinkPage />} />
             <Route path="*" element={<NotFoundPage />} />
               </Routes>
+              <PublicSiteFooter />
             </div>
           </BrowserRouter>
         </BookingProvider>

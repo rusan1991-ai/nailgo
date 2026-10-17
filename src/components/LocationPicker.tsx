@@ -78,15 +78,15 @@ export function LocationPicker({
 
   return (
     <div
-      className={cn("rounded-2xl border border-[#f1dde6] bg-white/60 p-4", className)}
+      className={cn("rounded-2xl border border-[#f1dde6] bg-white p-4", className)}
       data-block="location-picker"
       data-places={tree.totals.metro + tree.totals.districts}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="inline-flex items-center text-sm font-semibold text-slate-800">
-          <MapPin className="mr-1.5 h-4 w-4 text-pink-500" /> Где вам удобно
+      <div className="flex flex-wrap items-center justify-between">
+        <p className="mr-3 mb-2 inline-flex items-center text-sm font-semibold text-slate-800">
+          <MapPin className="mr-1.5 h-4 w-4 text-[#e58e82]" /> Где вам удобно
         </p>
-        <p className="text-xs text-slate-400">
+        <p className="mr-3 mb-2 text-xs text-slate-400">
           {tree.totals.metro} станций · {tree.totals.districts} городов области
         </p>
         {place && (
@@ -94,7 +94,7 @@ export function LocationPicker({
             type="button"
             onClick={() => onPick(null)}
             data-action="clear-place"
-            className="rounded-lg border border-pink-300 bg-pink-50 px-2.5 py-1 text-xs text-pink-600"
+            className="mb-2 rounded-lg border border-[#e9b8ae] bg-[#fff3f0] px-2.5 py-1 text-xs text-[#bd7168]"
           >
             {place.kind === "metro" ? "м. " : "г. "}
             {place.name} ✕
@@ -113,14 +113,14 @@ export function LocationPicker({
                 type="button"
                 onClick={() => setOpenLine(open && !showAll ? null : line.title)}
                 data-action={`line-${line.title}`}
-                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left"
+                className="flex w-full items-center rounded-xl px-3 py-2 text-left"
               >
-                <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: line.color }} aria-hidden />
-                <span className="text-sm font-medium text-slate-700">{line.title}</span>
-                <span className="text-xs text-slate-400">
+                <span className="mr-2 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: line.color }} aria-hidden />
+                <span className="mr-2 min-w-0 truncate text-sm font-medium text-slate-700">{line.title}</span>
+                <span className="mr-2 shrink-0 whitespace-nowrap text-xs text-slate-400">
                   {withMasters.length > 0 ? `${withMasters.length} с мастерами` : "пока пусто"}
                 </span>
-                <span className="ml-auto text-xs text-slate-400">{open ? "свернуть" : "показать"}</span>
+                <span className="ml-auto shrink-0 whitespace-nowrap text-xs text-slate-400">{open ? "свернуть" : "показать"}</span>
               </button>
 
               <div className="flex flex-wrap px-3 pb-3">
@@ -136,10 +136,10 @@ export function LocationPicker({
                       className={cn(
                         "mr-1.5 mb-1.5 inline-flex items-center rounded-lg border px-2.5 py-1 text-xs transition",
                         active
-                          ? "border-pink-400 bg-pink-50 text-pink-600"
+                          ? "border-[#e58e82] bg-[#fff3f0] text-[#bd7168]"
                           : item.masters > 0
-                            ? "border-[#e9d3de] text-slate-700 hover:border-pink-300"
-                            : "border-dashed border-[#efe3e9] text-slate-400 hover:border-pink-200",
+                            ? "border-[#f0ddd8] text-slate-700 hover:border-[#e9b8ae]"
+                            : "border-dashed border-[#f0e3df] text-slate-400 hover:border-[#e9b8ae]",
                       )}
                     >
                       {item.name}
@@ -151,7 +151,7 @@ export function LocationPicker({
                   <button
                     type="button"
                     onClick={() => setShowAll(true)}
-                    className="mr-1.5 mb-1.5 rounded-lg border border-[#f1dde6] px-2.5 py-1 text-xs text-[#db2777] hover:bg-[#fdf2f8]"
+                    className="mr-1.5 mb-1.5 rounded-lg border border-[#f1dde6] px-2.5 py-1 text-xs text-[#bd7168] hover:bg-[#fff3f0]"
                   >
                     +{line.items.length - inside.length} станций
                   </button>
@@ -163,8 +163,8 @@ export function LocationPicker({
       </div>
 
       <div className="mt-3 rounded-xl border border-[#f5e7ee] p-3">
-        <p className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-700">
-          <TrainFront className="h-4 w-4 text-slate-400" /> Ленинградская область
+        <p className="inline-flex items-center text-sm font-medium text-slate-700">
+          <TrainFront className="mr-1.5 h-4 w-4 text-slate-400" /> Ленинградская область
         </p>
         <div className="mt-2 flex flex-wrap">
           {(compact ? tree.districts.slice(0, 12) : tree.districts).map((district) => {
@@ -179,10 +179,10 @@ export function LocationPicker({
                 className={cn(
                   "mr-1.5 mb-1.5 inline-flex items-center rounded-lg border px-2.5 py-1 text-xs transition",
                   active
-                    ? "border-pink-400 bg-pink-50 text-pink-600"
+                    ? "border-[#e58e82] bg-[#fff3f0] text-[#bd7168]"
                     : district.masters > 0
-                      ? "border-[#e9d3de] text-slate-700 hover:border-pink-300"
-                      : "border-dashed border-[#efe3e9] text-slate-400 hover:border-pink-200",
+                      ? "border-[#f0ddd8] text-slate-700 hover:border-[#e9b8ae]"
+                      : "border-dashed border-[#f0e3df] text-slate-400 hover:border-[#e9b8ae]",
                 )}
               >
                 {district.name}

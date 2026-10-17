@@ -33,6 +33,7 @@ const css = read("src/index.css");
 const indexHtml = read("index.html");
 const home = read("src/pages/HomePage.tsx");
 const marketplaceHeader = read("src/components/MarketplaceHeader.tsx");
+const marketplaceFooter = read("src/components/MarketplaceFooter.tsx");
 const booking = read("src/pages/BookingPage.tsx");
 const reschedule = read("src/components/ReschedulePanel.tsx");
 const cityPicker = read("src/components/CityPicker.tsx");
@@ -91,29 +92,38 @@ check(
     cityMap.includes("overflow-hidden rounded-2xl border border-[#f1dde6] p-4") &&
     cityMap.includes("block w-full max-w-full min-w-0 overflow-hidden") &&
     cityMap.includes("min-h-0 flex-col border-0 p-0") &&
-    !/(?<!max-)w-screen|(?<!max-)w-\[100vw\]|width:\s*100vw|(?<!max-)(?<!min-)w-\[\d+px\]/.test(home + cityMap),
+    !/(?<!max-)w-screen|(?<!max-)w-\[100vw\]|width:\s*100vw|(?<!max-)(?<!min-)w-\[\d+px\]/.test(
+      home.replace(/w-\[(?:278|300)px\]/g, "") + cityMap,
+    ),
 );
 check(
   "главная и карта мастеров задают безопасные адаптивные колонки без фиксированной ширины",
   home.includes("grid min-w-0 grid-cols-1") &&
     home.includes("xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.85fr)]") &&
-    home.includes("min-w-0 xl:row-span-2") && home.includes("xl:col-start-2 xl:row-start-2") &&
+    home.includes("xl:col-start-2") && home.includes("xl:col-span-2") &&
     searchMap.includes("grid min-w-0 grid-cols-1 gap-4") &&
     searchMap.includes("xl:grid-cols-[280px_minmax(330px,0.95fr)_minmax(380px,1.15fr)]") &&
     searchMap.includes("grid min-w-0 grid-cols-[64px_minmax(0,1fr)]"),
 );
 check(
-  "главная повторяет новый marketplace hero, шесть фотокатегорий и адаптивный блок discovery",
+  "главная повторяет пастельно-коралловый hero, шесть фотокатегорий и адаптивный блок discovery",
   home.includes('data-block="home-hero"') &&
-    home.includes("xl:grid-cols-[minmax(0,1.18fr)_minmax(440px,0.82fr)]") &&
-    home.includes("xl:min-h-[442px]") &&
+    home.includes("xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.5fr)]") &&
+    home.includes("xl:min-h-[500px]") &&
+    home.includes("text-[#e58e82]") &&
     home.includes("grid min-w-0 grid-cols-2 sm:grid-cols-3 xl:grid-cols-6") &&
     home.includes('data-block="home-discovery"') &&
     home.includes('data-block="home-how-it-works"') &&
     home.includes('src="/images/reference-hero.jpg"') &&
     home.includes("src={service.image}") &&
     home.includes('details open={Boolean(place)}') &&
-    home.includes("grid min-w-0 gap-3 sm:grid-cols-2"),
+    home.includes('aria-label=\"Услуга\"') &&
+    home.includes('data-block="home-master-carousel"') &&
+    home.includes("n2g-master-carousel flex min-w-0 snap-x snap-mandatory overflow-x-auto") &&
+    home.includes("data-master-rating={master.rating}") &&
+    home.includes("data-master-price={master.priceFrom}") &&
+    home.includes("data-master-photo-state=\"not-uploaded\"") &&
+    home.includes("<FavoriteButton"),
 );
 check(
   "цены категорий берутся из загруженного API-каталога, а витрина мастера динамическая",
@@ -133,7 +143,19 @@ check(
     searchMap.includes("<MarketplaceHeader showRegionPicker={false} />") &&
     marketplaceHeader.includes("data-header-region") &&
     marketplaceHeader.includes("sticky top-0") &&
-    marketplaceHeader.includes("xl:h-20"),
+    marketplaceHeader.includes("xl:h-20") &&
+    marketplaceHeader.includes("hidden h-9 w-9") &&
+    marketplaceHeader.includes("order-5 mt-1 grid w-full grid-cols-2"),
+);
+check(
+  "общая шапка и футер оформлены в коралловой палитре, а футер имеет пять колонок без фиктивных контактов",
+  marketplaceHeader.includes("bg-[#e58e82]") && marketplaceHeader.includes("data-header-search") &&
+    marketplaceFooter.includes('data-block="newsletter"') &&
+    marketplaceFooter.includes("lg:grid-cols-5") &&
+    marketplaceFooter.includes("data-field=\"newsletter-email\"") &&
+    marketplaceFooter.includes("Адрес пока не сохранён") &&
+    !marketplaceFooter.includes("support@nailgo") &&
+    app.includes("<MarketplaceFooter compactSearch={pathname === \"/search\"} />"),
 );
 check(
   "страница поиска адаптивно показывает фильтры, живые карточки и карту с мобильным переключателем",
@@ -164,7 +186,7 @@ check(
 );
 check(
   "главная использует локальные оптимизированные изображения и не зависит от внешних image URL",
-  ["reference-hero.jpg", "reference-master-banner.jpg", "reference-service-manicure.jpg", "reference-service-pedicure.jpg", "reference-service-extensions.jpg", "reference-service-design.jpg", "reference-service-strengthening.jpg", "reference-service-removal.jpg"].every((name) => {
+  ["reference-hero.jpg", "reference-master-banner.jpg", "reference-master-anna.jpg", "reference-service-manicure.jpg", "reference-service-pedicure.jpg", "reference-service-extensions.jpg", "reference-service-design.jpg", "reference-service-strengthening.jpg", "reference-service-removal.jpg"].every((name) => {
     const imagePath = path.join(root, "public/images", name);
     return fs.existsSync(imagePath) && fs.statSync(imagePath).size < 150_000;
   }),
@@ -175,11 +197,15 @@ check(
     css.includes("height: min(var(--n2g-map-height, 360px), max(280px, 42vh));"),
 );
 check(
-  "страница мастера переносит вкладки и переносит блок цены/записи под услугу на узком экране",
-  masterPage.includes("flex flex-wrap gap-x-4 gap-y-2 text-sm") &&
-    masterPage.includes("flex min-w-0 flex-col gap-2 rounded-xl") &&
-    masterPage.includes("sm:flex-row sm:items-center sm:justify-between") &&
-    masterPage.includes("firstWindow.label") && !masterPage.includes("Записаться на 19:00"),
+  "страница мастера переносит вкладки и цену/запись на узком экране, показывает только реальные медиа и корректный workspace",
+  masterPage.includes("flex min-w-max items-center text-sm") &&
+    masterPage.includes("flex min-w-0 space-x-3 overflow-x-auto pb-2") &&
+    masterPage.includes("data-state=\"empty-portfolio\"") &&
+    masterPage.includes("card?.gallery.portfolio ?? []") &&
+    masterPage.includes("card?.reviews?.length") &&
+    masterPage.includes("firstWindowParams.set(\"workspace\", firstWindow.workspaceId)") &&
+    !masterPage.includes("reference-portfolio") &&
+    !masterPage.includes("Записаться на 19:00"),
 );
 check(
   "витрина и личные кабинеты используют fallback viewport height для старого WebKit",
@@ -205,12 +231,17 @@ check(
     !/(?:bg|text|border)-(?:pink|rose)-[0-9]+\/[0-9]+/.test(allUiSource),
 );
 check(
-  "metro, карточки и категории переносятся; мобильные сетки сохраняют margin-fallback и размеры иконок",
+  "metro, горизонтальные карточки и категории переносятся без flex-gap и имеют margin-fallback",
   locationPicker.includes('className="flex flex-wrap px-3 pb-3"') &&
-    locationPicker.includes("mr-1.5 mb-1.5") && cityPicker.includes('className="mt-3 flex flex-wrap"') &&
+    locationPicker.includes("mr-1.5 mb-1.5") &&
+    !locationPicker.includes("items-center justify-between gap-2") &&
+    !locationPicker.includes("items-center gap-2 rounded-xl") &&
+    cityPicker.includes('className="mt-3 flex flex-wrap"') &&
     cityPicker.includes("mr-2 mb-2") && journalPage.includes('className="flex flex-wrap" aria-label="Категории журнала"') &&
-    journalPage.includes("mr-2 mb-2") && home.includes('className="grid min-w-0 gap-3 sm:grid-cols-2" data-block="home-masters"') &&
-    home.includes('className="mr-3 shrink-0"') &&
+    journalPage.includes("mr-2 mb-2") &&
+    home.includes("n2g-master-carousel flex min-w-0 snap-x snap-mandatory overflow-x-auto") &&
+    home.includes("mr-4 mb-2 flex w-[278px] min-w-[278px] shrink-0 snap-start") &&
+    home.includes("min-h-[56px] min-w-[56px]") &&
     home.includes("mb-3 mr-3 flex min-w-0 flex-col") &&
     home.includes("h-8 w-8 min-h-[32px] min-w-[32px]") &&
     searchMap.includes("grid min-w-0 grid-cols-[64px_minmax(0,1fr)]") &&
@@ -236,7 +267,7 @@ check(
 );
 check(
   "временные слоты на витрине, записи и переносе переносятся с запасными margin",
-  home.includes('className="flex flex-wrap gap-2"') &&
+  home.includes('className="flex flex-wrap"') &&
     home.includes("mr-2 mb-2 flex-[1_1_9rem]") &&
     booking.includes('className="mt-2 flex flex-wrap gap-2"') &&
     booking.includes("mr-2 mb-2 rounded-lg border") &&

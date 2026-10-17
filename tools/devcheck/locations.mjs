@@ -189,6 +189,30 @@ assert(
   "портфолио приходит массивом",
   Array.isArray(card.data.gallery.portfolio) && Array.isArray(card.data.gallery.certificates),
 );
+const masterProfile = makeDom("/master/anna-smirnova");
+await wait(1600);
+const profileDoc = masterProfile.window.document;
+const visiblePortfolio = [...profileDoc.querySelectorAll("[data-portfolio-carousel] img")].map((image) => image.getAttribute("src"));
+const expectedPortfolio = card.data.gallery.portfolio.map((photo) => photo.thumbUrl);
+const visibleReviewIds = [...profileDoc.querySelectorAll("[data-card-review]")].map((review) => review.getAttribute("data-card-review"));
+const expectedReviewIds = card.data.reviews.slice(0, 3).map((review) => review.id);
+assert(
+  "портфолио профиля содержит только фото, полученные из API",
+  JSON.stringify(visiblePortfolio) === JSON.stringify(expectedPortfolio),
+  `показано=${visiblePortfolio.length}; API=${expectedPortfolio.length}`,
+);
+assert(
+  "отзывы профиля совпадают с опубликованными отзывами API",
+  JSON.stringify(visibleReviewIds) === JSON.stringify(expectedReviewIds),
+  `показано=${visibleReviewIds.join(",")}; API=${expectedReviewIds.join(",")}`,
+);
+if (expectedPortfolio.length === 0) {
+  assert(
+    "пустое портфолио показывает честное состояние вместо референс-заглушек",
+    Boolean(profileDoc.querySelector("[data-state='empty-portfolio']")) && !profileDoc.querySelector("[data-portfolio-carousel] img"),
+  );
+}
+masterProfile.dom.window.close();
 
 /* --- Интерфейс: выбор места на карте мастеров --- */
 
@@ -304,6 +328,20 @@ assert(
 );
 const homeCatalogSlugs = [...homeWindow.document.querySelectorAll("[data-block='home-masters'] a[href^='/master/']")]
   .map((node) => node.getAttribute("href")?.replace("/master/", ""));
+const carouselSlug = homeCatalogSlugs[0];
+const carouselApiMaster = carouselSlug ? await api(`/masters/${encodeURIComponent(carouselSlug)}`) : null;
+const carouselCard = carouselSlug
+  ? homeWindow.document.querySelector(`[data-master-carousel-card='${carouselSlug}']`)
+  : null;
+assert(
+  "горизонтальная карточка мастера показывает API-имя, цену, рейтинг и избранное того же slug",
+  carouselApiMaster?.status === 200 &&
+    carouselCard?.querySelector("a[href^='/master/']")?.textContent?.trim() === carouselApiMaster.data.name &&
+    carouselCard?.querySelector("[data-master-rating]")?.getAttribute("data-master-rating") === String(carouselApiMaster.data.rating) &&
+    carouselCard?.querySelector("[data-master-price]")?.getAttribute("data-master-price") === String(carouselApiMaster.data.priceFrom) &&
+    carouselCard?.querySelector("[data-action='favorite-toggle']")?.getAttribute("data-slug") === carouselSlug,
+  `slug=${carouselSlug}; API=${carouselApiMaster?.data?.name}/${carouselApiMaster?.data?.priceFrom}/${carouselApiMaster?.data?.rating}`,
+);
 const homeMapSlugs = [...homeWindow.document.querySelectorAll("[data-city-map] [data-map-master]")]
   .map((node) => node.getAttribute("data-map-master"));
 assert(
@@ -311,6 +349,15 @@ assert(
   homeCatalogSlugs.length > 0 && homeMapSlugs.length === homeCatalogSlugs.length &&
     homeMapSlugs.every((slug) => homeCatalogSlugs.includes(slug)),
   `карточки=${homeCatalogSlugs.join(",")}; карта=${homeMapSlugs.join(",")}`,
+);
+const referencePortraits = [...homeWindow.document.querySelectorAll('[data-master-photo-state="reference-fallback"]')];
+assert(
+  "локальное фото-кроп используется только у соответствующей карточки seeded-мастера",
+  referencePortraits.every((photo) =>
+    photo.closest("[data-master-carousel-card]")?.getAttribute("data-master-carousel-card") === "anna-smirnova" &&
+    photo.getAttribute("src") === "/images/reference-master-anna.jpg",
+  ),
+  `фото-fallback=${referencePortraits.length}`,
 );
 
 // Правая карточка главной всегда относится к первому мастеру той же выдачи;
@@ -325,8 +372,12 @@ assert(
 
 const homeSource = fs.readFileSync(new URL("../../src/pages/HomePage.tsx", import.meta.url), "utf8");
 assert(
-  "главная не содержит закреплённого мастера и демо-недели",
-  !homeSource.includes("anna-smirnova") && !homeSource.includes("demoWeek"),
+  "главная выбирает мастера из текущей выдачи и использует референс-фото только как fallback для seeded-профиля",
+  homeSource.includes("const showcaseMaster = listedMasters[0]") &&
+    homeSource.includes('master.slug === "anna-smirnova"') &&
+    homeSource.includes("/images/reference-master-anna.jpg") &&
+    homeSource.split('master.slug === "anna-smirnova"').length - 1 === 1 &&
+    !homeSource.includes("Анна Смирнова") && !homeSource.includes("demoWeek"),
 );
 assert(
   "прайс боковой карточки загружается по slug выбранного мастера",
@@ -368,17 +419,17 @@ if (showcaseSlug) {
 
     const queryHome = makeDom(`/?metro=mayakovskaya&query=${encodeURIComponent(searchableService.name)}`);
     await wait(1500);
-    const queryInput = queryHome.window.document.querySelector("input[aria-label='Услуга, мастер или метро']");
+    const queryInput = queryHome.window.document.querySelector("select[aria-label='Услуга']");
     const queryShowcase = queryHome.window.document.querySelector("[data-block='home-showcase']")?.getAttribute("data-showcase-master");
-    assert("поле поиска восстанавливает запрос из URL", queryInput?.value === searchableService.name, queryInput?.value ?? "поля нет");
+    assert("поле услуги восстанавливает запрос из URL", queryInput?.value === searchableService.name, queryInput?.value ?? "поля нет");
     assert(
       "поиск на главной показывает результат серверного поиска",
       queryShowcase === showcaseSlug,
       `показано=${queryShowcase}; ожидается=${showcaseSlug}`,
     );
 
-    setField(queryHome.dom, "Услуга, мастер, метро", "запрос-которого-точно-нет");
-    queryInput?.closest("form")?.dispatchEvent(new queryHome.window.Event("submit", { bubbles: true, cancelable: true }));
+    const headerSearch = setField(queryHome.dom, "Услуга, мастер, метро", "запрос-которого-точно-нет");
+    headerSearch.closest("form")?.dispatchEvent(new queryHome.window.Event("submit", { bubbles: true, cancelable: true }));
     await wait(900);
     assert(
       "кнопка «Найти» отправляет введённый текст в URL и API-выдачу",
@@ -466,6 +517,15 @@ assert(
   mobileHome.window.location.search.includes("query=%D0%BC%D0%B0%D0%BD%D0%B8%D0%BA%D1%8E%D1%80") &&
     mobileHome.window.document.querySelector("input[aria-label='Услуга, мастер или метро']")?.value === "маникюр",
   `${mobileHome.window.location.search} · ${mobileHome.window.document.querySelector("input[aria-label='Услуга, мастер или метро']")?.value}`,
+);
+mobileHome.window.document.querySelector("[data-block='home-hero'] form")?.dispatchEvent(
+  new mobileHome.window.Event("submit", { bubbles: true, cancelable: true }),
+);
+await wait(400);
+assert(
+  "поиск из hero открывает каталог с выбранной услугой",
+  mobileHome.window.location.pathname === "/search" && mobileHome.window.location.search.includes("query=%D0%BC%D0%B0%D0%BD%D0%B8%D0%BA%D1%8E%D1%80"),
+  `${mobileHome.window.location.pathname}${mobileHome.window.location.search}`,
 );
 mobileHome.dom.window.close();
 

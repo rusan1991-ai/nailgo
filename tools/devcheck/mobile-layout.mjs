@@ -67,6 +67,14 @@ check(
     /<main className="[^"]*w-full[^"]*max-w-full[^"]*overflow-x-hidden/.test(authShared),
 );
 check(
+  "box-sizing border-box зафиксирован отдельно от preflight для безопасной ширины 100% плюс padding",
+  /\*,\s*\*::before,\s*\*::after\s*\{\s*box-sizing:\s*border-box\s*;/.test(css),
+);
+check(
+  "текстовые поля на узком экране остаются 16px и не запускают auto-zoom Safari при фокусе",
+  /@media\s*\(max-width:\s*639px\)\s*\{\s*input,\s*select,\s*textarea\s*\{\s*font-size:\s*16px\s*!important;/s.test(css),
+);
+check(
   "на мобильном все пункты навигации клиента видны в компактной сетке, на широком экране становятся сайдбаром",
   clientShell.includes("data-mobile-nav") && clientShell.includes("grid-cols-2") &&
     clientShell.includes("sm:grid-cols-3") && clientShell.includes("lg:block") &&

@@ -46,6 +46,11 @@ assert.ok(inlineCss.includes("min-height:100vh") && inlineCss.includes("height:1
 assert.ok(inlineCss.includes("calc(var(--vh,1vh)*100)"), "the JS-measured viewport height must be used when available");
 assert.ok(inlineCss.includes("--color-pink-500:#ec4899!important"), "legacy WebKit must receive a HEX pink accent token");
 assert.ok(inlineCss.includes("--color-pink-50:#fdf2f8!important"), "legacy WebKit must receive a HEX pastel token");
+assert.ok(inlineCss.includes("box-sizing:border-box"), "legacy WebKit must keep padded full-width panels within the viewport");
+assert.ok(
+  inlineCss.includes("@media(max-width:639px)") && inlineCss.includes("font-size:16px!important"),
+  "mobile form controls must stay at least 16px to prevent iOS Safari focus zoom",
+);
 const oklchTokens = new Set([...inlineCss.matchAll(/--color-([a-z0-9-]+):oklch\(/gi)].map((match) => match[1]));
 const hexFallbackTokens = new Set([...inlineCss.matchAll(/--color-([a-z0-9-]+):#[a-f0-9]{6}!important/gi)].map((match) => match[1]));
 assert.deepEqual(

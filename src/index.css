@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* Keep width:100% plus padding inside the viewport even if legacy WebKit drops a reset selector. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 /*
  * Tailwind v4's palette is expressed in OKLCH. Safari/WebKit 15.1 does not
  * parse that color space, so give every palette token used by this UI an sRGB
@@ -166,4 +173,13 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .n2g-magic-root { transition: none; }
+}
+
+/* iOS Safari zooms the page when a focused text control is smaller than 16px. */
+@media (max-width: 639px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }

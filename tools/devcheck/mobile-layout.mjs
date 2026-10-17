@@ -32,6 +32,7 @@ const app = read("src/App.tsx");
 const css = read("src/index.css");
 const indexHtml = read("index.html");
 const home = read("src/pages/HomePage.tsx");
+const marketplaceHeader = read("src/components/MarketplaceHeader.tsx");
 const booking = read("src/pages/BookingPage.tsx");
 const reschedule = read("src/components/ReschedulePanel.tsx");
 const cityPicker = read("src/components/CityPicker.tsx");
@@ -88,7 +89,7 @@ check(
     cityMap.includes('className="w-full max-w-full min-w-0 overflow-hidden rounded-2xl') &&
     cityMap.includes("block w-full max-w-full min-w-0 overflow-hidden") &&
     cityMap.includes("w-full max-w-full min-w-0 border-0") &&
-    !/(?<!max-)w-screen|(?<!max-)w-\[100vw\]|width:\s*100vw|(?<!max-)w-\[\d+px\]/.test(home + cityMap),
+    !/(?<!max-)w-screen|(?<!max-)w-\[100vw\]|width:\s*100vw|(?<!max-)(?<!min-)w-\[\d+px\]/.test(home + cityMap),
 );
 check(
   "главная и карта мастеров задают безопасные адаптивные колонки без фиксированной ширины",
@@ -96,16 +97,52 @@ check(
     home.includes("xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.85fr)]") &&
     home.includes("min-w-0 xl:row-span-2") && home.includes("xl:col-start-2 xl:row-start-2") &&
     searchMap.includes("grid min-w-0 grid-cols-1 gap-4") &&
-    searchMap.includes("min-w-0 space-y-3"),
+    searchMap.includes("xl:grid-cols-[280px_minmax(330px,0.95fr)_minmax(380px,1.15fr)]") &&
+    searchMap.includes("grid min-w-0 grid-cols-[64px_minmax(0,1fr)]"),
 );
 check(
-  "главная перестраивает hero, категории, фильтры и список мастеров на узком экране",
+  "главная повторяет новый marketplace hero, шесть фотокатегорий и адаптивный блок discovery",
   home.includes('data-block="home-hero"') &&
-    home.includes("xl:grid-cols-[minmax(0,0.96fr)_minmax(0,1.04fr)]") &&
-    home.includes("grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5") &&
+    home.includes("xl:grid-cols-[minmax(0,1.1fr)_minmax(400px,0.9fr)]") &&
+    home.includes("grid min-w-0 grid-cols-2 sm:grid-cols-3 xl:grid-cols-6") &&
+    home.includes('data-block="home-discovery"') &&
+    home.includes('data-block="home-how-it-works"') &&
+    home.includes('src="/images/reference-hero.jpg"') &&
+    home.includes("src={service.image}") &&
     home.includes('details open={Boolean(place)}') &&
-    home.includes("grid min-w-0 gap-3 sm:grid-cols-2") &&
-    home.includes("className=\"mb-2 shrink-0 sm:mb-0 sm:mr-2\""),
+    home.includes("grid min-w-0 gap-3 sm:grid-cols-2"),
+);
+check(
+  "главная и поиск используют общую шапку с реальным поиском, а регион в поиске не дублирует выбор города",
+  marketplaceHeader.includes("data-marketplace-header") &&
+    marketplaceHeader.includes("data-header-search") &&
+    marketplaceHeader.includes("new URLSearchParams(location.search)") &&
+    home.includes("<MarketplaceHeader showRegionPicker />") &&
+    searchMap.includes("<MarketplaceHeader showRegionPicker={false} />") &&
+    marketplaceHeader.includes("data-header-region"),
+);
+check(
+  "страница поиска адаптивно показывает фильтры, живые карточки и карту с мобильным переключателем",
+  searchMap.includes('data-block="search-filters"') &&
+    searchMap.includes('data-block="search-results"') &&
+    searchMap.includes('data-block="search-map-panel"') &&
+    searchMap.includes("data-search-mode-toggle") &&
+    searchMap.includes("search.data.items") &&
+    searchMap.includes("filteredMasters.map((master, index)") &&
+    searchMap.includes("compact") && searchMap.includes("hideMasterList"),
+);
+check(
+  "место на главной и в каталоге выбирается только из справочника, свободного адресного ввода нет",
+  home.includes("<LocationPicker") && searchMap.includes("<LocationPicker") &&
+    searchMap.includes("Выберите место из справочника, адрес вводить не нужно") &&
+    !/placeholder=[\"'][^\"']*(?:адрес|address)[^\"']*[\"']/i.test(searchMap),
+);
+check(
+  "главная использует локальные оптимизированные изображения и не зависит от внешних image URL",
+  ["reference-hero.jpg", "reference-master-banner.jpg", "reference-service-manicure.jpg", "reference-service-pedicure.jpg", "reference-service-extensions.jpg", "reference-service-design.jpg", "reference-service-strengthening.jpg", "reference-service-removal.jpg"].every((name) => {
+    const imagePath = path.join(root, "public/images", name);
+    return fs.existsSync(imagePath) && fs.statSync(imagePath).size < 150_000;
+  }),
 );
 check(
   "карта ограничивает высоту на мобильном экране, сохраняя высоту desktop-настройки",
@@ -143,15 +180,16 @@ check(
     !/(?:bg|text|border)-(?:pink|rose)-[0-9]+\/[0-9]+/.test(allUiSource),
 );
 check(
-  "metro, карточки и категории переносятся; внутренние flex-элементы главной имеют margin-fallback",
+  "metro, карточки и категории переносятся; мобильные сетки сохраняют margin-fallback и размеры иконок",
   locationPicker.includes('className="flex flex-wrap px-3 pb-3"') &&
     locationPicker.includes("mr-1.5 mb-1.5") && cityPicker.includes('className="mt-3 flex flex-wrap"') &&
     cityPicker.includes("mr-2 mb-2") && journalPage.includes('className="flex flex-wrap" aria-label="Категории журнала"') &&
     journalPage.includes("mr-2 mb-2") && home.includes('className="grid min-w-0 gap-3 sm:grid-cols-2" data-block="home-masters"') &&
     home.includes('className="mr-3 shrink-0"') &&
-    home.includes("mb-2 mr-0 grid h-10 w-10 shrink-0") && home.includes("sm:mr-3") &&
-    searchMap.includes("grid min-w-0 grid-cols-[48px_minmax(0,1fr)]") &&
-    searchMap.includes("mr-2 mb-2 rounded-xl"),
+    home.includes("mb-3 mr-3 flex min-w-0 flex-col") &&
+    home.includes("h-8 w-8 min-h-[32px] min-w-[32px]") &&
+    searchMap.includes("grid min-w-0 grid-cols-[64px_minmax(0,1fr)]") &&
+    searchMap.includes("mb-1 mr-2 inline-flex items-center rounded-lg border"),
 );
 check(
   "аватары и иконки имеют фиксированные размеры без зависимости от квадратной aspect-утилиты",

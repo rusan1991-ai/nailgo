@@ -89,15 +89,16 @@ export function CityPicker({ variant = "compact", className }: Props) {
   }
 
   return (
-    <div className={cn("relative", className)}>
+    <div className={cn("relative min-w-0", className)}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         data-action="city-open"
-        className="flex items-center rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 transition hover:border-pink-200"
+        aria-expanded={open}
+        className="flex min-w-0 max-w-full items-center rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 transition hover:border-pink-200"
       >
-        <MapPin className="mr-2 h-4 w-4 text-pink-500" />
-        {region}
+        <MapPin className="mr-2 h-4 w-4 shrink-0 text-pink-500" />
+        <span className="min-w-0 truncate">{region}</span>
       </button>
 
       {open && (

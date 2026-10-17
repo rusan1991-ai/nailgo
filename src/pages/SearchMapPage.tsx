@@ -1,207 +1,493 @@
 import { FavoriteButton } from "../components/FavoriteButton";
 import { motion } from "framer-motion";
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { ClientShell } from "../components/ClientShell";
+import { useMemo, useState } from "react";
+import {
+  ArrowRight,
+  CalendarDays,
+  Clock3,
+  MapPin,
+  SlidersHorizontal,
+  Star,
+} from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 import { Avatar } from "../components/NailUi";
+import { MarketplaceHeader } from "../components/MarketplaceHeader";
 import { formatRub } from "../data/mock";
 import { useCatalog } from "../catalog/store";
 import { CityMap } from "../components/CityMap";
 import { CityPicker } from "../components/CityPicker";
 import { DEFAULT_REGIONS, useCity } from "../city/CityContext";
-import { locationsApi, type PopularItem } from "../api/locations";
-import { LocationPicker } from "../components/LocationPicker";
+import { LocationPicker, type PickedPlace } from "../components/LocationPicker";
 import { recordPromotionEvent, usePromotionImpressions } from "../api/promotion";
+import { MASTER_SORT_OPTIONS, useMasterSearch, type MasterSort } from "../api/search";
+
+const reviewOptions = [
+  { value: 0, label: "Любое число" },
+  { value: 10, label: "10+" },
+  { value: 50, label: "50+" },
+  { value: 100, label: "100+" },
+];
+
+const ratingOptions = [
+  { value: 0, label: "Любой" },
+  { value: 4, label: "4.0+" },
+  { value: 4.5, label: "4.5+" },
+  { value: 4.8, label: "4.8+" },
+];
+
+function makeBookingPath(master: { slug: string; nextWindows?: Array<{
+  workspaceId: string;
+  serviceId: string | null;
+  dateISO: string;
+  label: string;
+}> }) {
+  const params = new URLSearchParams({ master: master.slug });
+  const next = master.nextWindows?.[0];
+  if (next?.workspaceId) params.set("workspace", next.workspaceId);
+  if (next?.serviceId) params.set("service", next.serviceId);
+  if (next?.dateISO) params.set("date", next.dateISO);
+  if (next?.label) params.set("slot", next.label);
+  return `/booking?${params.toString()}`;
+}
 
 export function SearchMapPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [mode, setMode] = useState<"list" | "map">("list");
-  /** Выбранное место: станция метро или город области из справочника. */
-  const [place, setPlace] = useState<{ kind: "metro" | "district"; slug: string; name: string } | null>(null);
-  const [popular, setPopular] = useState<{ metro: PopularItem[]; cities: PopularItem[] } | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [minReviews, setMinReviews] = useState(0);
+  const [minRating, setMinRating] = useState(0);
+  const [onlyWithWindows, setOnlyWithWindows] = useState(false);
 
-  const { masters } = useCatalog();
+  const { masters, status: catalogStatus } = useCatalog();
   const { region } = useCity();
+  const metroParam = searchParams.get("metro");
+  const districtParam = searchParams.get("district");
+  const queryParam = searchParams.get("query")?.trim() ?? "";
+  const dateParam = searchParams.get("date");
+  const sortValue = searchParams.get("sort");
+  const sortParam: MasterSort = MASTER_SORT_OPTIONS.some((option) => option.value === sortValue)
+    ? (sortValue as MasterSort)
+    : "rating";
 
-  useEffect(() => {
-    let alive = true;
-    void locationsApi
-      .popular()
-      .then((response) => {
-        if (alive) setPopular(response);
-      })
-      .catch(() => {
-        // Фильтр — не критичный ресурс: без него витрина работает как раньше.
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  const place: PickedPlace = metroParam
+    ? {
+        kind: "metro",
+        slug: metroParam,
+        name: masters.find((master) => master.metroSlug === metroParam)?.metro.replace(/^м\.\s*/, "") ?? metroParam,
+      }
+    : districtParam
+      ? {
+          kind: "district",
+          slug: districtParam,
+          name: masters.find((master) => master.districtSlug === districtParam)?.metro.replace(/^г\.\s*/, "") ?? districtParam,
+        }
+      : null;
+
+  const search = useMasterSearch({
+    sort: sortParam,
+    date: dateParam,
+    metro: metroParam,
+    district: districtParam,
+    region,
+    query: queryParam || null,
+  });
   const regionInfo = DEFAULT_REGIONS.find((item) => item.region === region) ?? DEFAULT_REGIONS[0];
-  /**
-   * Сначала мастера выбранного города, потом остальные — карта показывает
-   * первых. Если выбрана станция метро или город области, оставляем только
-   * совпадения по справочнику: «рядом с Маяковской» — это не поиск подстроки.
-   */
-  const sorted = useMemo(() => {
-    const byPlace = place
-      ? masters.filter((master) =>
-          place.kind === "metro" ? master.metroSlug === place.slug : master.districtSlug === place.slug,
-        )
-      : masters;
-    const regional = byPlace.filter((master) => !master.region || master.region === region);
-    return [...regional, ...byPlace.filter((master) => !regional.includes(master))];
-  }, [masters, region, place]);
-  const cards = useMemo(() => sorted.slice(0, 4), [sorted]);
-  const searchImpressionsRef = usePromotionImpressions("search", cards.map((master) => master.slug));
-  const regionalMasters = useMemo(
-    () => masters.filter((master) => !master.region || master.region === region),
-    [masters, region],
+
+  const candidates = useMemo(() => {
+    if (search.data) return search.data.items;
+    let result = masters.filter((master) => !master.region || master.region === region);
+    if (metroParam) result = result.filter((master) => master.metroSlug === metroParam);
+    if (districtParam) result = result.filter((master) => master.districtSlug === districtParam);
+    if (queryParam) {
+      const normalized = queryParam.toLocaleLowerCase("ru-RU");
+      result = result.filter((master) =>
+        [master.name, master.tags, master.metro, master.city, master.address]
+          .filter(Boolean)
+          .some((value) => value!.toLocaleLowerCase("ru-RU").includes(normalized)),
+      );
+    }
+    return result;
+  }, [search.data, masters, region, metroParam, districtParam, queryParam]);
+
+  const filteredMasters = useMemo(
+    () => candidates.filter((master) =>
+      master.reviewsCount >= minReviews &&
+      master.rating >= minRating &&
+      (!onlyWithWindows || Boolean(master.nextWindows?.length)),
+    ),
+    [candidates, minReviews, minRating, onlyWithWindows],
   );
+  const searchImpressionsRef = usePromotionImpressions("search", filteredMasters.map((master) => master.slug));
+  const activeFilterCount = Number(Boolean(place)) + Number(Boolean(queryParam)) + Number(minReviews > 0) + Number(minRating > 0) + Number(onlyWithWindows);
+  const selectedMapMaster = filteredMasters.find((master) => typeof master.lat === "number" && typeof master.lng === "number");
+  const mapCenter = place && selectedMapMaster?.lat != null && selectedMapMaster?.lng != null
+    ? { lat: selectedMapMaster.lat, lng: selectedMapMaster.lng }
+    : regionInfo.center;
+
+  const updateParam = (key: string, value: string | null) => {
+    const params = new URLSearchParams(searchParams);
+    if (value) params.set(key, value);
+    else params.delete(key);
+    setSearchParams(params, { replace: true });
+  };
+
+  const choosePlace = (next: PickedPlace) => {
+    const params = new URLSearchParams(searchParams);
+    params.delete("metro");
+    params.delete("district");
+    if (next) params.set(next.kind === "metro" ? "metro" : "district", next.slug);
+    setSearchParams(params, { replace: true });
+    setMode("list");
+  };
+
+  const clearFilters = () => {
+    const params = new URLSearchParams(searchParams);
+    ["metro", "district", "query", "sort", "date"].forEach((key) => params.delete(key));
+    setSearchParams(params, { replace: true });
+    setMinReviews(0);
+    setMinRating(0);
+    setOnlyWithWindows(false);
+  };
+
+  const heading = place
+    ? `Мастера${place.kind === "metro" ? " у метро " : " в "}${place.name}`
+    : "Поиск мастеров";
 
   return (
-    <ClientShell title="Карта мастеров" showCityPicker={false}>
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap">
-            {place ? (
-              <button
-                type="button"
-                onClick={() => setPlace(null)}
-                data-action="clear-place"
-                className="mr-2 mb-2 rounded-xl border border-[#fce7f3] bg-[#fdf2f8] px-3 py-2 text-sm text-[#db2777]"
-              >
-                {place.kind === "metro" ? "м. " : "г. "}
-                {place.name} ✕
-              </button>
-            ) : (
-              <>
-                {(popular?.metro ?? []).slice(0, 3).map((item) => (
-                  <button
-                    key={item.slug}
-                    type="button"
-                    onClick={() => setPlace({ kind: "metro", slug: item.slug, name: item.name })}
-                    data-place={`metro:${item.slug}`}
-                    className="mr-2 mb-2 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 hover:border-[#f9a8d4]"
-                  >
-                    м. {item.name}
-                    <span className="ml-1 text-xs text-slate-400">{item.masters}</span>
-                  </button>
-                ))}
-                {(popular?.cities ?? []).slice(0, 2).map((item) => (
-                  <button
-                    key={item.slug}
-                    type="button"
-                    onClick={() => setPlace({ kind: "district", slug: item.slug, name: item.name })}
-                    data-place={`district:${item.slug}`}
-                    className="mr-2 mb-2 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 hover:border-[#f9a8d4]"
-                  >
-                    г. {item.name}
-                    <span className="ml-1 text-xs text-slate-400">{item.masters}</span>
-                  </button>
-                ))}
-                {!popular && (
-                  <>
-                    <span className="mr-2 mb-2 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-400">Рядом</span>
-                    <span className="mr-2 mb-2 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-400">
-                      Маникюр + гель-лак
-                    </span>
-                  </>
-                )}
-              </>
-            )}
-          </div>
+    <main className="n2g-min-h-viewport w-full max-w-full min-w-0 overflow-x-hidden bg-[#fff7fa] px-3 py-3 text-slate-800 sm:px-6 sm:py-5">
+      <div className="mx-auto w-full min-w-0 max-w-[1580px]">
+        <MarketplaceHeader showRegionPicker={false} />
 
-          <div className="inline-flex rounded-xl border border-[#f1dde6] p-1 text-sm">
-            <button
-              onClick={() => setMode("list")}
-              className={`rounded-lg px-3 py-1.5 ${mode === "list" ? "bg-pink-500 text-white" : "text-slate-600"}`}
-            >
-              Список
-            </button>
-            <button
-              onClick={() => setMode("map")}
-              className={`rounded-lg px-3 py-1.5 ${mode === "map" ? "bg-pink-500 text-white" : "text-slate-600"}`}
-            >
-              Карта
-            </button>
+        <div className="mb-4 mt-5 flex min-w-0 flex-wrap items-end justify-between">
+          <div className="mr-4 mb-2 min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#c95685]">Каталог Nail 2 Go</p>
+            <h1 className="mt-1 text-2xl font-semibold leading-tight text-slate-900 sm:text-3xl">{heading}</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              {queryParam ? `По запросу «${queryParam}» · ` : ""}
+              Найдено {filteredMasters.length} {filteredMasters.length === 1 ? "мастер" : "мастеров"}
+              {place ? ` · ${place.kind === "metro" ? "м. " : "г. "}${place.name}` : ` · ${region}`}
+            </p>
           </div>
+          <button
+            type="button"
+            onClick={() => setMode((value) => value === "list" ? "map" : "list")}
+            className="mb-2 inline-flex items-center rounded-xl border border-[#f0cada] bg-white px-3 py-2 text-sm font-semibold text-[#b34a76] lg:hidden"
+            data-search-mode-toggle
+          >
+            <MapPin className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            {mode === "list" ? "Показать карту" : "Показать список"}
+          </button>
         </div>
 
-        <div
-          className={`grid min-w-0 grid-cols-1 gap-4 ${
-            mode === "list"
-              ? "xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]"
-              : "xl:grid-cols-[minmax(0,1fr)_minmax(0,420px)]"
-          }`}
-        >
-          <div ref={searchImpressionsRef} className={`min-w-0 space-y-3 ${mode === "map" ? "xl:order-2" : ""}`}>
-            {cards.map((master, idx) => (
-              <motion.div
-                key={master.slug}
-                data-promotion-master={master.slug}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: idx * 0.05 }}
-                className="rounded-2xl border border-[#f1dde6] p-4"
-              >
-                <div className="grid min-w-0 grid-cols-[48px_minmax(0,1fr)] items-start gap-x-3 gap-y-2 sm:grid-cols-[48px_minmax(0,1fr)_auto] sm:items-center">
-                  <Avatar size={48} src={master.avatarUrl} name={master.name} />
-                  <div className="min-w-0">
-                    <Link
-                      to={`/master/${master.slug}`}
-                      onClick={() => recordPromotionEvent(master.slug, "profile_click", "search")}
-                      className="block truncate font-semibold hover:text-pink-600"
-                    >
-                      {master.name}
-                    </Link>
-                    <p className="truncate text-sm text-slate-500">{master.tags}</p>
-                    <p className="text-sm text-slate-500">
-                      {master.metro}, {master.distance}
-                    </p>
-                  </div>
-                  <div className="col-start-2 mt-1 flex items-center space-x-2 sm:col-start-3 sm:row-start-1 sm:mt-0">
-                    <p className="text-sm font-semibold">
-                      {master.priceFrom > 0 ? `от ${formatRub(master.priceFrom)}` : "цена по запросу"}
-                    </p>
-                    <FavoriteButton masterSlug={master.slug} masterName={master.name} />
-                  </div>
-                </div>
-                <div className="mt-2 flex flex-wrap text-xs" data-field="windows">
-                  {(master.nextWindows ?? []).map((window) => (
-                    <Link
-                      key={`${window.dateISO}-${window.startMinutes}`}
-                      to={`/booking?master=${master.slug}&workspace=${encodeURIComponent(window.workspaceId)}${window.serviceId ? `&service=${window.serviceId}` : ""}&date=${window.dateISO}&slot=${encodeURIComponent(window.label)}`}
-                      onClick={() => recordPromotionEvent(master.slug, "booking_click", "search")}
-                      data-window={`${master.slug}:${window.dateISO}:${window.label}`}
-                      className="mr-1 mb-1 rounded-lg border border-[#f1dde6] px-2 py-1 hover:border-[#f9a8d4]"
-                    >
-                      {window.label} · {window.workspaceName}
-                    </Link>
-                  ))}
-                  {(master.nextWindows ?? []).length === 0 && (
-                    <span className="text-slate-400">свободных окон нет</span>
-                  )}
-                </div>
-              </motion.div>
-            ))}
-          </div>
+        <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(330px,0.95fr)_minmax(380px,1.15fr)]">
+          <aside className={`min-w-0 rounded-2xl border border-[#f0e1e8] bg-white p-4 shadow-sm ${mode === "map" ? "hidden" : "block"} lg:block`} data-block="search-filters">
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((value) => !value)}
+              aria-expanded={filtersOpen}
+              className="flex w-full items-center justify-between rounded-xl bg-[#fff5f8] px-3 py-2.5 text-left lg:hidden"
+            >
+              <span className="inline-flex items-center text-sm font-semibold text-slate-800">
+                <SlidersHorizontal className="mr-2 h-4 w-4 text-[#c95685]" aria-hidden="true" />
+                Фильтры{activeFilterCount ? ` · ${activeFilterCount}` : ""}
+              </span>
+              <span className="text-xs text-[#c95685]">{filtersOpen ? "Свернуть" : "Открыть"}</span>
+            </button>
 
-          <div className={`min-w-0 space-y-3 ${mode === "map" ? "xl:order-1" : ""}`}>
-            {/* Тот же фильтр, что на главной: метро сгруппировано по линиям. */}
-            <div data-block="place-filter">
-              <LocationPicker place={place} onPick={setPlace} variant="compact" />
+            <div className={`${filtersOpen ? "block" : "hidden"} mt-3 lg:mt-0 lg:block`} data-filter-content>
+              <div className="mb-4 hidden items-center justify-between lg:flex">
+                <h2 className="text-lg font-semibold text-slate-900">Фильтры</h2>
+                <button type="button" onClick={clearFilters} className="text-xs font-medium text-[#c95685] hover:underline">
+                  Сбросить
+                </button>
+              </div>
+
+              <div className="border-b border-[#f3e7ec] pb-4" data-block="city-filter">
+                <CityPicker variant="wide" className="border-0 p-0" />
+              </div>
+
+              <div className="border-b border-[#f3e7ec] py-4" data-block="place-filter">
+                <details open={Boolean(place)} className="group">
+                  <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-slate-800">
+                    <span>Метро или район</span>
+                    <span className="ml-3 text-xs font-normal text-[#c95685]">{place ? place.name : "Выбрать"}</span>
+                  </summary>
+                  <p className="mt-2 text-xs leading-relaxed text-slate-500">Выберите место из справочника, адрес вводить не нужно.</p>
+                  <div className="mt-3">
+                    <LocationPicker
+                      place={place}
+                      onPick={choosePlace}
+                      variant="compact"
+                      className="border-0 bg-transparent p-0"
+                    />
+                  </div>
+                </details>
+              </div>
+
+              <fieldset className="border-b border-[#f3e7ec] py-4" data-filter="reviews">
+                <legend className="mb-2 text-sm font-semibold text-slate-800">Количество отзывов</legend>
+                <div className="flex flex-wrap">
+                  {reviewOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={minReviews === option.value}
+                      onClick={() => setMinReviews(option.value)}
+                      className={`mr-2 mb-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${minReviews === option.value ? "border-[#ec4899] bg-[#fff0f6] text-[#b34a76]" : "border-[#f0e1e8] text-slate-600 hover:border-[#e7b6cb]"}`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset className="border-b border-[#f3e7ec] py-4" data-filter="rating">
+                <legend className="mb-2 inline-flex items-center text-sm font-semibold text-slate-800">
+                  <Star className="mr-1.5 h-4 w-4 fill-[#e6b44e] text-[#e6b44e]" aria-hidden="true" /> Рейтинг
+                </legend>
+                <div className="flex flex-wrap">
+                  {ratingOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={minRating === option.value}
+                      onClick={() => setMinRating(option.value)}
+                      className={`mr-2 mb-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${minRating === option.value ? "border-[#ec4899] bg-[#fff0f6] text-[#b34a76]" : "border-[#f0e1e8] text-slate-600 hover:border-[#e7b6cb]"}`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              <div className="py-4" data-filter="availability">
+                <p className="mb-2 text-sm font-semibold text-slate-800">Доступность</p>
+                <label className="flex min-w-0 items-start text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={onlyWithWindows}
+                    onChange={(event) => setOnlyWithWindows(event.target.checked)}
+                    className="mr-2 mt-0.5 h-4 w-4 shrink-0 accent-[#ec4899]"
+                  />
+                  <span>Только со свободными окнами</span>
+                </label>
+                {dateParam && (
+                  <p className="mt-2 inline-flex items-center text-xs text-[#b34a76]">
+                    <CalendarDays className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                    Дата: {dateParam.split("-").reverse().join(".")}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between border-t border-[#f3e7ec] pt-3 lg:hidden">
+                <button type="button" onClick={clearFilters} className="mr-3 mb-2 text-sm text-slate-500 underline underline-offset-2">
+                  Сбросить
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMode("list"); setFiltersOpen(false); }}
+                  className="mb-2 rounded-xl bg-[#ec4899] px-4 py-2.5 text-sm font-semibold text-white"
+                >
+                  Показать {filteredMasters.length} мастеров
+                </button>
+              </div>
             </div>
-            <CityPicker variant="wide" />
-            <CityMap
-              masters={regionalMasters}
-              center={regionInfo.center}
-              zoom={regionInfo.cities.length > 1 ? 9 : 11}
-              height={520}
-              title={`Мастера: ${region}`}
-            />
-          </div>
+          </aside>
+
+          <section className={`min-w-0 ${mode === "map" ? "hidden" : "block"} lg:block`} data-block="search-results">
+            <div className="mb-3 flex min-w-0 flex-wrap items-end justify-between">
+              <div className="mr-3 mb-2 min-w-0">
+                <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">Мастера в {place ? place.name : region}</h2>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  {search.loading && filteredMasters.length === 0
+                    ? "Обновляем выдачу…"
+                    : filteredMasters.length
+                      ? `${filteredMasters.length} результатов`
+                      : search.error && catalogStatus === "offline"
+                        ? "Не удалось загрузить каталог. Попробуйте позже."
+                        : "По выбранным условиям мастеров пока нет."}
+                </p>
+              </div>
+              <label className="mb-2 flex min-w-0 items-center text-xs text-slate-500">
+                <span className="mr-2 shrink-0">Сортировка:</span>
+                <select
+                  value={sortParam}
+                  onChange={(event) => updateParam("sort", event.target.value === "rating" ? null : event.target.value)}
+                  className="min-w-0 max-w-full rounded-lg border border-[#f0e1e8] bg-white px-2 py-2 text-sm text-slate-700 outline-none focus:border-[#ec4899]"
+                  aria-label="Сортировка мастеров"
+                >
+                  {MASTER_SORT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <div ref={searchImpressionsRef} className="min-w-0">
+              {filteredMasters.map((master, index) => {
+                const nextWindow = master.nextWindows?.[0];
+                return (
+                  <motion.article
+                    key={master.slug}
+                    data-search-result={master.slug}
+                    data-promotion-master={master.slug}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: Math.min(index, 6) * 0.04 }}
+                    className="mb-3 min-w-0 rounded-2xl border border-[#f0e1e8] bg-white p-3 shadow-sm transition hover:border-[#e7b6cb] hover:shadow-md sm:mb-4 sm:p-4"
+                  >
+                    <div className="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-start">
+                      <div className="mr-3 min-w-[64px]" aria-hidden="true">
+                        <Avatar size={64} src={master.avatarUrl} name={master.name} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-start justify-between">
+                          <div className="min-w-0 pr-2">
+                            <Link
+                              to={`/master/${master.slug}`}
+                              onClick={() => recordPromotionEvent(master.slug, "profile_click", "search")}
+                              className="block truncate text-base font-semibold text-slate-900 hover:text-[#c95685] sm:text-lg"
+                            >
+                              {master.name}
+                            </Link>
+                            <p className="mt-0.5 truncate text-sm text-slate-500">{master.tags}</p>
+                            <p className="mt-1 flex items-center text-sm text-slate-600">
+                              <Star className="mr-1 h-3.5 w-3.5 fill-[#e6b44e] text-[#e6b44e]" aria-hidden="true" />
+                              <span className="font-semibold">{master.rating.toFixed(1)}</span>
+                              <span className="ml-1 text-slate-500">({master.reviewsCount} отзывов)</span>
+                            </p>
+                          </div>
+                          <div className="ml-1 shrink-0">
+                            <FavoriteButton masterSlug={master.slug} masterName={master.name} />
+                          </div>
+                        </div>
+                        <p className="mt-1 flex min-w-0 items-center text-xs text-slate-500">
+                          <MapPin className="mr-1.5 h-3.5 w-3.5 shrink-0 text-[#c95685]" aria-hidden="true" />
+                          <span className="truncate">{[master.metro, master.distance].filter(Boolean).join(" · ")}</span>
+                        </p>
+                        {nextWindow ? (
+                          <p className="mt-2 inline-flex max-w-full items-center rounded-lg bg-[#eff8f2] px-2 py-1 text-xs font-medium text-[#367a58]">
+                            <Clock3 className="mr-1.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            <span className="truncate">Свободно: {nextWindow.label} · {nextWindow.workspaceName}</span>
+                          </p>
+                        ) : (
+                          <p className="mt-2 text-xs text-slate-400">Ближайшие свободные окна не указаны</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {master.nextWindows && master.nextWindows.length > 1 && (
+                      <div className="mt-3 flex flex-wrap" data-field="windows">
+                        {master.nextWindows.slice(0, 3).map((window) => (
+                          <Link
+                            key={`${window.dateISO}-${window.startMinutes}`}
+                            to={makeBookingPath({ slug: master.slug, nextWindows: [window] })}
+                            onClick={() => recordPromotionEvent(master.slug, "booking_click", "search")}
+                            data-window={`${master.slug}:${window.dateISO}:${window.label}`}
+                            className="mb-1 mr-2 inline-flex items-center rounded-lg border border-[#f0e1e8] px-2 py-1 text-xs text-slate-600 hover:border-[#e7b6cb]"
+                          >
+                            <Clock3 className="mr-1 h-3 w-3 text-[#c95685]" aria-hidden="true" />
+                            {window.label}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="mt-3 flex min-w-0 flex-wrap items-center justify-between border-t border-[#f2e6ec] pt-3">
+                      <div className="mr-3 mb-2 min-w-0">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Стоимость услуг</p>
+                        <p className="mt-0.5 text-base font-semibold text-slate-900">
+                          {master.priceFrom > 0 ? `от ${formatRub(master.priceFrom)}` : "цена по запросу"}
+                        </p>
+                      </div>
+                      <div className="mb-2 ml-auto flex flex-wrap items-center">
+                        <Link
+                          to={`/master/${master.slug}`}
+                          onClick={() => recordPromotionEvent(master.slug, "profile_click", "search")}
+                          className="mr-2 mb-1 inline-flex items-center rounded-xl border border-[#f0cada] px-3 py-2 text-sm font-semibold text-[#b34a76] hover:bg-[#fff5f8]"
+                        >
+                          Профиль
+                        </Link>
+                        <Link
+                          to={makeBookingPath(master)}
+                          onClick={() => recordPromotionEvent(master.slug, "booking_click", "search")}
+                          className="mb-1 inline-flex items-center rounded-xl bg-[#ec4899] px-3 py-2 text-sm font-semibold text-white hover:bg-[#db2777]"
+                        >
+                          Записаться <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
+                        </Link>
+                      </div>
+                    </div>
+                  </motion.article>
+                );
+              })}
+
+              {filteredMasters.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-[#eccbd9] bg-white px-4 py-10 text-center">
+                  <p className="text-base font-semibold text-slate-800">
+                    {search.loading ? "Ищем подходящих мастеров…" : "Подходящих мастеров пока нет"}
+                  </p>
+                  <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-500">
+                    Попробуйте выбрать другой район, изменить фильтры или убрать часть запроса.
+                  </p>
+                  <button type="button" onClick={clearFilters} className="mt-4 rounded-xl border border-[#f0cada] px-4 py-2 text-sm font-semibold text-[#b34a76]">
+                    Сбросить фильтры
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section
+            className={`${mode === "map" ? "block" : "hidden"} min-w-0 lg:block`}
+            data-block="search-map-panel"
+          >
+            <div className="mb-3 flex min-w-0 items-center justify-between">
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold text-slate-900">Мастера на карте</h2>
+                <p className="truncate text-sm text-slate-500">Мастера: {place ? `${place.kind === "metro" ? "м. " : "г. "}${place.name}` : region}</p>
+              </div>
+              <span className="ml-3 shrink-0 rounded-full bg-[#fff0f6] px-3 py-1.5 text-xs font-semibold text-[#b34a76]">
+                {filteredMasters.length}
+              </span>
+            </div>
+            <div className="relative min-w-0 overflow-hidden rounded-2xl" data-map-overflow-guard>
+              <CityMap
+                masters={filteredMasters}
+                center={mapCenter}
+                zoom={place ? 13 : regionInfo.cities.length > 1 ? 9 : 11}
+                height={620}
+                title={place ? `Мастера: ${place.name}` : `Мастера: ${region}`}
+                compact
+                hideMasterList
+              />
+              <div className="pointer-events-none absolute bottom-5 left-5 right-5 z-20">
+                <div className="pointer-events-auto rounded-2xl border border-[#f0e1e8] bg-white px-3 py-3 shadow-[0_12px_35px_-20px_rgba(35,25,30,0.45)] sm:px-4">
+                  <div className="flex min-w-0 items-center">
+                    <div className="mr-3 flex shrink-0 items-center">
+                      {filteredMasters.slice(0, 3).map((master, index) => (
+                        <span key={master.slug} className={index ? "-ml-3" : ""} style={{ zIndex: 3 - index }}>
+                          <Avatar size={36} src={master.avatarUrl} name={master.name} />
+                        </span>
+                      ))}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        {place ? `${place.kind === "metro" ? "м. " : "г. "}${place.name}` : region}
+                      </p>
+                      <p className="truncate text-xs text-slate-500">{filteredMasters.length} мастеров поблизости</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setMode("list")}
+                      className="ml-2 shrink-0 rounded-lg bg-[#ec4899] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#db2777]"
+                    >
+                      Список
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
-    </ClientShell>
+    </main>
   );
 }

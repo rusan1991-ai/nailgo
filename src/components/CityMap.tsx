@@ -29,6 +29,10 @@ type Props = {
   zoom?: number;
   height?: number;
   title?: string;
+  /** Compact map panel for the master-search three-column layout. */
+  compact?: boolean;
+  /** Hide the visible cards under the map while retaining its impression observer. */
+  hideMasterList?: boolean;
 };
 
 /** Публичный ключ JavaScript API Яндекс.Карт задаётся при сборке витрины. */
@@ -153,7 +157,15 @@ function createMarker(master: MapMaster, popupRoot: HTMLElement): HTMLElement {
  * мастеров и использует координаты справочника метро/городов по `location_id`.
  * Пин открывает мини-карточку профиля с действием «Записаться».
  */
-export function CityMap({ masters, center, zoom = 11, height = 360, title = "Мастера на карте" }: Props) {
+export function CityMap({
+  masters,
+  center,
+  zoom = 11,
+  height = 360,
+  title = "Мастера на карте",
+  compact = false,
+  hideMasterList = false,
+}: Props) {
   const container = useRef<HTMLDivElement | null>(null);
   const mode = YANDEX_KEY ? "yandex" : "widget";
   const mapHeightStyle = { "--n2g-map-height": `${height}px` } as CSSProperties;
@@ -200,21 +212,23 @@ export function CityMap({ masters, center, zoom = 11, height = 360, title = "М�
       className="w-full max-w-full min-w-0 overflow-hidden rounded-2xl border border-[#f1dde6] p-4"
       data-city-map={mode}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <span className="text-xs text-slate-400">
-          {pinned.length > 0 ? `${pinned.length} мастеров с локацией` : "локации мастеров пока не заполнены"}
-        </span>
-      </div>
+      {!compact && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <span className="text-xs text-slate-400">
+            {pinned.length > 0 ? `${pinned.length} мастеров с локацией` : "локации мастеров пока не заполнены"}
+          </span>
+        </div>
+      )}
 
       {mode === "yandex" ? (
         <div
           ref={container}
-          className="n2g-city-map-viewport mt-3 block w-full max-w-full min-w-0 overflow-hidden rounded-2xl bg-slate-100"
+          className={`n2g-city-map-viewport ${compact ? "mt-0" : "mt-3"} block w-full max-w-full min-w-0 overflow-hidden rounded-2xl bg-slate-100`}
           style={mapHeightStyle}
         />
       ) : (
-        <div className="n2g-city-map-viewport mt-3 block w-full max-w-full min-w-0 overflow-hidden rounded-2xl bg-slate-100" style={mapHeightStyle}>
+        <div className={`n2g-city-map-viewport ${compact ? "mt-0" : "mt-3"} block w-full max-w-full min-w-0 overflow-hidden rounded-2xl bg-slate-100`} style={mapHeightStyle}>
           <iframe
             title={`Карта: ${title}`}
             src={`https://yandex.ru/map-widget/v1/?ll=${center.lng}%2C${center.lat}&z=${zoom}`}
@@ -224,13 +238,17 @@ export function CityMap({ masters, center, zoom = 11, height = 360, title = "М�
         </div>
       )}
 
-      {mode === "widget" && (
+      {mode === "widget" && !compact && (
         <p className="mt-2 text-xs text-slate-400">
           Для интерактивных пинов добавьте публичный ключ JavaScript API в <code className="rounded bg-slate-100 px-1">VITE_YANDEX_MAPS_KEY</code>.
         </p>
       )}
 
-      <ul ref={mapImpressionsRef} className="mt-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+      <ul
+        ref={mapImpressionsRef}
+        aria-label="Мастера на карте"
+        className={compact && hideMasterList ? "sr-only" : "mt-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2"}
+      >
         {pinned.map((master) => (
           <li key={master.slug} data-map-master={master.slug} data-promotion-master={master.slug} className="min-w-0">
             <div className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-[#f1dde6] px-3 py-2">

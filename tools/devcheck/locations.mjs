@@ -195,7 +195,7 @@ assert(
 const { dom, window } = makeDom("/search");
 await wait(1200);
 
-assert("страница карты мастеров отрисовалась", rootText(dom).includes("Карта мастеров"), rootText(dom).slice(0, 120));
+assert("страница поиска мастеров отрисовалась", rootText(dom).includes("Поиск мастеров"), rootText(dom).slice(0, 120));
 assert("блок фильтра по месту на странице", Boolean(window.document.querySelector("[data-block='place-filter']")));
 
 const metroChip = window.document.querySelector("[data-place^='list-metro:']");
@@ -227,6 +227,33 @@ if (metroChip) {
       window.document.body.textContent.includes("сбросить"),
   );
 }
+
+/* --- Поиск на мобильном: фильтры и переключение списка/карты --- */
+const mobileSearch = makeDom("/search", { viewportWidth: 375 });
+await wait(1000);
+const mobileSearchDoc = mobileSearch.window.document;
+const mobileFilterToggle = mobileSearchDoc.querySelector("[data-block='search-filters'] button[aria-expanded]");
+const mobileModeToggle = mobileSearchDoc.querySelector("[data-search-mode-toggle]");
+assert("на мобильном каталоге есть компактные фильтры", Boolean(mobileFilterToggle));
+mobileFilterToggle?.click();
+await wait(80);
+assert("фильтры можно раскрыть на мобильном", mobileFilterToggle?.getAttribute("aria-expanded") === "true");
+assert("на мобильном каталоге есть переключатель списка и карты", Boolean(mobileModeToggle));
+mobileModeToggle?.click();
+await wait(80);
+assert(
+  "переключатель открывает карту на мобильном",
+  mobileSearchDoc.querySelector("[data-block='search-map-panel']")?.className.includes("block") &&
+    mobileModeToggle?.textContent?.includes("Показать список"),
+);
+mobileModeToggle?.click();
+await wait(80);
+assert(
+  "переключатель возвращает список на мобильном",
+  mobileSearchDoc.querySelector("[data-block='search-results']")?.className.includes("block") &&
+    mobileModeToggle?.textContent?.includes("Показать карту"),
+);
+mobileSearch.dom.window.close();
 
 /* --- Главная: фильтр места в адресе и настоящие фото --- */
 
@@ -322,7 +349,7 @@ if (showcaseSlug) {
 
     const queryHome = makeDom(`/?metro=mayakovskaya&query=${encodeURIComponent(searchableService.name)}`);
     await wait(1500);
-    const queryInput = queryHome.window.document.querySelector("input[aria-label='Услуга, мастер или метро']");
+    const queryInput = queryHome.window.document.querySelector("input[aria-label='Услуга или мастер']");
     const queryShowcase = queryHome.window.document.querySelector("[data-block='home-showcase']")?.getAttribute("data-showcase-master");
     assert("поле поиска восстанавливает запрос из URL", queryInput?.value === searchableService.name, queryInput?.value ?? "поля нет");
     assert(
@@ -331,7 +358,7 @@ if (showcaseSlug) {
       `показано=${queryShowcase}; ожидается=${showcaseSlug}`,
     );
 
-    setField(queryHome.dom, "Услуга, мастер, метро", "запрос-которого-точно-нет");
+    setField(queryHome.dom, "Услуга или мастер", "запрос-которого-точно-нет");
     queryInput?.closest("form")?.dispatchEvent(new queryHome.window.Event("submit", { bubbles: true, cancelable: true }));
     await wait(900);
     assert(
@@ -366,13 +393,20 @@ const mobileHome = makeDom("/", { viewportWidth: 375 });
 await wait(1300);
 const manicureCategory = mobileHome.window.document.querySelector("[data-home-category='Маникюр']");
 assert("на мобильной главной показан быстрый поиск по услуге", Boolean(manicureCategory));
+assert(
+  "на главной есть шесть популярных услуг и оба discovery-блока",
+  mobileHome.window.document.querySelectorAll("[data-home-category]").length === 6 &&
+    Boolean(mobileHome.window.document.querySelector("[data-block='home-discovery']")) &&
+    Boolean(mobileHome.window.document.querySelector("[data-block='home-how-it-works']")),
+  `услуг=${mobileHome.window.document.querySelectorAll("[data-home-category]").length}`,
+);
 manicureCategory?.click();
 await wait(600);
 assert(
   "выбор популярной услуги заполняет поиск и обновляет URL",
   mobileHome.window.location.search.includes("query=%D0%BC%D0%B0%D0%BD%D0%B8%D0%BA%D1%8E%D1%80") &&
-    mobileHome.window.document.querySelector("input[aria-label='Услуга, мастер или метро']")?.value === "маникюр",
-  `${mobileHome.window.location.search} · ${mobileHome.window.document.querySelector("input[aria-label='Услуга, мастер или метро']")?.value}`,
+    mobileHome.window.document.querySelector("input[aria-label='Услуга или мастер']")?.value === "маникюр",
+  `${mobileHome.window.location.search} · ${mobileHome.window.document.querySelector("input[aria-label='Услуга или мастер']")?.value}`,
 );
 mobileHome.dom.window.close();
 

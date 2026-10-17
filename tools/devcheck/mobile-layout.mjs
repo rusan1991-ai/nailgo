@@ -84,18 +84,28 @@ check(
 check(
   "карта витрины зажата адаптивным w-full wrapper без фиксированной ширины",
   /className="w-full max-w-full overflow-hidden px-4 block[^"]*" data-map-overflow-guard/.test(home) &&
-    /className="[^"]*w-full[^"]*min-w-0" data-city-block/.test(home) &&
+    /className="[^"]*w-full[^"]*min-w-0[^"]*" data-city-block/.test(home) &&
     cityMap.includes('className="w-full max-w-full min-w-0 overflow-hidden rounded-2xl') &&
     cityMap.includes("block w-full max-w-full min-w-0 overflow-hidden") &&
     cityMap.includes("w-full max-w-full min-w-0 border-0") &&
     !/(?<!max-)w-screen|(?<!max-)w-\[100vw\]|width:\s*100vw|(?<!max-)w-\[\d+px\]/.test(home + cityMap),
 );
 check(
-  "главная и карта мастеров задают minmax(0,1fr) колонки на телефонах, чтобы карточки не распирали экран",
+  "главная и карта мастеров задают безопасные адаптивные колонки без фиксированной ширины",
   home.includes("grid min-w-0 grid-cols-1") &&
-    home.includes("xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)_minmax(0,430px)]") &&
+    home.includes("xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.85fr)]") &&
+    home.includes("min-w-0 xl:row-span-2") && home.includes("xl:col-start-2 xl:row-start-2") &&
     searchMap.includes("grid min-w-0 grid-cols-1 gap-4") &&
     searchMap.includes("min-w-0 space-y-3"),
+);
+check(
+  "главная перестраивает hero, категории, фильтры и список мастеров на узком экране",
+  home.includes('data-block="home-hero"') &&
+    home.includes("xl:grid-cols-[minmax(0,0.96fr)_minmax(0,1.04fr)]") &&
+    home.includes("grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5") &&
+    home.includes('details open={Boolean(place)}') &&
+    home.includes("grid min-w-0 gap-3 sm:grid-cols-2") &&
+    home.includes("className=\"mb-2 shrink-0 sm:mb-0 sm:mr-2\""),
 );
 check(
   "карта ограничивает высоту на мобильном экране, сохраняя высоту desktop-настройки",
@@ -133,12 +143,13 @@ check(
     !/(?:bg|text|border)-(?:pink|rose)-[0-9]+\/[0-9]+/.test(allUiSource),
 );
 check(
-  "metro/chip, карточки мастеров и категории используют переносы с margin/space вместо flex gap",
+  "metro, карточки и категории переносятся; внутренние flex-элементы главной имеют margin-fallback",
   locationPicker.includes('className="flex flex-wrap px-3 pb-3"') &&
     locationPicker.includes("mr-1.5 mb-1.5") && cityPicker.includes('className="mt-3 flex flex-wrap"') &&
     cityPicker.includes("mr-2 mb-2") && journalPage.includes('className="flex flex-wrap" aria-label="Категории журнала"') &&
-    journalPage.includes("mr-2 mb-2") && home.includes('className="space-y-3" data-block="home-masters"') &&
-    home.includes("flex items-center space-x-3") &&
+    journalPage.includes("mr-2 mb-2") && home.includes('className="grid min-w-0 gap-3 sm:grid-cols-2" data-block="home-masters"') &&
+    home.includes('className="mr-3 shrink-0"') &&
+    home.includes("mb-2 mr-0 grid h-10 w-10 shrink-0") && home.includes("sm:mr-3") &&
     searchMap.includes("grid min-w-0 grid-cols-[48px_minmax(0,1fr)]") &&
     searchMap.includes("mr-2 mb-2 rounded-xl"),
 );

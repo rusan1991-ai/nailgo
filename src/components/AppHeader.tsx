@@ -23,7 +23,7 @@ export function AppHeader() {
   return (
     <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#f9e7ef] pb-6">
       <Link to="/" className="flex items-center gap-2 text-3xl font-semibold">
-        <span className="text-pink-500">Nail</span>
+        <span className="text-[#ec4899]">Nail</span>
         <span>2 Go</span>
       </Link>
 
@@ -53,7 +53,7 @@ export function AppHeader() {
         )}
         <button
           onClick={onAuthClick}
-          className="rounded-xl border border-pink-200 px-5 py-2 text-sm font-medium text-pink-600 transition hover:bg-pink-50"
+          className="rounded-xl border border-[#f0cddd] px-5 py-2 text-sm font-medium text-[#c95685] transition hover:bg-[#fff4f8]"
         >
           {user ? "Выйти" : "Войти"}
         </button>

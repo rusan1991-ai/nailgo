@@ -361,5 +361,23 @@ assert(
   Boolean(districtHome.window.document.querySelector("[data-action='clear-place']")),
 );
 
+// Новые быстрые категории на главной должны оставаться рабочими и на узком экране.
+const mobileHome = makeDom("/", { viewportWidth: 375 });
+await wait(1300);
+const manicureCategory = mobileHome.window.document.querySelector("[data-home-category='Маникюр']");
+assert("на мобильной главной показан быстрый поиск по услуге", Boolean(manicureCategory));
+manicureCategory?.click();
+await wait(600);
+assert(
+  "выбор популярной услуги заполняет поиск и обновляет URL",
+  mobileHome.window.location.search.includes("query=%D0%BC%D0%B0%D0%BD%D0%B8%D0%BA%D1%8E%D1%80") &&
+    mobileHome.window.document.querySelector("input[aria-label='Услуга, мастер или метро']")?.value === "маникюр",
+  `${mobileHome.window.location.search} · ${mobileHome.window.document.querySelector("input[aria-label='Услуга, мастер или метро']")?.value}`,
+);
+mobileHome.dom.window.close();
+
+districtHome.dom.window.close();
+home.dom.window.close();
+
 console.log(failures === 0 ? "\nГео-фильтр: все проверки пройдены" : `\nГео-фильтр: провалов ${failures}`);
 process.exit(failures === 0 ? 0 : 1);

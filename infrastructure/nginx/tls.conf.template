@@ -76,6 +76,8 @@ server {
     }
 
     location / {
+        # The SPA bundle is in index.html; never keep an old build in Safari's cache after deploy.
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
         try_files $uri $uri/ /index.html;
     }
 }

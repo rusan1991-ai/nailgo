@@ -44,6 +44,11 @@ assert.equal((nginx.match(/default_type application\/octet-stream;/g) ?? []).len
 assert.equal((nginx.match(/location \^~ \/assets\//g) ?? []).length, 2, "both static-serving configs handle fingerprinted assets");
 assert.equal((nginx.match(/expires 1y;/g) ?? []).length, 2, "fingerprinted assets are cached for one year");
 assert.equal((nginx.match(/add_header Cache-Control "public, no-transform";/g) ?? []).length, 2, "asset cache policy is explicit");
+assert.equal(
+  (nginx.match(/add_header Cache-Control "no-cache, no-store, must-revalidate" always;/g) ?? []).length,
+  2,
+  "the single-file SPA entry must not be served from a stale browser cache",
+);
 assert.match(read("infrastructure/nginx/start-nginx.sh"), /tls\.conf\.template/);
 
 for (const script of ["scripts/install.sh", "scripts/update.sh", "scripts/backup.sh", "scripts/restore.sh"]) {

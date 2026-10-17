@@ -60,11 +60,12 @@ const harness = read("tools/devcheck/harness.mjs");
 const masterCrm = read("tools/devcheck/master-crm.mjs");
 
 check(
-  "html/body/root и витрина сохраняют ширину 100% и защищают main от горизонтального overflow",
+  "html/body/root фиксируют ширину, а главная не создаёт overflow-ancestor для sticky-шапки",
   /html,[\s\S]*body,[\s\S]*#root\s*\{[^}]*width:\s*100%[^}]*max-width:\s*100%[^}]*overflow-x:\s*hidden/s.test(css) &&
     /body\s*\{[^}]*overflow-x:\s*hidden/s.test(css) &&
     /data-mobile-root className="[^"]*w-full[^"]*max-w-full[^"]*overflow-x-hidden/.test(app) &&
-    /<main className="[^"]*w-full[^"]*max-w-full[^"]*overflow-x-hidden/.test(home) &&
+    /<main className="[^"]*w-full[^"]*max-w-full[^"]*bg-white/.test(home) &&
+    !/<main className="[^"]*overflow-x-hidden/.test(home) &&
     /<main className="[^"]*w-full[^"]*max-w-full[^"]*overflow-x-hidden/.test(authShared),
 );
 check(
@@ -86,9 +87,10 @@ check(
   "карта витрины зажата адаптивным w-full wrapper без фиксированной ширины",
   /className="w-full max-w-full overflow-hidden px-4 block[^"]*" data-map-overflow-guard/.test(home) &&
     /className="[^"]*w-full[^"]*min-w-0[^"]*" data-city-block/.test(home) &&
-    cityMap.includes('className="w-full max-w-full min-w-0 overflow-hidden rounded-2xl') &&
+    cityMap.includes("n2g-city-map-fill-container") &&
+    cityMap.includes("overflow-hidden rounded-2xl border border-[#f1dde6] p-4") &&
     cityMap.includes("block w-full max-w-full min-w-0 overflow-hidden") &&
-    cityMap.includes("w-full max-w-full min-w-0 border-0") &&
+    cityMap.includes("min-h-0 flex-col border-0 p-0") &&
     !/(?<!max-)w-screen|(?<!max-)w-\[100vw\]|width:\s*100vw|(?<!max-)(?<!min-)w-\[\d+px\]/.test(home + cityMap),
 );
 check(
@@ -103,7 +105,8 @@ check(
 check(
   "главная повторяет новый marketplace hero, шесть фотокатегорий и адаптивный блок discovery",
   home.includes('data-block="home-hero"') &&
-    home.includes("xl:grid-cols-[minmax(0,1.1fr)_minmax(400px,0.9fr)]") &&
+    home.includes("xl:grid-cols-[minmax(0,1.18fr)_minmax(440px,0.82fr)]") &&
+    home.includes("xl:min-h-[442px]") &&
     home.includes("grid min-w-0 grid-cols-2 sm:grid-cols-3 xl:grid-cols-6") &&
     home.includes('data-block="home-discovery"') &&
     home.includes('data-block="home-how-it-works"') &&
@@ -113,13 +116,24 @@ check(
     home.includes("grid min-w-0 gap-3 sm:grid-cols-2"),
 );
 check(
+  "цены категорий берутся из загруженного API-каталога, а витрина мастера динамическая",
+  home.includes("const servicePrices = useMemo") &&
+    home.includes('if (catalogStatus !== "ready") return prices;') &&
+    home.includes("service.masterSlug && masterSlugs.has(service.masterSlug)") &&
+    home.includes("data-price-value={startingPrice ?? \"\"}") &&
+    home.includes("useMasterServices(showcaseMaster?.slug)") &&
+    !home.includes('const startingPrice = 1200'),
+);
+check(
   "главная и поиск используют общую шапку с реальным поиском, а регион в поиске не дублирует выбор города",
   marketplaceHeader.includes("data-marketplace-header") &&
     marketplaceHeader.includes("data-header-search") &&
     marketplaceHeader.includes("new URLSearchParams(location.search)") &&
     home.includes("<MarketplaceHeader showRegionPicker />") &&
     searchMap.includes("<MarketplaceHeader showRegionPicker={false} />") &&
-    marketplaceHeader.includes("data-header-region"),
+    marketplaceHeader.includes("data-header-region") &&
+    marketplaceHeader.includes("sticky top-0") &&
+    marketplaceHeader.includes("xl:h-20"),
 );
 check(
   "страница поиска адаптивно показывает фильтры, живые карточки и карту с мобильным переключателем",
@@ -129,7 +143,18 @@ check(
     searchMap.includes("data-search-mode-toggle") &&
     searchMap.includes("search.data.items") &&
     searchMap.includes("filteredMasters.map((master, index)") &&
-    searchMap.includes("compact") && searchMap.includes("hideMasterList"),
+    searchMap.includes("compact") && searchMap.includes("hideMasterList") &&
+    searchMap.includes("fillHeight") && searchMap.includes("xl:overflow-y-auto"),
+);
+check(
+  "desktop search fills the iOS-safe viewport with three columns and independent filter/results scrolling",
+  searchMap.includes("n2g-search-page") && searchMap.includes("n2g-search-shell") &&
+    searchMap.includes("xl:flex-1 xl:grid-cols-[280px_minmax(330px,0.95fr)_minmax(380px,1.15fr)]") &&
+    searchMap.includes("xl:overflow-y-auto xl:overscroll-contain") &&
+    searchMap.includes("region: place ? null : region") &&
+    home.includes("region: place ? null : region") &&
+    css.includes(".n2g-search-page") && css.includes("height: calc(var(--vh, 1vh) * 100);") &&
+    css.includes(".n2g-search-shell") && cityMap.includes("n2g-city-map-fill"),
 );
 check(
   "место на главной и в каталоге выбирается только из справочника, свободного адресного ввода нет",

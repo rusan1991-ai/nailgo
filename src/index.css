@@ -106,9 +106,36 @@ body {
   height: var(--n2g-map-height, 360px);
 }
 
+@media (min-width: 1280px) {
+  .n2g-search-page {
+    height: 100vh;
+    height: calc(var(--vh, 1vh) * 100);
+    overflow: hidden;
+  }
+
+  .n2g-search-shell {
+    height: 100%;
+    min-height: 0;
+  }
+}
+
 @media (max-width: 639px) {
   .n2g-city-map-viewport {
     height: min(var(--n2g-map-height, 360px), max(280px, 42vh));
+  }
+}
+
+@media (min-width: 1280px) {
+  .n2g-city-map-fill-container {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .n2g-city-map-fill {
+    height: 100%;
+    min-height: 0;
+    flex: 1 1 auto;
   }
 }
 

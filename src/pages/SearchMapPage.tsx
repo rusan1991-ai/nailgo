@@ -88,14 +88,16 @@ export function SearchMapPage() {
     date: dateParam,
     metro: metroParam,
     district: districtParam,
-    region,
+    region: place ? null : region,
     query: queryParam || null,
   });
   const regionInfo = DEFAULT_REGIONS.find((item) => item.region === region) ?? DEFAULT_REGIONS[0];
 
   const candidates = useMemo(() => {
     if (search.data) return search.data.items;
-    let result = masters.filter((master) => !master.region || master.region === region);
+    let result = catalogStatus === "ready"
+      ? masters.filter((master) => Boolean(metroParam || districtParam) || !master.region || master.region === region)
+      : [];
     if (metroParam) result = result.filter((master) => master.metroSlug === metroParam);
     if (districtParam) result = result.filter((master) => master.districtSlug === districtParam);
     if (queryParam) {
@@ -107,7 +109,7 @@ export function SearchMapPage() {
       );
     }
     return result;
-  }, [search.data, masters, region, metroParam, districtParam, queryParam]);
+  }, [search.data, masters, catalogStatus, region, metroParam, districtParam, queryParam]);
 
   const filteredMasters = useMemo(
     () => candidates.filter((master) =>
@@ -154,13 +156,13 @@ export function SearchMapPage() {
     : "Поиск мастеров";
 
   return (
-    <main className="n2g-min-h-viewport w-full max-w-full min-w-0 overflow-x-hidden bg-[#fff7fa] px-3 py-3 text-slate-800 sm:px-6 sm:py-5">
-      <div className="mx-auto w-full min-w-0 max-w-[1580px]">
+    <main className="n2g-min-h-viewport n2g-search-page w-full max-w-full min-w-0 bg-white px-3 py-3 text-slate-800 sm:px-6 sm:py-5">
+      <div className="n2g-search-shell mx-auto flex w-full min-w-0 max-w-[1580px] flex-col">
         <MarketplaceHeader showRegionPicker={false} />
 
-        <div className="mb-4 mt-5 flex min-w-0 flex-wrap items-end justify-between">
+        <div className="mb-3 mt-4 flex min-w-0 shrink-0 flex-wrap items-end justify-between xl:hidden">
           <div className="mr-4 mb-2 min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#c95685]">Каталог Nail 2 Go</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#e6005c]">Каталог Nail 2 Go</p>
             <h1 className="mt-1 text-2xl font-semibold leading-tight text-slate-900 sm:text-3xl">{heading}</h1>
             <p className="mt-1 text-sm text-slate-500">
               {queryParam ? `По запросу «${queryParam}» · ` : ""}
@@ -179,8 +181,8 @@ export function SearchMapPage() {
           </button>
         </div>
 
-        <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(330px,0.95fr)_minmax(380px,1.15fr)]">
-          <aside className={`min-w-0 rounded-2xl border border-[#f0e1e8] bg-white p-4 shadow-sm ${mode === "map" ? "hidden" : "block"} lg:block`} data-block="search-filters">
+        <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)] xl:mt-5 xl:min-h-0 xl:flex-1 xl:grid-cols-[280px_minmax(330px,0.95fr)_minmax(380px,1.15fr)] xl:grid-rows-1 xl:gap-3" data-block="search-layout">
+          <aside className={`min-w-0 rounded-2xl border border-[#f0e1e8] bg-white p-4 shadow-sm ${mode === "map" ? "hidden" : "block"} lg:block xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden`} data-block="search-filters">
             <button
               type="button"
               onClick={() => setFiltersOpen((value) => !value)}
@@ -188,16 +190,16 @@ export function SearchMapPage() {
               className="flex w-full items-center justify-between rounded-xl bg-[#fff5f8] px-3 py-2.5 text-left lg:hidden"
             >
               <span className="inline-flex items-center text-sm font-semibold text-slate-800">
-                <SlidersHorizontal className="mr-2 h-4 w-4 text-[#c95685]" aria-hidden="true" />
+                <SlidersHorizontal className="mr-2 h-4 w-4 text-[#e6005c]" aria-hidden="true" />
                 Фильтры{activeFilterCount ? ` · ${activeFilterCount}` : ""}
               </span>
-              <span className="text-xs text-[#c95685]">{filtersOpen ? "Свернуть" : "Открыть"}</span>
+              <span className="text-xs text-[#e6005c]">{filtersOpen ? "Свернуть" : "Открыть"}</span>
             </button>
 
-            <div className={`${filtersOpen ? "block" : "hidden"} mt-3 lg:mt-0 lg:block`} data-filter-content>
+            <div className={`${filtersOpen ? "block" : "hidden"} mt-3 lg:mt-0 lg:block xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain xl:pr-2`} data-filter-content>
               <div className="mb-4 hidden items-center justify-between lg:flex">
                 <h2 className="text-lg font-semibold text-slate-900">Фильтры</h2>
-                <button type="button" onClick={clearFilters} className="text-xs font-medium text-[#c95685] hover:underline">
+                <button type="button" onClick={clearFilters} className="text-xs font-medium text-[#e6005c] hover:underline">
                   Сбросить
                 </button>
               </div>
@@ -210,7 +212,7 @@ export function SearchMapPage() {
                 <details open={Boolean(place)} className="group">
                   <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-slate-800">
                     <span>Метро или район</span>
-                    <span className="ml-3 text-xs font-normal text-[#c95685]">{place ? place.name : "Выбрать"}</span>
+                    <span className="ml-3 text-xs font-normal text-[#e6005c]">{place ? place.name : "Выбрать"}</span>
                   </summary>
                   <p className="mt-2 text-xs leading-relaxed text-slate-500">Выберите место из справочника, адрес вводить не нужно.</p>
                   <div className="mt-3">
@@ -233,7 +235,7 @@ export function SearchMapPage() {
                       type="button"
                       aria-pressed={minReviews === option.value}
                       onClick={() => setMinReviews(option.value)}
-                      className={`mr-2 mb-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${minReviews === option.value ? "border-[#ec4899] bg-[#fff0f6] text-[#b34a76]" : "border-[#f0e1e8] text-slate-600 hover:border-[#e7b6cb]"}`}
+                      className={`mr-2 mb-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${minReviews === option.value ? "border-[#ff0066] bg-[#fff0f6] text-[#b34a76]" : "border-[#f0e1e8] text-slate-600 hover:border-[#e7b6cb]"}`}
                     >
                       {option.label}
                     </button>
@@ -252,7 +254,7 @@ export function SearchMapPage() {
                       type="button"
                       aria-pressed={minRating === option.value}
                       onClick={() => setMinRating(option.value)}
-                      className={`mr-2 mb-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${minRating === option.value ? "border-[#ec4899] bg-[#fff0f6] text-[#b34a76]" : "border-[#f0e1e8] text-slate-600 hover:border-[#e7b6cb]"}`}
+                      className={`mr-2 mb-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${minRating === option.value ? "border-[#ff0066] bg-[#fff0f6] text-[#b34a76]" : "border-[#f0e1e8] text-slate-600 hover:border-[#e7b6cb]"}`}
                     >
                       {option.label}
                     </button>
@@ -267,7 +269,7 @@ export function SearchMapPage() {
                     type="checkbox"
                     checked={onlyWithWindows}
                     onChange={(event) => setOnlyWithWindows(event.target.checked)}
-                    className="mr-2 mt-0.5 h-4 w-4 shrink-0 accent-[#ec4899]"
+                    className="mr-2 mt-0.5 h-4 w-4 shrink-0 accent-[#ff0066]"
                   />
                   <span>Только со свободными окнами</span>
                 </label>
@@ -286,7 +288,7 @@ export function SearchMapPage() {
                 <button
                   type="button"
                   onClick={() => { setMode("list"); setFiltersOpen(false); }}
-                  className="mb-2 rounded-xl bg-[#ec4899] px-4 py-2.5 text-sm font-semibold text-white"
+                  className="mb-2 rounded-xl bg-[#ff0066] px-4 py-2.5 text-sm font-semibold text-white"
                 >
                   Показать {filteredMasters.length} мастеров
                 </button>
@@ -294,8 +296,8 @@ export function SearchMapPage() {
             </div>
           </aside>
 
-          <section className={`min-w-0 ${mode === "map" ? "hidden" : "block"} lg:block`} data-block="search-results">
-            <div className="mb-3 flex min-w-0 flex-wrap items-end justify-between">
+          <section className={`min-w-0 ${mode === "map" ? "hidden" : "block"} lg:block xl:flex xl:min-h-0 xl:flex-col`} data-block="search-results">
+            <div className="mb-3 flex min-w-0 shrink-0 flex-wrap items-end justify-between">
               <div className="mr-3 mb-2 min-w-0">
                 <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">Мастера в {place ? place.name : region}</h2>
                 <p className="mt-0.5 text-sm text-slate-500">
@@ -313,7 +315,7 @@ export function SearchMapPage() {
                 <select
                   value={sortParam}
                   onChange={(event) => updateParam("sort", event.target.value === "rating" ? null : event.target.value)}
-                  className="min-w-0 max-w-full rounded-lg border border-[#f0e1e8] bg-white px-2 py-2 text-sm text-slate-700 outline-none focus:border-[#ec4899]"
+                  className="min-w-0 max-w-full rounded-lg border border-[#f0e1e8] bg-white px-2 py-2 text-sm text-slate-700 outline-none focus:border-[#ff0066]"
                   aria-label="Сортировка мастеров"
                 >
                   {MASTER_SORT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -321,7 +323,7 @@ export function SearchMapPage() {
               </label>
             </div>
 
-            <div ref={searchImpressionsRef} className="min-w-0">
+            <div ref={searchImpressionsRef} className="min-w-0 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain xl:pr-2">
               {filteredMasters.map((master, index) => {
                 const nextWindow = master.nextWindows?.[0];
                 return (
@@ -344,7 +346,7 @@ export function SearchMapPage() {
                             <Link
                               to={`/master/${master.slug}`}
                               onClick={() => recordPromotionEvent(master.slug, "profile_click", "search")}
-                              className="block truncate text-base font-semibold text-slate-900 hover:text-[#c95685] sm:text-lg"
+                              className="block truncate text-base font-semibold text-slate-900 hover:text-[#e6005c] sm:text-lg"
                             >
                               {master.name}
                             </Link>
@@ -360,7 +362,7 @@ export function SearchMapPage() {
                           </div>
                         </div>
                         <p className="mt-1 flex min-w-0 items-center text-xs text-slate-500">
-                          <MapPin className="mr-1.5 h-3.5 w-3.5 shrink-0 text-[#c95685]" aria-hidden="true" />
+                          <MapPin className="mr-1.5 h-3.5 w-3.5 shrink-0 text-[#e6005c]" aria-hidden="true" />
                           <span className="truncate">{[master.metro, master.distance].filter(Boolean).join(" · ")}</span>
                         </p>
                         {nextWindow ? (
@@ -384,7 +386,7 @@ export function SearchMapPage() {
                             data-window={`${master.slug}:${window.dateISO}:${window.label}`}
                             className="mb-1 mr-2 inline-flex items-center rounded-lg border border-[#f0e1e8] px-2 py-1 text-xs text-slate-600 hover:border-[#e7b6cb]"
                           >
-                            <Clock3 className="mr-1 h-3 w-3 text-[#c95685]" aria-hidden="true" />
+                            <Clock3 className="mr-1 h-3 w-3 text-[#e6005c]" aria-hidden="true" />
                             {window.label}
                           </Link>
                         ))}
@@ -409,7 +411,7 @@ export function SearchMapPage() {
                         <Link
                           to={makeBookingPath(master)}
                           onClick={() => recordPromotionEvent(master.slug, "booking_click", "search")}
-                          className="mb-1 inline-flex items-center rounded-xl bg-[#ec4899] px-3 py-2 text-sm font-semibold text-white hover:bg-[#db2777]"
+                          className="mb-1 inline-flex items-center rounded-xl bg-[#ff0066] px-3 py-2 text-sm font-semibold text-white hover:bg-[#e6005c]"
                         >
                           Записаться <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
                         </Link>
@@ -436,10 +438,10 @@ export function SearchMapPage() {
           </section>
 
           <section
-            className={`${mode === "map" ? "block" : "hidden"} min-w-0 lg:block`}
+            className={`${mode === "map" ? "block" : "hidden"} min-w-0 lg:block xl:flex xl:min-h-0 xl:flex-col`}
             data-block="search-map-panel"
           >
-            <div className="mb-3 flex min-w-0 items-center justify-between">
+            <div className="mb-3 flex min-w-0 shrink-0 items-center justify-between">
               <div className="min-w-0">
                 <h2 className="text-lg font-semibold text-slate-900">Мастера на карте</h2>
                 <p className="truncate text-sm text-slate-500">Мастера: {place ? `${place.kind === "metro" ? "м. " : "г. "}${place.name}` : region}</p>
@@ -448,7 +450,7 @@ export function SearchMapPage() {
                 {filteredMasters.length}
               </span>
             </div>
-            <div className="relative min-w-0 overflow-hidden rounded-2xl" data-map-overflow-guard>
+            <div className="relative min-h-[330px] min-w-0 flex-1 overflow-hidden rounded-2xl xl:min-h-0" data-map-overflow-guard>
               <CityMap
                 masters={filteredMasters}
                 center={mapCenter}
@@ -457,6 +459,7 @@ export function SearchMapPage() {
                 title={place ? `Мастера: ${place.name}` : `Мастера: ${region}`}
                 compact
                 hideMasterList
+                fillHeight
               />
               <div className="pointer-events-none absolute bottom-5 left-5 right-5 z-20">
                 <div className="pointer-events-auto rounded-2xl border border-[#f0e1e8] bg-white px-3 py-3 shadow-[0_12px_35px_-20px_rgba(35,25,30,0.45)] sm:px-4">
@@ -477,7 +480,7 @@ export function SearchMapPage() {
                     <button
                       type="button"
                       onClick={() => setMode("list")}
-                      className="ml-2 shrink-0 rounded-lg bg-[#ec4899] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#db2777]"
+                      className="ml-2 shrink-0 rounded-lg bg-[#ff0066] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#e6005c]"
                     >
                       Список
                     </button>

@@ -451,6 +451,20 @@ assert(
   (base?.textContent ?? "").slice(0, 100),
 );
 
+// Сценарий записи намеренно ставит тестовый визит на ближайший рабочий день.
+// После предыдущих переключений календаря явно возвращаемся к этой дате:
+// текущая дата может быть воскресеньем, а неделя записи уже следующая.
+const testAppointmentDay = schedulePage.dom.window.document.querySelector(
+  `button[data-calendar-date='${manual.data.booking.dateISO}']`,
+);
+testAppointmentDay?.click();
+await wait(450);
+assert(
+  "календарь показывает неделю с созданной тестовой записью",
+  Boolean(schedulePage.dom.window.document.querySelector(`[data-scheduler-day='${manual.data.booking.dateISO}']`)),
+  `дата=${manual.data.booking.dateISO}`,
+);
+
 const pendingAppointment = schedulePage.dom.window.document.querySelector("[data-appointment-status='pending']");
 const pendingConfirm = pendingAppointment?.querySelector("[data-next-status='confirmed']");
 const confirmedAppointment = schedulePage.dom.window.document.querySelector("[data-appointment-status='confirmed']");

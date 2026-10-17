@@ -73,8 +73,13 @@ assert(
 );
 const storefrontMain = home.dom.window.document.querySelector("main");
 assert(
-  "main витрины на мобильном сохраняет w-full и overflow-x-hidden",
-  Boolean(storefrontMain?.classList.contains("w-full") && storefrontMain.classList.contains("overflow-x-hidden")),
+  "main витрины сохраняет ширину, а общая шапка остаётся sticky без overflow-ancestor",
+  Boolean(
+    storefrontMain?.classList.contains("w-full") &&
+      storefrontMain.classList.contains("max-w-full") &&
+      !storefrontMain.classList.contains("overflow-x-hidden") &&
+      home.dom.window.document.querySelector("[data-marketplace-header]")?.classList.contains("sticky")
+  ),
   storefrontMain?.className ?? "main не найден",
 );
 

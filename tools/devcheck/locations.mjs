@@ -255,6 +255,25 @@ assert(
 );
 mobileSearch.dom.window.close();
 
+const districtSearch = makeDom("/search?district=vsevolozhsk");
+await wait(1400);
+const districtSearchText = rootText(districtSearch.dom);
+const districtSearchMasters = [...districtSearch.window.document.querySelectorAll("[data-search-result]")]
+  .map((node) => node.getAttribute("data-search-result"));
+const districtMapMasters = [...districtSearch.window.document.querySelectorAll("[data-city-map] [data-map-master]")]
+  .map((node) => node.getAttribute("data-map-master"));
+assert(
+  "поиск по городу области показывает карточки без конфликта с регионом по умолчанию",
+  districtSearchText.includes("Ольга Кравцова") && districtSearchMasters.includes("olga-kravtsova"),
+  `карточки=${districtSearchMasters.join(",")}`,
+);
+assert(
+  "карта выдачи по городу области использует того же мастера",
+  districtMapMasters.includes("olga-kravtsova"),
+  `карта=${districtMapMasters.join(",")}`,
+);
+districtSearch.dom.window.close();
+
 /* --- Главная: фильтр места в адресе и настоящие фото --- */
 
 const home = makeDom("/?metro=mayakovskaya");
@@ -349,7 +368,7 @@ if (showcaseSlug) {
 
     const queryHome = makeDom(`/?metro=mayakovskaya&query=${encodeURIComponent(searchableService.name)}`);
     await wait(1500);
-    const queryInput = queryHome.window.document.querySelector("input[aria-label='Услуга или мастер']");
+    const queryInput = queryHome.window.document.querySelector("input[aria-label='Услуга, мастер или метро']");
     const queryShowcase = queryHome.window.document.querySelector("[data-block='home-showcase']")?.getAttribute("data-showcase-master");
     assert("поле поиска восстанавливает запрос из URL", queryInput?.value === searchableService.name, queryInput?.value ?? "поля нет");
     assert(
@@ -358,13 +377,14 @@ if (showcaseSlug) {
       `показано=${queryShowcase}; ожидается=${showcaseSlug}`,
     );
 
-    setField(queryHome.dom, "Услуга или мастер", "запрос-которого-точно-нет");
+    setField(queryHome.dom, "Услуга, мастер, метро", "запрос-которого-точно-нет");
     queryInput?.closest("form")?.dispatchEvent(new queryHome.window.Event("submit", { bubbles: true, cancelable: true }));
     await wait(900);
     assert(
       "кнопка «Найти» отправляет введённый текст в URL и API-выдачу",
-      queryHome.window.location.search.includes("query=%D0%B7%D0%B0%D0%BF%D1%80%D0%BE%D1%81") &&
-        rootText(queryHome.dom).includes("мастеров не найдено"),
+      queryHome.window.location.pathname === "/search" &&
+        queryHome.window.location.search.includes("query=%D0%B7%D0%B0%D0%BF%D1%80%D0%BE%D1%81") &&
+        rootText(queryHome.dom).includes("Подходящих мастеров пока нет"),
       `${queryHome.window.location.search} · ${rootText(queryHome.dom).slice(0, 140)}`,
     );
     queryHome.dom.window.close();
@@ -389,6 +409,21 @@ assert(
 );
 
 // Новые быстрые категории на главной должны оставаться рабочими и на узком экране.
+const serviceCatalog = await api("/services");
+const priceScopeMastersResponse = await api("/masters?region=%D0%A1%D0%B0%D0%BD%D0%BA%D1%82-%D0%9F%D0%B5%D1%82%D0%B5%D1%80%D0%B1%D1%83%D1%80%D0%B3");
+const priceScopeMasterSlugs = new Set((priceScopeMastersResponse.data?.items ?? []).map((master) => master.slug));
+const expectedHomePriceCategories = [
+  { query: "маникюр", terms: ["маникюр"] },
+  { query: "педикюр", terms: ["педикюр"] },
+  { query: "наращивание ногтей", terms: ["наращивание", "коррекция ногтей"] },
+  { query: "дизайн ногтей", terms: ["дизайн"] },
+  { query: "укрепление ногтей", terms: ["укрепление"] },
+  { query: "снятие покрытия", terms: ["снятие"] },
+];
+assert("каталог услуг для главной отвечает из API", serviceCatalog.status === 200 && Array.isArray(serviceCatalog.data.items));
+assert("цены страницы вычисляются по мастерам выбранного региона", priceScopeMastersResponse.status === 200 && priceScopeMasterSlugs.size > 0);
+const apiServicesForHome = Array.isArray(serviceCatalog.data?.items) ? serviceCatalog.data.items : [];
+
 const mobileHome = makeDom("/", { viewportWidth: 375 });
 await wait(1300);
 const manicureCategory = mobileHome.window.document.querySelector("[data-home-category='Маникюр']");
@@ -400,13 +435,37 @@ assert(
     Boolean(mobileHome.window.document.querySelector("[data-block='home-how-it-works']")),
   `услуг=${mobileHome.window.document.querySelectorAll("[data-home-category]").length}`,
 );
+assert(
+  "главная предлагает выбор услуги без свободного адресного ввода",
+  Boolean(mobileHome.window.document.querySelector("select[aria-label='Услуга']")) &&
+    Boolean(mobileHome.window.document.querySelector("[data-block='location-picker']")),
+);
+for (const category of expectedHomePriceCategories) {
+  const needles = category.terms.map((term) => term.toLocaleLowerCase("ru-RU"));
+  const expectedPrice = Math.min(
+    ...apiServicesForHome
+      .filter((service) => {
+        const text = `${service.name} ${service.category}`.toLocaleLowerCase("ru-RU");
+        return service.masterSlug && priceScopeMasterSlugs.has(service.masterSlug) && service.price > 0 &&
+          needles.some((needle) => text.includes(needle));
+      })
+      .map((service) => service.price),
+  );
+  const priceNode = mobileHome.window.document.querySelector(`[data-service-price='${category.query}']`);
+  const shownPrice = priceNode?.getAttribute("data-price-value") ?? "";
+  assert(
+    `цена «${category.query}» совпадает с реальными услугами API`,
+    Number.isFinite(expectedPrice) ? Number(shownPrice) === expectedPrice : shownPrice === "",
+    `показано=${shownPrice || "пусто"}; API=${Number.isFinite(expectedPrice) ? expectedPrice : "нет услуги"}`,
+  );
+}
 manicureCategory?.click();
 await wait(600);
 assert(
   "выбор популярной услуги заполняет поиск и обновляет URL",
   mobileHome.window.location.search.includes("query=%D0%BC%D0%B0%D0%BD%D0%B8%D0%BA%D1%8E%D1%80") &&
-    mobileHome.window.document.querySelector("input[aria-label='Услуга или мастер']")?.value === "маникюр",
-  `${mobileHome.window.location.search} · ${mobileHome.window.document.querySelector("input[aria-label='Услуга или мастер']")?.value}`,
+    mobileHome.window.document.querySelector("input[aria-label='Услуга, мастер или метро']")?.value === "маникюр",
+  `${mobileHome.window.location.search} · ${mobileHome.window.document.querySelector("input[aria-label='Услуга, мастер или метро']")?.value}`,
 );
 mobileHome.dom.window.close();
 

@@ -33,6 +33,8 @@ type Props = {
   compact?: boolean;
   /** Hide the visible cards under the map while retaining its impression observer. */
   hideMasterList?: boolean;
+  /** Let the compact search-map panel fill its desktop grid cell. */
+  fillHeight?: boolean;
 };
 
 /** Публичный ключ JavaScript API Яндекс.Карт задаётся при сборке витрины. */
@@ -92,7 +94,7 @@ function createMarker(master: MapMaster, popupRoot: HTMLElement): HTMLElement {
   pin.textContent = "✦";
   pin.style.cssText =
     "display:grid;place-items:center;width:34px;height:34px;border:2px solid #fff;border-radius:50%;" +
-    "background:#e11d48;color:#fff;font-size:17px;cursor:pointer;box-shadow:0 5px 14px rgba(159,18,57,.3)";
+    "background:#ff0066;color:#fff;font-size:17px;cursor:pointer;box-shadow:0 5px 14px rgba(159,18,57,.3)";
 
   const card = document.createElement("div");
   card.dataset.mapPopup = master.slug;
@@ -124,12 +126,12 @@ function createMarker(master: MapMaster, popupRoot: HTMLElement): HTMLElement {
   const profile = document.createElement("a");
   profile.href = title.href;
   profile.textContent = "Профиль";
-  profile.style.cssText = "color:#be185d;text-decoration:none";
+  profile.style.cssText = "color:#e6005c;text-decoration:none";
   const book = document.createElement("a");
   book.href = bookingPath(master);
   book.dataset.mapBook = master.slug;
   book.textContent = "Записаться";
-  book.style.cssText = "border-radius:10px;background:#e11d48;padding:7px 11px;color:white;font-weight:600;text-decoration:none";
+  book.style.cssText = "border-radius:10px;background:#ff0066;padding:7px 11px;color:white;font-weight:600;text-decoration:none";
   const trackProfileClick = () => recordPromotionEvent(master.slug, "profile_click", "map");
   title.addEventListener("click", trackProfileClick);
   profile.addEventListener("click", trackProfileClick);
@@ -165,6 +167,7 @@ export function CityMap({
   title = "Мастера на карте",
   compact = false,
   hideMasterList = false,
+  fillHeight = false,
 }: Props) {
   const container = useRef<HTMLDivElement | null>(null);
   const mode = YANDEX_KEY ? "yandex" : "widget";
@@ -209,7 +212,7 @@ export function CityMap({
 
   return (
     <section
-      className="w-full max-w-full min-w-0 overflow-hidden rounded-2xl border border-[#f1dde6] p-4"
+      className={`w-full max-w-full min-w-0 ${fillHeight ? "n2g-city-map-fill-container flex h-full min-h-0 flex-col border-0 p-0" : "overflow-hidden rounded-2xl border border-[#f1dde6] p-4"}`}
       data-city-map={mode}
     >
       {!compact && (
@@ -224,11 +227,11 @@ export function CityMap({
       {mode === "yandex" ? (
         <div
           ref={container}
-          className={`n2g-city-map-viewport ${compact ? "mt-0" : "mt-3"} block w-full max-w-full min-w-0 overflow-hidden rounded-2xl bg-slate-100`}
+          className={`n2g-city-map-viewport ${compact ? "mt-0" : "mt-3"} ${fillHeight ? "n2g-city-map-fill min-h-0" : ""} block w-full max-w-full min-w-0 overflow-hidden rounded-2xl bg-slate-100`}
           style={mapHeightStyle}
         />
       ) : (
-        <div className={`n2g-city-map-viewport ${compact ? "mt-0" : "mt-3"} block w-full max-w-full min-w-0 overflow-hidden rounded-2xl bg-slate-100`} style={mapHeightStyle}>
+        <div className={`n2g-city-map-viewport ${compact ? "mt-0" : "mt-3"} ${fillHeight ? "n2g-city-map-fill min-h-0" : ""} block w-full max-w-full min-w-0 overflow-hidden rounded-2xl bg-slate-100`} style={mapHeightStyle}>
           <iframe
             title={`Карта: ${title}`}
             src={`https://yandex.ru/map-widget/v1/?ll=${center.lng}%2C${center.lat}&z=${zoom}`}
@@ -267,7 +270,7 @@ export function CityMap({
                 to={bookingPath(master)}
                 onClick={() => recordPromotionEvent(master.slug, "booking_click", "map")}
                 data-map-book={master.slug}
-                className="shrink-0 rounded-lg bg-[#e11d48] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#be123c]"
+                className="shrink-0 rounded-lg bg-[#ff0066] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#e6005c]"
               >
                 Записаться
               </Link>

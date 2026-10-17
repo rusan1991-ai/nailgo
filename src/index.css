@@ -58,7 +58,14 @@
     --color-violet-600: #7c3aed !important;
     --color-purple-400: #c084fc !important;
     --color-fuchsia-200: #f5d0fe !important;
+    --color-gray-100: #f3f4f6 !important;
+    --color-gray-400: #9ca3af !important;
+    --color-gray-500: #6b7280 !important;
+    --color-gray-600: #4b5563 !important;
+    --color-gray-700: #374151 !important;
+    --color-gray-900: #111827 !important;
     --color-pink-50: #fdf2f8 !important;
+    --color-pink-100: #fce7f3 !important;
     --color-pink-200: #fbcfe8 !important;
     --color-pink-300: #f9a8d4 !important;
     --color-pink-400: #f472b6 !important;

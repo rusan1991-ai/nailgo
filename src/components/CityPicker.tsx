@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { MapPin } from "lucide-react";
+import { ChevronDown, MapPin } from "lucide-react";
 import { api } from "../api/client";
 import { DEFAULT_REGIONS, useCity, type RegionChoice } from "../city/CityContext";
 import { cn } from "../utils/cn";
@@ -39,6 +39,8 @@ function useRegions(): (RegionChoice & { count?: number })[] {
 type Props = {
   /** Компактный вид — для шапки; широкий — для карточки на главной. */
   variant?: "compact" | "wide";
+  /** Облегчённый вид селектора внутри парящей формы главного hero. */
+  appearance?: "default" | "hero";
   className?: string;
 };
 
@@ -46,7 +48,7 @@ type Props = {
  * Выбор города: клиент открывает сайт и сразу видит, где он ищет мастеров.
  * Выбор сохраняется и передаётся карте и каталогу.
  */
-export function CityPicker({ variant = "compact", className }: Props) {
+export function CityPicker({ variant = "compact", appearance = "default", className }: Props) {
   const { region, setRegion } = useCity();
   const [open, setOpen] = useState(false);
   const regions = useRegions();
@@ -95,10 +97,18 @@ export function CityPicker({ variant = "compact", className }: Props) {
         onClick={() => setOpen((value) => !value)}
         data-action="city-open"
         aria-expanded={open}
-        className="flex min-w-0 max-w-full items-center rounded-xl border border-[#f1dde6] px-3 py-2 text-sm text-slate-600 transition hover:border-[#e9b8ae]"
+        className={cn(
+          "flex min-w-0 max-w-full items-center text-sm transition",
+          appearance === "hero"
+            ? "h-11 w-full justify-between rounded-xl border-0 bg-transparent px-1 py-2 font-medium text-gray-700 hover:bg-[#fff8f7]"
+            : "rounded-xl border border-[#f1dde6] px-3 py-2 text-slate-600 hover:border-[#e9b8ae]",
+        )}
       >
-        <MapPin className="mr-2 h-4 w-4 shrink-0 text-[#e58e82]" />
-        <span className="min-w-0 truncate">{region}</span>
+        <span className="flex min-w-0 items-center">
+          <MapPin className="mr-2 h-4 w-4 shrink-0 text-[#E58E82]" />
+          <span className="min-w-0 truncate">{region}</span>
+        </span>
+        {appearance === "hero" && <ChevronDown className="ml-2 h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />}
       </button>
 
       {open && (

@@ -26,7 +26,7 @@ type Props = {
   /** Interior pages keep an explicit sign-out action. */
   showSignOut?: boolean;
   /** Profile header follows the shorter navigation in the public profile reference. */
-  variant?: "marketplace" | "profile";
+  variant?: "marketplace" | "profile" | "home";
 };
 
 /** Общая пастельно-коралловая шапка NailGo для витрины и публичного профиля. */
@@ -43,6 +43,7 @@ export function MarketplaceHeader({
   const { data: notificationFeed } = useApiResource<NotificationsFeed>(user ? "/notifications?limit=1" : null);
   const hasUnread = Boolean(notificationFeed?.unread);
   const isProfile = variant === "profile";
+  const isHome = variant === "home";
   const navigation = isProfile ? profileNavigation : marketplaceNavigation;
 
   useEffect(() => {
@@ -66,11 +67,20 @@ export function MarketplaceHeader({
 
   return (
     <header
-      className="sticky top-0 z-50 w-full border-b border-[#f0e5e2] bg-white"
+      className={`sticky top-0 z-50 w-full border-b ${
+        isHome
+          ? "h-auto border-gray-100 bg-white/90 backdrop-blur-md xl:h-20"
+          : "border-[#f0e5e2] bg-white"
+      }`}
+      style={isHome ? {
+        backgroundColor: "rgba(255,255,255,0.92)",
+        WebkitBackdropFilter: "blur(12px)",
+        backdropFilter: "blur(12px)",
+      } : undefined}
       data-marketplace-header
       data-header-variant={variant}
     >
-      <div className="mx-auto flex w-full max-w-[1500px] flex-wrap items-center px-3 py-3 sm:px-5 xl:h-20 xl:flex-nowrap xl:px-6 xl:py-0">
+      <div className={`mx-auto flex w-full max-w-[1500px] flex-wrap items-center px-3 py-3 sm:px-5 xl:flex-nowrap xl:px-6 xl:py-0 ${isHome ? "xl:h-full" : "xl:h-20"}`}>
         <Link
           to="/"
           className="mr-4 inline-flex shrink-0 items-center text-[25px] font-medium tracking-wide text-[#b97168] xl:mr-6"
@@ -87,7 +97,11 @@ export function MarketplaceHeader({
               to={item.to}
               className={({ isActive }) =>
                 `mr-6 whitespace-nowrap text-sm transition ${
-                  isActive && !isProfile ? "font-semibold text-[#b97168]" : "font-medium text-[#46403e] hover:text-[#c8756b]"
+                  isHome
+                    ? `font-medium tracking-wide ${isActive ? "text-[#E58E82]" : "text-gray-600 hover:text-[#E58E82]"}`
+                    : isActive && !isProfile
+                      ? "font-semibold text-[#b97168]"
+                      : "font-medium text-[#46403e] hover:text-[#c8756b]"
                 } ${index === navigation.length - 1 ? "xl:mr-0" : ""}`
               }
             >
@@ -151,7 +165,9 @@ export function MarketplaceHeader({
           </Link>
           <Link
             to={user ? "/account" : "/login"}
-            className="whitespace-nowrap rounded-xl border border-[#e8b8b0] px-3 py-2 text-xs font-semibold text-[#bd7168] transition hover:bg-[#fff7f5] sm:px-4 sm:text-sm"
+            className={isHome
+              ? "whitespace-nowrap rounded-xl border border-[#E58E82] px-4 py-2 text-sm font-semibold text-[#E58E82] transition-all hover:bg-[#E58E82] hover:text-white"
+              : "whitespace-nowrap rounded-xl border border-[#e8b8b0] px-3 py-2 text-xs font-semibold text-[#bd7168] transition hover:bg-[#fff7f5] sm:px-4 sm:text-sm"}
           >
             {user ? "Профиль" : isProfile ? "Войти" : "Войти / регистрация"}
           </Link>

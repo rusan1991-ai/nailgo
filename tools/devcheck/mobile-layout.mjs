@@ -32,6 +32,7 @@ const app = read("src/App.tsx");
 const css = read("src/index.css");
 const indexHtml = read("index.html");
 const home = read("src/pages/HomePage.tsx");
+const homeHero = read("src/components/HomeHero.tsx");
 const marketplaceHeader = read("src/components/MarketplaceHeader.tsx");
 const marketplaceFooter = read("src/components/MarketplaceFooter.tsx");
 const booking = read("src/pages/BookingPage.tsx");
@@ -106,23 +107,36 @@ check(
     searchMap.includes("grid min-w-0 grid-cols-[64px_minmax(0,1fr)]"),
 );
 check(
-  "главная повторяет пастельно-коралловый hero, шесть фотокатегорий и адаптивный блок discovery",
-  home.includes('data-block="home-hero"') &&
-    home.includes("xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.5fr)]") &&
-    home.includes("xl:min-h-[500px]") &&
-    home.includes("text-[#e58e82]") &&
-    home.includes("grid min-w-0 grid-cols-2 sm:grid-cols-3 xl:grid-cols-6") &&
+  "верхний hero собран монолитно, с реальным поиском, фото рук и API-виджетом мастера",
+  homeHero.includes('data-block="home-hero"') &&
+    homeHero.includes("rounded-3xl") &&
+    homeHero.includes("min-h-[460px]") &&
+    homeHero.includes("bg-[#FFF5F6]") &&
+    homeHero.includes("xl:p-12") &&
+    homeHero.includes("text-3xl font-extrabold leading-tight text-gray-900") &&
+    homeHero.includes("Найдите своего идеального") &&
+    homeHero.includes("мастера маникюра") &&
+    homeHero.includes("text-[#E58E82]") &&
+    homeHero.includes("bg-white p-2 shadow-xl shadow-pink-100/50") &&
+    homeHero.includes("xl:space-x-4") && homeHero.includes("xl:gap-0") &&
+    homeHero.includes("xl:border-r xl:border-gray-100") &&
+    homeHero.includes("Найти мастера") &&
+    homeHero.includes("data-home-hero-benefits") &&
+    homeHero.includes("Проверенные мастера") && homeHero.includes("Честные отзывы") && homeHero.includes("Удобная онлайн-запись") &&
+    homeHero.includes("Icon: Check") && homeHero.includes("Icon: Star") && homeHero.includes("Icon: CalendarDays") &&
+    homeHero.includes('src="/images/reference-hero-hands.jpg"') &&
+    homeHero.includes("bottom-6") && homeHero.includes("sm:right-6") &&
+    homeHero.includes("bg-white/95") && homeHero.includes("backdrop-blur-md") && homeHero.includes("border-pink-50") &&
+    homeHero.includes("data-home-hero-master={master.slug}") &&
+    homeHero.includes("master.rating.toFixed(1)") &&
+    homeHero.includes("clientReviews.slice(0, 3)") &&
     home.includes('data-block="home-discovery"') &&
     home.includes('data-block="home-how-it-works"') &&
-    home.includes('src="/images/reference-hero.jpg"') &&
+    home.includes("grid min-w-0 grid-cols-2 sm:grid-cols-3 xl:grid-cols-6") &&
     home.includes("src={service.image}") &&
-    home.includes('details open={Boolean(place)}') &&
-    home.includes('aria-label=\"Услуга\"') &&
     home.includes('data-block="home-master-carousel"') &&
-    home.includes("n2g-master-carousel flex min-w-0 snap-x snap-mandatory overflow-x-auto") &&
     home.includes("data-master-rating={master.rating}") &&
     home.includes("data-master-price={master.priceFrom}") &&
-    home.includes("data-master-photo-state=\"not-uploaded\"") &&
     home.includes("<FavoriteButton"),
 );
 check(
@@ -139,11 +153,17 @@ check(
   marketplaceHeader.includes("data-marketplace-header") &&
     marketplaceHeader.includes("data-header-search") &&
     marketplaceHeader.includes("new URLSearchParams(location.search)") &&
-    home.includes("<MarketplaceHeader showRegionPicker />") &&
+    home.includes('<MarketplaceHeader showRegionPicker variant="home" />') &&
     searchMap.includes("<MarketplaceHeader showRegionPicker={false} />") &&
     marketplaceHeader.includes("data-header-region") &&
     marketplaceHeader.includes("sticky top-0") &&
     marketplaceHeader.includes("xl:h-20") &&
+    marketplaceHeader.includes("bg-white/90 backdrop-blur-md") &&
+    marketplaceHeader.includes("border-gray-100") &&
+    marketplaceHeader.includes("text-gray-600 hover:text-[#E58E82]") &&
+    marketplaceHeader.includes("tracking-wide") &&
+    marketplaceHeader.includes("border border-[#E58E82]") &&
+    marketplaceHeader.includes("transition-all hover:bg-[#E58E82] hover:text-white") &&
     marketplaceHeader.includes("hidden h-9 w-9") &&
     marketplaceHeader.includes("order-5 mt-1 grid w-full grid-cols-2"),
 );
@@ -180,13 +200,13 @@ check(
 );
 check(
   "место на главной и в каталоге выбирается только из справочника, свободного адресного ввода нет",
-  home.includes("<LocationPicker") && searchMap.includes("<LocationPicker") &&
+  homeHero.includes("<LocationPicker") && searchMap.includes("<LocationPicker") &&
     searchMap.includes("Выберите место из справочника, адрес вводить не нужно") &&
     !/placeholder=[\"'][^\"']*(?:адрес|address)[^\"']*[\"']/i.test(searchMap),
 );
 check(
   "главная использует локальные оптимизированные изображения и не зависит от внешних image URL",
-  ["reference-hero.jpg", "reference-master-banner.jpg", "reference-master-anna.jpg", "reference-service-manicure.jpg", "reference-service-pedicure.jpg", "reference-service-extensions.jpg", "reference-service-design.jpg", "reference-service-strengthening.jpg", "reference-service-removal.jpg"].every((name) => {
+  ["reference-hero.jpg", "reference-hero-hands.jpg", "reference-master-banner.jpg", "reference-master-anna.jpg", "reference-service-manicure.jpg", "reference-service-pedicure.jpg", "reference-service-extensions.jpg", "reference-service-design.jpg", "reference-service-strengthening.jpg", "reference-service-removal.jpg"].every((name) => {
     const imagePath = path.join(root, "public/images", name);
     return fs.existsSync(imagePath) && fs.statSync(imagePath).size < 150_000;
   }),

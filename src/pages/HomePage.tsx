@@ -1,20 +1,22 @@
 import { FavoriteButton } from "../components/FavoriteButton";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CalendarDays, ChevronDown, Flower2, Heart, MapPin, MessageCircle, Search, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, CalendarDays, Flower2, Heart, MapPin, Search, ShieldCheck, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { MarketplaceHeader } from "../components/MarketplaceHeader";
+import { HomeHero } from "../components/HomeHero";
 import { CityMap } from "../components/CityMap";
 import { CityPicker } from "../components/CityPicker";
 import { DEFAULT_REGIONS, useCity } from "../city/CityContext";
 import { Avatar } from "../components/NailUi";
 import { formatRub } from "../data/mock";
 import { useCatalog, durationLabel } from "../catalog/store";
-import { LocationPicker, type PickedPlace } from "../components/LocationPicker";
+import type { PickedPlace } from "../components/LocationPicker";
 import { SmartSearchPanel } from "../components/SmartSearchPanel";
 import { useMasterSearch, type MasterSearchItem, type MasterSort } from "../api/search";
 import { useMasterServices } from "../api/masterServices";
+import { useMasterCard } from "../api/masterCard";
 import { formatDateLabel } from "../store/bookings";
 import { useJournal } from "../api/journal";
 import { JournalArticleCard } from "../components/JournalArticleCard";
@@ -137,6 +139,7 @@ export function HomePage() {
   const listedCount = listedMasters.length;
   const homeImpressionsRef = usePromotionImpressions("home", listedMasters.map((master) => master.slug));
   const showcaseMaster = listedMasters[0];
+  const { data: heroMasterCard } = useMasterCard(showcaseMaster?.slug);
   const showcaseImpressionRef = usePromotionImpression<HTMLElement>(showcaseMaster?.slug ?? "", "home");
   const {
     data: showcaseServicesData,
@@ -185,158 +188,27 @@ export function HomePage() {
 
   return (
     <main className="n2g-min-h-viewport w-full max-w-full min-w-0 bg-white font-sans text-[#302a29]">
-      <MarketplaceHeader showRegionPicker />
+      <MarketplaceHeader showRegionPicker variant="home" />
       <div className="mx-auto w-full min-w-0 max-w-[1600px] px-3 py-3 sm:px-4 sm:py-5">
-        <section
-          className="relative z-20 mt-2 min-w-0 overflow-hidden rounded-[28px] border border-[#f1d9e4] bg-[#fff5f2] shadow-sm xl:mt-4"
-          data-block="home-hero"
-        >
-          <img
-            src="/images/reference-hero.jpg"
-            alt=""
-            aria-hidden="true"
-            className="absolute inset-0 h-full w-full object-cover object-[62%_center] xl:object-[65%_center]"
-            loading="eager"
-            decoding="async"
-          />
-          <div
-            className="pointer-events-none absolute inset-0"
-            aria-hidden="true"
-            style={{ background: "linear-gradient(90deg, #fff5f2 0%, #fff5f2 38%, rgba(255,245,242,.93) 55%, rgba(255,245,242,.08) 100%)" }}
-          />
-          <div className="relative z-10 grid min-w-0 grid-cols-1 items-stretch xl:min-h-[500px] xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.5fr)]">
-            <div className="min-w-0 p-5 sm:p-8 xl:py-10 xl:pl-10 xl:pr-5">
-              <h1 className="max-w-[700px] text-[32px] font-normal leading-[1.18] text-[#302a29] sm:text-[40px] xl:text-[46px]">
-                Красивые ногти —<br className="hidden sm:block" /> легко найти <span className="text-[#e58e82]">своего мастера</span>
-              </h1>
-              <p className="mt-3 max-w-[620px] text-sm leading-relaxed text-[#746b68] sm:text-base">
-                Удобный сервис поиска проверенных мастеров маникюра рядом с вами. Читайте отзывы, сравнивайте и записывайтесь онлайн.
-              </p>
-
-              <form
-                className="mt-6 max-w-[820px] rounded-2xl border border-[#eee1dd] bg-white p-2 shadow-[0_14px_32px_-24px_rgba(118,72,63,0.38)]"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const params = new URLSearchParams(searchParams);
-                  const query = queryText.trim();
-                  if (query) params.set("query", query);
-                  else params.delete("query");
-                  const search = params.toString();
-                  navigate(`/search${search ? `?${search}` : ""}`);
-                }}
-              >
-                <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(145px,0.95fr)_minmax(130px,0.9fr)_minmax(160px,1fr)_auto]">
-                  <CityPicker className="min-w-0" />
-                  <label className="relative min-w-0">
-                    <select
-                      aria-label="Услуга"
-                      value={queryText}
-                      onChange={(event) => setQueryText(event.target.value)}
-                      className="h-11 w-full min-w-0 appearance-none rounded-xl border border-[#eee5e2] bg-white px-3 pr-9 text-base text-[#514846] outline-none transition focus:border-[#e58e82] xl:text-sm"
-                    >
-                      <option value="">Услуга</option>
-                      {queryParam && !popularServices.some((service) => service.query === queryParam) && (
-                        <option value={queryParam}>{queryParam}</option>
-                      )}
-                      {popularServices.map((service) => <option key={service.query} value={service.query}>{service.title}</option>)}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#887c78]" aria-hidden="true" />
-                  </label>
-                  <details open={Boolean(place)} className="group relative z-30 min-w-0">
-                    <summary className="flex h-11 cursor-pointer list-none items-center justify-between rounded-xl border border-[#eee5e2] bg-white px-3 text-sm text-[#746b68]">
-                      <span className="flex min-w-0 items-center">
-                        <MapPin className="mr-2 h-4 w-4 shrink-0 text-[#e58e82]" aria-hidden="true" />
-                        <span className="truncate">{place ? `${place.kind === "metro" ? "м. " : "г. "}${place.name}` : "Метро или район"}</span>
-                      </span>
-                      <span className="ml-2 shrink-0 text-xs font-medium text-[#bd7168]">Выбрать</span>
-                    </summary>
-                    <div className="absolute left-0 top-[calc(100%+8px)] z-50 w-[min(540px,90vw)] max-w-[90vw] rounded-2xl border border-[#eee1dd] bg-white p-2 shadow-[0_18px_40px_-20px_rgba(70,35,50,0.32)]">
-                      <LocationPicker
-                        place={place}
-                        onPick={choosePlace}
-                        variant="compact"
-                        className="border-0 bg-transparent p-0"
-                      />
-                    </div>
-                  </details>
-                  <button
-                    type="submit"
-                    className="inline-flex h-11 shrink-0 items-center justify-center rounded-xl bg-[#e58e82] px-4 text-sm font-semibold text-white transition hover:bg-[#d77d72] sm:col-span-2 xl:col-span-1 xl:px-5"
-                  >
-                    <Search className="mr-2 h-4 w-4" aria-hidden="true" /> Найти мастера
-                  </button>
-                </div>
-              </form>
-
-              <div className="mt-6 grid min-w-0 grid-cols-1 rounded-2xl border border-[#f0e3df] bg-white p-4 text-[#514846] sm:grid-cols-2 xl:max-w-[1010px] xl:grid-cols-4 xl:p-5">
-                <div className="mb-3 mr-3 flex min-w-0 items-start sm:mb-4 xl:mb-0">
-                  <span className="mr-3 grid h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 place-items-center rounded-full bg-[#fff3f0] text-[#e58e82]">
-                    <ShieldCheck className="h-5 w-5" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium">Проверенные мастера</span>
-                    <span className="mt-1 block text-xs leading-relaxed text-[#8a807d]">Все мастера проходят проверку и верификацию</span>
-                  </span>
-                </div>
-                <div className="mb-3 mr-3 flex min-w-0 items-start sm:mb-4 xl:mb-0">
-                  <span className="mr-3 grid h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 place-items-center rounded-full bg-[#fff3f0] text-[#e58e82]">
-                    <MessageCircle className="h-5 w-5" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium">Честные отзывы</span>
-                    <span className="mt-1 block text-xs leading-relaxed text-[#8a807d]">Реальные отзывы от клиентов</span>
-                  </span>
-                </div>
-                <div className="mb-3 mr-3 flex min-w-0 items-start sm:mb-4 xl:mb-0">
-                  <span className="mr-3 grid h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 place-items-center rounded-full bg-[#fff3f0] text-[#e58e82]">
-                    <CalendarDays className="h-5 w-5" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium">Онлайн-запись</span>
-                    <span className="mt-1 block text-xs leading-relaxed text-[#8a807d]">Запись на удобное время в пару кликов</span>
-                  </span>
-                </div>
-                <div className="flex min-w-0 items-start">
-                  <span className="mr-3 grid h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 place-items-center rounded-full bg-[#fff3f0] text-[#e58e82]">
-                    <ShieldCheck className="h-5 w-5" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium">Безопасность</span>
-                    <span className="mt-1 block text-xs leading-relaxed text-[#8a807d]">Ваши данные защищены и не передаются третьим лицам</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="relative flex min-h-[190px] min-w-0 items-end justify-end p-4 sm:min-h-[230px] sm:p-7 xl:items-center xl:p-6">
-              {showcaseMaster ? (
-                <Link
-                  to={showcaseProfileLink}
-                  onClick={() => recordPromotionEvent(showcaseMaster.slug, "profile_click", "home")}
-                  className="flex w-full max-w-[310px] min-w-0 items-center rounded-2xl border border-white bg-white px-4 py-3 shadow-[0_12px_35px_-18px_rgba(72,48,42,0.36)]"
-                  data-hero-showcase-master={showcaseMaster.slug}
-                >
-                  <span className="mr-3 shrink-0">
-                    <Avatar size={48} src={showcaseMaster.avatarUrl} name={showcaseMaster.name} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-[#302a29]">{showcaseMaster.name}</span>
-                    <span className="mt-1 block truncate text-xs text-[#817774]">{showcaseMaster.tags}</span>
-                    <span className="mt-1 block text-xs text-[#817774]">
-                      <span className="font-semibold text-[#c8756b]">★ {showcaseMaster.rating}</span> · {showcaseMaster.reviewsCount} отзывов
-                    </span>
-                    <span className="mt-1 block truncate text-[11px] text-[#968b87]">{showcaseMaster.metro}{showcaseMaster.distance ? ` · ${showcaseMaster.distance}` : ""}</span>
-                  </span>
-                  <ArrowRight className="ml-3 h-4 w-4 shrink-0 text-[#e58e82]" aria-hidden="true" />
-                </Link>
-              ) : (
-                <p className="w-full max-w-[310px] rounded-2xl border border-white bg-white px-4 py-5 text-sm text-[#817774] shadow-sm">
-                  {catalogStatus === "loading" || catalogStatus === "idle" ? "Загружаем мастеров…" : "Выберите место или услугу, чтобы увидеть мастеров."}
-                </p>
-              )}
-            </div>
-          </div>
-        </section>
+        <HomeHero
+          queryText={queryText}
+          onQueryChange={setQueryText}
+          onSubmit={(event) => {
+            event.preventDefault();
+            const params = new URLSearchParams(searchParams);
+            const query = queryText.trim();
+            if (query) params.set("query", query);
+            else params.delete("query");
+            const search = params.toString();
+            navigate(`/search${search ? `?${search}` : ""}`);
+          }}
+          serviceOptions={popularServices}
+          place={place}
+          onPickPlace={choosePlace}
+          master={showcaseMaster}
+          clientReviews={heroMasterCard?.reviews ?? []}
+          onMasterClick={showcaseMaster ? () => recordPromotionEvent(showcaseMaster.slug, "profile_click", "home") : undefined}
+        />
 
         <section className="mt-7" data-block="home-popular-services">
           <div className="mb-3 flex flex-wrap items-end justify-between">

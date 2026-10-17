@@ -342,6 +342,27 @@ assert(
     carouselCard?.querySelector("[data-action='favorite-toggle']")?.getAttribute("data-slug") === carouselSlug,
   `slug=${carouselSlug}; API=${carouselApiMaster?.data?.name}/${carouselApiMaster?.data?.priceFrom}/${carouselApiMaster?.data?.rating}`,
 );
+const heroMasterWidget = homeWindow.document.querySelector("[data-home-hero-master]");
+const shownHeroClients = [...homeWindow.document.querySelectorAll("[data-hero-client-avatar]")]
+  .map((node) => node.getAttribute("data-hero-client-avatar"));
+const expectedHeroClients = (carouselApiMaster?.data?.reviews ?? []).slice(0, 3).map((review) => review.clientName);
+assert(
+  "парящая карточка hero совпадает с данными мастера из API",
+  carouselApiMaster?.status === 200 &&
+    heroMasterWidget?.getAttribute("data-home-hero-master") === carouselSlug &&
+    heroMasterWidget?.getAttribute("data-hero-master-name") === carouselApiMaster.data.name &&
+    heroMasterWidget?.getAttribute("data-hero-master-rating") === String(carouselApiMaster.data.rating),
+  `slug=${heroMasterWidget?.getAttribute("data-home-hero-master")}; имя=${heroMasterWidget?.getAttribute("data-hero-master-name")}; рейтинг=${heroMasterWidget?.getAttribute("data-hero-master-rating")}`,
+);
+assert(
+  "мини-аватары в hero — только авторы опубликованных отзывов мастера",
+  JSON.stringify(shownHeroClients) === JSON.stringify(expectedHeroClients),
+  `показано=${shownHeroClients.join(",")}; API=${expectedHeroClients.join(",")}`,
+);
+assert(
+  "hero использует локальный кроп рук из референса, а не внешнее или сгенерированное фото",
+  homeWindow.document.querySelector("[data-hero-hands-photo]")?.getAttribute("src") === "/images/reference-hero-hands.jpg",
+);
 const homeMapSlugs = [...homeWindow.document.querySelectorAll("[data-city-map] [data-map-master]")]
   .map((node) => node.getAttribute("data-map-master"));
 assert(

@@ -33,6 +33,7 @@ const css = read("src/index.css");
 const indexHtml = read("index.html");
 const home = read("src/pages/HomePage.tsx");
 const homeHero = read("src/components/HomeHero.tsx");
+const smartSearch = read("src/components/SmartSearchPanel.tsx");
 const marketplaceHeader = read("src/components/MarketplaceHeader.tsx");
 const marketplaceFooter = read("src/components/MarketplaceFooter.tsx");
 const booking = read("src/pages/BookingPage.tsx");
@@ -88,8 +89,8 @@ check(
 );
 check(
   "карта витрины зажата адаптивным w-full wrapper без фиксированной ширины",
-  /className="w-full max-w-full overflow-hidden px-4 block[^"]*" data-map-overflow-guard/.test(home) &&
-    /className="[^"]*w-full[^"]*min-w-0[^"]*" data-city-block/.test(home) &&
+  /className="block w-full max-w-full min-w-0 overflow-hidden" data-map-overflow-guard/.test(home) &&
+    /className="[^"]*w-full[^"]*min-w-0[^"]*"\s+data-city-block/.test(home) &&
     cityMap.includes("n2g-city-map-fill-container") &&
     cityMap.includes("overflow-hidden rounded-2xl border border-[#f1dde6] p-4") &&
     cityMap.includes("block w-full max-w-full min-w-0 overflow-hidden") &&
@@ -100,9 +101,10 @@ check(
 );
 check(
   "главная и карта мастеров задают безопасные адаптивные колонки без фиксированной ширины",
-  home.includes("grid min-w-0 grid-cols-1") &&
-    home.includes("xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.85fr)]") &&
-    home.includes("xl:col-start-2") && home.includes("xl:col-span-2") &&
+  home.includes('data-block="home-availability"') &&
+    home.includes("grid min-w-0 grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_450px]") &&
+    home.includes("lg:col-start-2") && home.includes("lg:row-span-2") &&
+    home.includes("lg:col-start-1") && home.includes("height={500}") &&
     searchMap.includes("grid min-w-0 grid-cols-1 gap-4") &&
     searchMap.includes("xl:grid-cols-[320px_460px_minmax(0,1fr)]") &&
     searchMap.includes("grid min-w-0 grid-cols-[64px_minmax(0,1fr)]"),
@@ -138,7 +140,11 @@ check(
     home.includes('data-block="home-master-carousel"') &&
     home.includes("data-master-rating={master.rating}") &&
     home.includes("data-master-price={master.priceFrom}") &&
-    home.includes("<FavoriteButton"),
+    home.includes("<FavoriteButton") &&
+    home.includes("className=\"absolute right-3 top-3 z-10\"") &&
+    homeHero.includes('alt=\"\"') &&
+    !homeHero.includes("Ухоженные руки с нежным розовым маникюром") &&
+    homeHero.includes("Мастера рядом"),
 );
 check(
   "цены категорий берутся из загруженного API-каталога, а витрина мастера динамическая",
@@ -272,12 +278,19 @@ check(
     locationPicker.includes("mr-1.5 mb-1.5") &&
     !locationPicker.includes("items-center justify-between gap-2") &&
     !locationPicker.includes("items-center gap-2 rounded-xl") &&
+    !/flex[^"]*\sgap-[^"]+/.test(smartSearch) &&
+    !/flex[^"]*\sgap-[^"]+/.test(cityMap) &&
+    smartSearch.includes("mr-1.5 mb-1.5") &&
+    smartSearch.includes("bg-[#e58e82] font-semibold text-white") &&
+    cityMap.includes("items-center justify-between space-x-2") &&
     cityPicker.includes('className="mt-3 flex flex-wrap"') &&
     cityPicker.includes("mr-2 mb-2") && journalPage.includes('className="flex flex-wrap" aria-label="Категории журнала"') &&
     journalPage.includes("mr-2 mb-2") &&
     home.includes("n2g-master-carousel flex min-w-0 snap-x snap-mandatory overflow-x-auto") &&
     home.includes("mr-4 mb-2 flex w-[278px] min-w-[278px] shrink-0 snap-start") &&
-    home.includes("min-h-[56px] min-w-[56px]") &&
+    home.includes("<Avatar size={96} name={master.name}") &&
+    !home.includes("Фото пока не добавлено") &&
+    home.includes("bg-[#e58e82] px-3 py-2 text-sm font-semibold text-white") &&
     home.includes("mb-3 mr-3 flex min-w-0 flex-col") &&
     home.includes("h-8 w-8 min-h-[32px] min-w-[32px]") &&
     searchMap.includes("grid min-w-0 grid-cols-[64px_minmax(0,1fr)]") &&

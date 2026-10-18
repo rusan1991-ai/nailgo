@@ -371,7 +371,7 @@ assert(
     homeMapSlugs.every((slug) => homeCatalogSlugs.includes(slug)),
   `карточки=${homeCatalogSlugs.join(",")}; карта=${homeMapSlugs.join(",")}`,
 );
-const referencePortraits = [...homeWindow.document.querySelectorAll('[data-master-photo-state="reference-fallback"]')];
+const referencePortraits = [...homeWindow.document.querySelectorAll('img[data-master-photo-state="reference-fallback"]')];
 assert(
   "локальное фото-кроп используется только у соответствующей карточки seeded-мастера",
   referencePortraits.every((photo) =>

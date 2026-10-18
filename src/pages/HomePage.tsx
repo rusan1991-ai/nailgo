@@ -233,7 +233,22 @@ export function HomePage() {
                   className="mb-3 mr-3 flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[#f0e3df] bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#e9b8ae] hover:shadow-md sm:mr-4"
                 >
                   <span className="relative block h-[98px] w-full min-w-0 overflow-hidden bg-[#fff3f0] sm:h-[112px]">
-                    <img src={service.image} alt="" loading="lazy" decoding="async" className="block h-full w-full object-cover" />
+                    <img
+                      src={service.image}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      className="block h-full w-full object-cover"
+                      onError={(event) => {
+                        const image = event.currentTarget;
+                        if (image.dataset.fallbackApplied === "true") {
+                          image.hidden = true;
+                          return;
+                        }
+                        image.dataset.fallbackApplied = "true";
+                        image.src = "/images/reference-hero.jpg";
+                      }}
+                    />
                     <span className="absolute bottom-2 right-2 grid h-8 w-8 min-h-[32px] min-w-[32px] place-items-center rounded-full border border-[#f0ddd8] bg-white text-[#e58e82]">
                       <Icon className="h-4 w-4" aria-hidden="true" />
                     </span>
@@ -262,7 +277,8 @@ export function HomePage() {
           <div className="relative min-h-[200px] min-w-0 overflow-hidden rounded-[24px] border border-[#f0e3df] bg-[#fff3f0] p-5 sm:min-h-[220px] sm:p-7">
             <img
               src="/images/reference-master-banner.jpg"
-              alt="Мастер маникюра в салоне"
+              alt=""
+              aria-hidden="true"
               loading="lazy"
               decoding="async"
               className="absolute bottom-0 right-0 hidden h-full w-[43%] object-cover object-center sm:block"
@@ -355,38 +371,33 @@ export function HomePage() {
                       idx === 0 ? "border-[#e9b8ae]" : "border-[#f0e3df]"
                     }`}
                   >
-                    <div className="relative h-[166px] min-h-[166px] w-full overflow-hidden bg-[#fff3f0] sm:h-[178px] sm:min-h-[178px]">
-                      {photoUrl ? (
+                    <div
+                      className="relative h-[166px] min-h-[166px] w-full overflow-hidden bg-[#fff3f0] sm:h-[178px] sm:min-h-[178px]"
+                      data-master-photo-state={photoUrl ? (master.avatarUrl ? "uploaded" : "reference-fallback") : "not-uploaded"}
+                    >
+                      <div className="absolute inset-0 grid place-items-center bg-[#fff5f2]" aria-hidden="true">
+                        <Avatar size={96} name={master.name} className="border-4 border-white shadow-lg" />
+                      </div>
+                      {photoUrl && (
                         <img
                           src={photoUrl}
                           alt={`Фото мастера ${master.name}`}
                           loading="lazy"
                           decoding="async"
-                          className={`block h-full w-full object-cover ${master.avatarUrl ? "object-center" : "object-top"}`}
+                          className={`relative block h-full w-full object-cover ${master.avatarUrl ? "object-center" : "object-top"}`}
                           data-master-photo-state={master.avatarUrl ? "uploaded" : "reference-fallback"}
+                          onError={(event) => {
+                            event.currentTarget.hidden = true;
+                          }}
                         />
-                      ) : (
-                        <div
-                          className="grid h-full w-full place-items-center bg-[#fff5f2] text-[#bd7168]"
-                          data-master-photo-state="not-uploaded"
-                          role="img"
-                          aria-label={`Фото мастера ${master.name} пока не загружено`}
-                        >
-                          <div className="grid justify-items-center">
-                            <span className="grid h-14 w-14 min-h-[56px] min-w-[56px] place-items-center rounded-full border border-[#f0ddd8] bg-white text-[#e58e82]">
-                              <Flower2 className="h-7 w-7" strokeWidth={1.5} aria-hidden="true" />
-                            </span>
-                            <span className="mt-2 text-xs text-[#8a807d]">Фото пока не добавлено</span>
-                          </div>
-                        </div>
                       )}
-                      <span className={`absolute left-3 top-3 inline-flex max-w-[190px] items-center justify-center truncate rounded-full border border-[#f0e3df] bg-white px-3 py-1 text-center text-[11px] font-medium text-[#746b68] ${usesReferencePortrait ? "min-w-[112px]" : ""}`}>
+                      <span className="absolute left-3 top-3 inline-flex max-w-[190px] items-center justify-center truncate rounded-full border border-[#f0e3df] bg-white px-3 py-1 text-center text-[11px] font-medium text-[#746b68]">
                         {master.tags.split(",")[0]?.trim() || "Мастер ногтевого сервиса"}
                       </span>
                       <FavoriteButton
                         masterSlug={master.slug}
                         masterName={master.name}
-                        className={`absolute z-10 ${usesReferencePortrait ? "right-6 top-1" : "right-3 top-3"}`}
+                        className="absolute right-3 top-3 z-10"
                       />
                     </div>
 
@@ -419,7 +430,7 @@ export function HomePage() {
                           to={bookingLinkForMaster(master)}
                           onClick={() => recordPromotionEvent(master.slug, "booking_click", "home")}
                           data-home-master-action={master.slug}
-                          className="mb-2 ml-auto inline-flex shrink-0 items-center rounded-xl bg-[#fff3f0] px-3 py-2 text-sm font-semibold text-[#bd7168] transition hover:bg-[#f7e5df]"
+                          className="mb-2 ml-auto inline-flex shrink-0 items-center rounded-xl bg-[#e58e82] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#d77d72]"
                         >
                           Записаться <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
                         </Link>
@@ -438,7 +449,10 @@ export function HomePage() {
           )}
         </section>
 
-        <section className="mt-8 grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.85fr)]">
+        <section
+          className="mt-12 grid min-w-0 grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_450px]"
+          data-block="home-availability"
+        >
           <div className="min-w-0">
             <div className="rounded-3xl border border-[#f0e3df] bg-white p-4 shadow-sm sm:p-5">
               <div className="mb-3">
@@ -457,7 +471,10 @@ export function HomePage() {
 
           </div>
 
-          <div className="w-full min-w-0 rounded-3xl border border-[#f0e3df] bg-white p-4 shadow-sm sm:p-5 xl:col-start-2" data-city-block>
+          <div
+            className="order-3 w-full min-w-0 rounded-3xl border border-[#f0e3df] bg-white p-4 shadow-sm sm:p-5 lg:order-none lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:self-start"
+            data-city-block
+          >
             <div className="mb-3 flex flex-wrap items-end justify-between">
               <div className="mr-2 mb-2">
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#e58e82]">Ориентир</p>
@@ -473,7 +490,7 @@ export function HomePage() {
               </p>
             )}
             <CityPicker variant="wide" className="border-0 p-0" />
-            <div className="w-full max-w-full overflow-hidden px-4 block min-w-0" data-map-overflow-guard>
+            <div className="block w-full max-w-full min-w-0 overflow-hidden" data-map-overflow-guard>
               <CityMap
                 masters={listedMasters}
                 center={
@@ -485,7 +502,7 @@ export function HomePage() {
                     : regionInfo.center
                 }
                 zoom={place ? 13 : regionInfo.cities.length > 1 ? 9 : 11}
-                height={360}
+                height={500}
                 title={place ? `Мастера: ${place.name}` : `Мастера: ${region}`}
               />
             </div>
@@ -496,7 +513,7 @@ export function HomePage() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.35 }}
             ref={showcaseImpressionRef}
-            className="min-w-0 rounded-3xl border border-[#f0e3df] bg-white p-5 shadow-[0_30px_50px_-35px_rgba(118,72,63,0.18)] xl:col-span-2"
+            className="order-2 min-w-0 rounded-3xl border border-[#f0e3df] bg-white p-5 shadow-[0_30px_50px_-35px_rgba(118,72,63,0.18)] lg:order-none lg:col-start-1"
             data-block="home-showcase"
             data-showcase-master={showcaseMaster?.slug ?? ""}
           >
@@ -567,7 +584,7 @@ export function HomePage() {
                     <div className="flex flex-wrap">
                       {showcaseWindows.map((window, index) => (
                         <Link
-                          key={`${window.dateISO}-${window.startMinutes}`}
+                          key={`${window.dateISO}-${window.startMinutes}-${window.workspaceId}-${window.serviceId ?? "service"}`}
                           onClick={() => recordPromotionEvent(showcaseMaster.slug, "booking_click", "home")}
                           data-showcase-window={`${window.dateISO}:${window.label}`}
                           to={bookingLinkForShowcase({

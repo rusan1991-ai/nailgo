@@ -68,7 +68,7 @@ export function LastMinutePage() {
       <div ref={impressionRef} className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" data-page="last-minute">
         {data?.items.map((offer) => (
           <article
-            key={`${offer.masterSlug}-${offer.dateISO}-${offer.startMinutes}`}
+            key={`${offer.masterSlug}-${offer.dateISO}-${offer.startMinutes}-${offer.workspaceId}-${offer.serviceId}`}
             data-promotion-master={offer.masterSlug}
             data-offer={`${offer.masterSlug}:${offer.dateISO}:${offer.startMinutes}`}
             className="rounded-2xl border border-[#f1dde6] p-4"

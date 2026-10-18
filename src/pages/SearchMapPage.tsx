@@ -380,7 +380,7 @@ export function SearchMapPage() {
                       <div className="mt-3 flex flex-wrap" data-field="windows">
                         {master.nextWindows.slice(0, 3).map((window) => (
                           <Link
-                            key={`${window.dateISO}-${window.startMinutes}`}
+                            key={`${window.dateISO}-${window.startMinutes}-${window.workspaceId}-${window.serviceId ?? "service"}`}
                             to={makeBookingPath({ slug: master.slug, nextWindows: [window] })}
                             onClick={() => recordPromotionEvent(master.slug, "booking_click", "search")}
                             data-window={`${master.slug}:${window.dateISO}:${window.label}`}

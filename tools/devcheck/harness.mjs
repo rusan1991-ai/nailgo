@@ -20,7 +20,7 @@ export function makeDom(route, { session, storage = {}, viewportWidth = 1024 } =
   const consoleErrors = [];
   const vc = new VirtualConsole();
   vc.on("jsdomError", (error) => errors.push(error.message));
-  vc.on("error", (...args) => consoleErrors.push(String(args[0])));
+  vc.on("error", (...args) => consoleErrors.push(args.map(String).join(" ")));
 
   const dom = new JSDOM(
     `<!doctype html><html lang="ru"><body><div id="root"></div><script>${BUNDLE}</script></body></html>`,

@@ -85,9 +85,9 @@ export function FavoriteButton({
         data-active={active ? "true" : "false"}
         aria-pressed={active}
         className={cn(
-          "grid h-9 w-9 min-h-[36px] min-w-[36px] place-items-center rounded-full border bg-white transition",
+          "grid h-11 w-11 min-h-[44px] min-w-[44px] place-items-center rounded-full border bg-white shadow-[0_8px_20px_rgba(64,35,30,0.14)] transition",
           active
-            ? "border-[#e9b8ae] bg-[#fff3f0] text-[#bd7168]"
+            ? "border-[#e9b8ae] text-[#bd7168]"
             : "border-[#f0ddd8] text-[#817774] hover:border-[#e9b8ae] hover:text-[#bd7168]",
         )}
       >

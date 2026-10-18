@@ -67,9 +67,9 @@ export function SmartSearchPanel({
       data-block="smart-search"
       className="rounded-2xl border border-[#f3dfe8] bg-white p-4 shadow-[0_10px_30px_-24px_rgba(236,72,153,0.5)]"
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-slate-900">Умный поиск</p>
-        <div className="flex flex-wrap gap-1.5" data-block="sort">
+      <div className="flex flex-wrap items-center justify-between">
+        <p className="mr-2 mb-2 text-sm font-semibold text-slate-900">Умный поиск</p>
+        <div className="mb-1 flex flex-wrap" data-block="sort">
           {MASTER_SORT_OPTIONS.filter((option) => option.value !== "price_desc").map((option) => (
             <button
               key={option.value}
@@ -78,10 +78,10 @@ export function SmartSearchPanel({
               aria-pressed={sort === option.value}
               onClick={() => onSort(option.value)}
               className={cn(
-                "rounded-xl border px-3 py-1.5 text-xs transition",
+                "mr-1.5 mb-1.5 rounded-xl border px-3 py-1.5 text-xs transition",
                 sort === option.value
-                  ? "border-pink-400 bg-pink-50 text-pink-600"
-                  : "border-[#f1dbe4] text-slate-600 hover:border-pink-200",
+                  ? "border-[#e58e82] bg-[#fff3f0] text-[#bd7168]"
+                  : "border-[#f1dbe4] text-slate-600 hover:border-[#e9b8ae]",
               )}
             >
               {option.label}
@@ -146,10 +146,10 @@ export function SmartSearchPanel({
                 className={cn(
                   "mx-auto grid h-7 w-7 place-items-center rounded-full transition",
                   selected
-                    ? "bg-[#e11d48] font-semibold text-white"
+                    ? "bg-[#e58e82] font-semibold text-white"
                     : past
                       ? "text-slate-300"
-                      : "text-slate-600 hover:bg-rose-50",
+                      : "text-slate-600 hover:bg-[#fff3f0] hover:text-[#bd7168]",
                 )}
               >
                 {dayNumber}
@@ -158,8 +158,8 @@ export function SmartSearchPanel({
           })}
         </div>
 
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-400">
-          <CalendarCheck className="h-3.5 w-3.5" />
+        <p className="mt-2 flex items-center text-xs text-slate-400">
+          <CalendarCheck className="mr-1.5 h-3.5 w-3.5 shrink-0" />
           {date ? "Нажмите дату ещё раз, чтобы снять фильтр" : "Считаем свободные окна на выбранный день"}
         </p>
         {date && (

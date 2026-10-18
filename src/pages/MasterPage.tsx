@@ -276,7 +276,7 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
                   const query = `workspace=${encodeURIComponent(window.workspaceId)}&${windowServiceId ? `service=${encodeURIComponent(windowServiceId)}&` : ""}date=${window.dateISO}&slot=${encodeURIComponent(window.label)}`;
                   return (
                     <Link
-                      key={`${window.dateISO}-${window.startMinutes}`}
+                      key={`${window.dateISO}-${window.startMinutes}-${window.workspaceId}-${window.serviceId ?? "service"}`}
                       to={bookingLinkFor(query)}
                       onClick={() => recordPromotionEvent(master.slug, "booking_click", "profile")}
                       data-window={`${window.dateISO}:${window.label}`}

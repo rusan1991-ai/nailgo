@@ -68,7 +68,7 @@ const mapGuard = home.dom.window.document.querySelector("[data-map-overflow-guar
 assert(
   "при ширине 390px карта находится внутри адаптивного overflow-wrapper",
   Boolean(mapGuard && mapBlock && mapGuard.contains(mapBlock)) &&
-    ["w-full", "max-w-full", "overflow-hidden", "px-4", "block"].every((name) => mapGuard?.classList.contains(name)),
+    ["w-full", "max-w-full", "min-w-0", "overflow-hidden", "block"].every((name) => mapGuard?.classList.contains(name)),
   mapGuard?.className ?? "обёртка не найдена",
 );
 const storefrontMain = home.dom.window.document.querySelector("main");

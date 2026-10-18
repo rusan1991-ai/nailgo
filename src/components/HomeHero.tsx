@@ -25,6 +25,7 @@ const benefits = [
   { label: "Проверенные мастера", Icon: Check },
   { label: "Честные отзывы", Icon: Star },
   { label: "Удобная онлайн-запись", Icon: CalendarDays },
+  { label: "Мастера рядом", Icon: MapPin },
 ];
 
 function reviewInitials(name: string): string {
@@ -37,7 +38,7 @@ function reviewInitials(name: string): string {
     .toLocaleUpperCase("ru-RU");
 }
 
-/** Верхний блок главной: поиск, три преимущества и API-карточка поверх фото из макета. */
+/** Верхний блок главной: поиск, преимущества и API-карточка поверх фото из макета. */
 export function HomeHero({
   queryText,
   onQueryChange,
@@ -153,10 +154,20 @@ export function HomeHero({
         <div className="relative h-[340px] w-full overflow-hidden rounded-3xl border-[5px] border-white bg-[#F9E9E9] shadow-2xl sm:h-[390px] xl:h-[370px]">
           <img
             src="/images/reference-hero-hands.jpg"
-            alt="Ухоженные руки с нежным розовым маникюром"
+            alt=""
+            aria-hidden="true"
             className="block h-full w-full object-cover"
             loading="eager"
             decoding="async"
+            onError={(event) => {
+              const image = event.currentTarget;
+              if (image.dataset.fallbackApplied === "true") {
+                image.hidden = true;
+                return;
+              }
+              image.dataset.fallbackApplied = "true";
+              image.src = "/images/reference-hero.jpg";
+            }}
             data-hero-hands-photo
           />
 

@@ -216,9 +216,9 @@ export function CityMap({
       data-city-map={mode}
     >
       {!compact && (
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <span className="text-xs text-slate-400">
+        <div className="flex flex-wrap items-center justify-between">
+          <h2 className="mr-2 mb-2 text-lg font-semibold">{title}</h2>
+          <span className="mb-2 text-xs text-slate-400">
             {pinned.length > 0 ? `${pinned.length} мастеров с локацией` : "локации мастеров пока не заполнены"}
           </span>
         </div>
@@ -254,7 +254,7 @@ export function CityMap({
       >
         {pinned.map((master) => (
           <li key={master.slug} data-map-master={master.slug} data-promotion-master={master.slug} className="min-w-0">
-            <div className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-[#f1dde6] px-3 py-2">
+            <div className="flex min-w-0 items-center justify-between space-x-2 rounded-xl border border-[#f1dde6] px-3 py-2">
               <Link
                 to={`/master/${master.slug}`}
                 onClick={() => recordPromotionEvent(master.slug, "profile_click", "map")}

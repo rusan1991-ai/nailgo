@@ -46,7 +46,7 @@ export function RoleChoice({
             data-role={option.value}
             aria-pressed={role === option.value}
             className={`rounded-2xl border px-4 py-3 text-left transition ${
-              role === option.value ? "border-pink-400 bg-[#fff4f8]" : "border-[#f1dde6] hover:border-pink-200"
+              role === option.value ? "border-[#E58E82] bg-[#fff5f2]" : "border-[#f0e4e0] hover:border-[#e8b8b0]"
             }`}
           >
             <span className="block text-sm font-semibold text-slate-800">{option.title}</span>
@@ -71,13 +71,13 @@ export function AuthCard({
   footer?: React.ReactNode;
 }) {
   return (
-    <main className="grid n2g-min-h-viewport w-full max-w-full min-w-0 overflow-x-hidden place-items-center bg-[#fff7fa] p-4">
-      <section className="w-full max-w-[520px] rounded-3xl border border-[#f6dce7] bg-white p-7 shadow-[0_26px_70px_-45px_rgba(236,72,153,0.65)]">
-        <p className="text-sm uppercase tracking-[0.22em] text-pink-500">Nail 2 Go</p>
-        <h1 className="mt-3 text-3xl font-semibold text-slate-900">{title}</h1>
-        <p className="mt-2 text-slate-500">{subtitle}</p>
+    <main className="grid n2g-min-h-viewport w-full max-w-full min-w-0 overflow-x-hidden place-items-center bg-[#fbf7f5] p-4 sm:p-6">
+      <section className="w-full max-w-[460px] rounded-[28px] border border-[#f0ddd8] bg-white p-5 shadow-[0_28px_80px_-50px_rgba(98,61,53,0.36)] sm:p-7" data-card="auth">
+        <p className="text-sm uppercase tracking-[0.22em] text-[#E58E82]">Nail 2 Go</p>
+        <h1 className="mt-3 text-2xl font-semibold text-slate-900 sm:text-3xl">{title}</h1>
+        <p className="mt-2 text-sm leading-relaxed text-slate-500">{subtitle}</p>
         {children}
-        {footer && <div className="mt-5 border-t border-[#f3e4ea] pt-4 text-sm text-slate-500">{footer}</div>}
+        {footer && <div className="mt-5 border-t border-[#f0e4e0] pt-4 text-sm text-slate-500">{footer}</div>}
       </section>
     </main>
   );
@@ -113,7 +113,7 @@ export function CodeStep({
         onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 4))}
         inputMode="numeric"
         data-field="code"
-        className="w-full rounded-xl border border-[#f1dde6] px-4 py-3 text-center text-lg tracking-[0.5em] outline-none transition focus:border-pink-300"
+        className="w-full rounded-xl border border-[#f0e4e0] px-4 py-3 text-center text-lg tracking-[0.5em] outline-none transition focus:border-[#E58E82]"
         placeholder="0000"
       />
       {devCode && (
@@ -126,14 +126,14 @@ export function CodeStep({
       <button
         disabled={pending}
         data-action="submit-code"
-        className="w-full rounded-xl bg-pink-500 py-3 text-sm font-semibold text-white transition hover:bg-pink-600 disabled:opacity-60"
+        className="w-full rounded-xl bg-[#E58E82] py-3 text-sm font-semibold text-white transition hover:bg-[#d77d72] disabled:opacity-60"
       >
         {pending ? "Проверяем..." : submitLabel}
       </button>
       <button
         type="button"
         onClick={back}
-        className="w-full text-sm text-slate-500 hover:text-pink-600"
+        className="w-full text-sm text-slate-500 hover:text-[#bd7168]"
       >
         Изменить номер
       </button>

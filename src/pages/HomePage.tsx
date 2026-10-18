@@ -278,7 +278,7 @@ export function HomePage() {
             </div>
           </div>
 
-          <div className="min-w-0 rounded-[24px] border border-[#f0e3df] bg-white p-5 sm:p-7" data-block="home-how-it-works">
+          <div id="how-it-works" className="min-w-0 rounded-[24px] border border-[#f0e3df] bg-white p-5 sm:p-7" data-block="home-how-it-works">
             <p className="text-xs font-semibold uppercase tracking-[0.13em] text-[#e58e82]">Всё просто</p>
             <h2 className="mt-2 text-xl font-semibold text-slate-900 sm:text-2xl">Как это работает</h2>
             <div className="mt-5 grid grid-cols-3 text-slate-600">

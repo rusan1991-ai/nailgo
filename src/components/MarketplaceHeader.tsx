@@ -69,14 +69,9 @@ export function MarketplaceHeader({
     <header
       className={`sticky top-0 z-50 w-full border-b ${
         isHome
-          ? "h-auto border-gray-100 bg-white/90 backdrop-blur-md xl:h-20"
-          : "border-[#f0e5e2] bg-white"
+          ? "h-auto border-gray-100 bg-white xl:h-20"
+          : "h-auto border-[#f0e5e2] bg-white"
       }`}
-      style={isHome ? {
-        backgroundColor: "rgba(255,255,255,0.92)",
-        WebkitBackdropFilter: "blur(12px)",
-        backdropFilter: "blur(12px)",
-      } : undefined}
       data-marketplace-header
       data-header-variant={variant}
     >

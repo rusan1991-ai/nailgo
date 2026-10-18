@@ -94,7 +94,7 @@ function createMarker(master: MapMaster, popupRoot: HTMLElement): HTMLElement {
   pin.textContent = "✦";
   pin.style.cssText =
     "display:grid;place-items:center;width:34px;height:34px;border:2px solid #fff;border-radius:50%;" +
-    "background:#ff0066;color:#fff;font-size:17px;cursor:pointer;box-shadow:0 5px 14px rgba(159,18,57,.3)";
+    "background:#E58E82;color:#fff;font-size:17px;cursor:pointer;box-shadow:0 5px 14px rgba(157,91,78,.24)";
 
   const card = document.createElement("div");
   card.dataset.mapPopup = master.slug;
@@ -122,16 +122,16 @@ function createMarker(master: MapMaster, popupRoot: HTMLElement): HTMLElement {
   price.style.cssText = "margin:5px 0 10px;color:#475569;font-weight:600";
 
   const actions = document.createElement("div");
-  actions.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px";
+  actions.style.cssText = "display:flex;align-items:center;justify-content:space-between";
   const profile = document.createElement("a");
   profile.href = title.href;
   profile.textContent = "Профиль";
-  profile.style.cssText = "color:#e6005c;text-decoration:none";
+  profile.style.cssText = "margin-right:8px;color:#bd7168;text-decoration:none";
   const book = document.createElement("a");
   book.href = bookingPath(master);
   book.dataset.mapBook = master.slug;
   book.textContent = "Записаться";
-  book.style.cssText = "border-radius:10px;background:#ff0066;padding:7px 11px;color:white;font-weight:600;text-decoration:none";
+  book.style.cssText = "border-radius:10px;background:#E58E82;padding:7px 11px;color:white;font-weight:600;text-decoration:none";
   const trackProfileClick = () => recordPromotionEvent(master.slug, "profile_click", "map");
   title.addEventListener("click", trackProfileClick);
   profile.addEventListener("click", trackProfileClick);
@@ -258,7 +258,7 @@ export function CityMap({
               <Link
                 to={`/master/${master.slug}`}
                 onClick={() => recordPromotionEvent(master.slug, "profile_click", "map")}
-                className="min-w-0 flex-1 rounded-lg transition hover:text-pink-600"
+                className="min-w-0 flex-1 rounded-lg transition hover:text-[#bd7168]"
               >
                 <span className="block truncate text-sm font-medium text-slate-800">{master.name}</span>
                 <span className="block truncate text-xs text-slate-500">
@@ -270,7 +270,7 @@ export function CityMap({
                 to={bookingPath(master)}
                 onClick={() => recordPromotionEvent(master.slug, "booking_click", "map")}
                 data-map-book={master.slug}
-                className="shrink-0 rounded-lg bg-[#ff0066] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#e6005c]"
+                className="shrink-0 rounded-lg bg-[#E58E82] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#d77d72]"
               >
                 Записаться
               </Link>

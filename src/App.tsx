@@ -138,7 +138,10 @@ function RequireAuth({
 
 function PublicSiteFooter() {
   const { pathname } = useLocation();
-  if (pathname === "/pro" || pathname.startsWith("/pro/") || pathname === "/admin" || pathname.startsWith("/admin/")) {
+  if (
+    pathname === "/login" || pathname === "/register" || pathname === "/booking" || pathname === "/auth/callback" ||
+    pathname === "/pro" || pathname.startsWith("/pro/") || pathname === "/admin" || pathname.startsWith("/admin/")
+  ) {
     return null;
   }
   return <MarketplaceFooter compactSearch={pathname === "/search"} />;

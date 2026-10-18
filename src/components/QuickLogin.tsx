@@ -12,10 +12,10 @@ import type { LoginRole } from "../auth/AuthContext";
 
 /** Заголовки кнопок: у провайдеров свои цвета, узнаваемые с первого взгляда. */
 const STYLES: Record<string, string> = {
-  yandex: "border-[#f1dde6] bg-white text-slate-800 hover:border-[#fc3f1d]",
-  vk: "border-[#f1dde6] bg-white text-slate-800 hover:border-[#0077ff]",
-  telegram: "border-[#f1dde6] bg-white text-slate-800 hover:border-[#229ed9]",
-  max: "border-[#f1dde6] bg-white text-slate-800 hover:border-[#8e3b9c]",
+  vk: "border-[#0077ff] bg-[#0077ff] text-white hover:border-[#0066df] hover:bg-[#0066df]",
+  yandex: "border-[#e9dfdc] bg-white text-[#342a27] hover:border-[#E58E82]",
+  telegram: "border-[#d5edf7] bg-[#f5fbfe] text-[#236d8c] hover:border-[#229ed9]",
+  max: "border-[#ead9ed] bg-[#fcf7fd] text-[#71317b] hover:border-[#8e3b9c]",
 };
 
 const ICONS: Record<string, string> = {
@@ -109,20 +109,31 @@ export function QuickLogin({ role, returnTo, onError }: QuickLoginProps) {
     }
   };
 
-  const visible = providers.filter((item) => item.kind === "oauth" || item.kind === "messenger");
+  const providerOrder: Record<string, number> = { vk: 0, yandex: 1, telegram: 2, max: 3 };
+  const visible = providers
+    .filter((item) => item.kind === "oauth" || item.kind === "messenger")
+    .slice()
+    .sort((left, right) => (providerOrder[left.provider] ?? 9) - (providerOrder[right.provider] ?? 9));
   if (visible.length === 0) return null;
 
   return (
     <div className="mt-5 space-y-3" data-block="quick-login">
-      <div className="flex items-center gap-3 text-xs uppercase tracking-[0.18em] text-slate-400">
-        <span className="h-px flex-1 bg-[#f3e4ea]" />
-        Быстрый вход
-        <span className="h-px flex-1 bg-[#f3e4ea]" />
+      <div className="flex items-center text-xs uppercase tracking-[0.18em] text-slate-400">
+        <span className="mr-3 h-px flex-1 bg-[#f0e4e0]" />
+        <span className="mr-3">Быстрый вход</span>
+        <span className="h-px flex-1 bg-[#f0e4e0]" />
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
         {visible.map((item) => {
           const unavailable = item.kind === "oauth" && !item.available;
+          const iconTone = item.provider === "vk"
+            ? "bg-[#3392ff] text-white"
+            : item.provider === "yandex"
+              ? "bg-[#fff0eb] text-[#f23f24]"
+              : item.provider === "telegram"
+                ? "bg-white text-[#229ed9]"
+                : "bg-white text-[#8e3b9c]";
           return (
             <button
               key={item.provider}
@@ -131,11 +142,11 @@ export function QuickLogin({ role, returnTo, onError }: QuickLoginProps) {
               onClick={() => (item.kind === "oauth" ? startOauth(item.provider) : startBot(item.provider))}
               data-provider={item.provider}
               title={unavailable ? `${item.title}: не настроены ключи приложения` : undefined}
-              className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-45 ${
-                STYLES[item.provider] ?? "border-[#f1dde6] hover:border-pink-300"
+              className={`flex items-center justify-center rounded-xl border px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                STYLES[item.provider] ?? "border-[#e9dfdc] bg-white text-slate-700 hover:border-[#E58E82]"
               }`}
             >
-              <span className="grid h-6 w-6 place-items-center rounded-full bg-[#fbeef4] text-xs font-bold text-pink-600">
+              <span className={`mr-2 grid h-6 w-6 place-items-center rounded-full text-xs font-bold ${iconTone}`}>
                 {ICONS[item.provider] ?? item.title.slice(0, 2)}
               </span>
               {pending === item.provider ? "Открываем…" : item.title}
@@ -144,10 +155,10 @@ export function QuickLogin({ role, returnTo, onError }: QuickLoginProps) {
         })}
       </div>
 
-      <p className="text-xs text-slate-400">
+      <p className="text-xs leading-relaxed text-slate-400">
         SMS не отправляем: вход бесплатный, а напоминания приходят в Telegram или Max.
       </p>
-      {hint && <p className="rounded-xl bg-[#fff4f8] px-3 py-2 text-xs text-slate-600">{hint}</p>}
+      {hint && <p className="rounded-xl bg-[#fff7f5] px-3 py-2 text-xs text-slate-600">{hint}</p>}
     </div>
   );
 }

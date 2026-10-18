@@ -48,6 +48,7 @@ const mediaPage = read("src/master/pages/MediaPage.tsx");
 const servicesPage = read("src/master/pages/ServicesPage.tsx");
 const cityMap = read("src/components/CityMap.tsx");
 const authShared = read("src/pages/auth-shared.tsx");
+const quickLogin = read("src/components/QuickLogin.tsx");
 const masterLayout = read("src/master/MasterLayout.tsx");
 const clientShell = read("src/components/ClientShell.tsx");
 const schedule = read("src/master/pages/SchedulePage.tsx");
@@ -103,7 +104,7 @@ check(
     home.includes("xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.85fr)]") &&
     home.includes("xl:col-start-2") && home.includes("xl:col-span-2") &&
     searchMap.includes("grid min-w-0 grid-cols-1 gap-4") &&
-    searchMap.includes("xl:grid-cols-[280px_minmax(330px,0.95fr)_minmax(380px,1.15fr)]") &&
+    searchMap.includes("xl:grid-cols-[320px_460px_minmax(0,1fr)]") &&
     searchMap.includes("grid min-w-0 grid-cols-[64px_minmax(0,1fr)]"),
 );
 check(
@@ -158,7 +159,8 @@ check(
     marketplaceHeader.includes("data-header-region") &&
     marketplaceHeader.includes("sticky top-0") &&
     marketplaceHeader.includes("xl:h-20") &&
-    marketplaceHeader.includes("bg-white/90 backdrop-blur-md") &&
+    marketplaceHeader.includes("border-gray-100 bg-white xl:h-20") &&
+    !marketplaceHeader.includes("bg-white/90 backdrop-blur-md") &&
     marketplaceHeader.includes("border-gray-100") &&
     marketplaceHeader.includes("text-gray-600 hover:text-[#E58E82]") &&
     marketplaceHeader.includes("tracking-wide") &&
@@ -191,7 +193,7 @@ check(
 check(
   "desktop search fills the iOS-safe viewport with three columns and independent filter/results scrolling",
   searchMap.includes("n2g-search-page") && searchMap.includes("n2g-search-shell") &&
-    searchMap.includes("xl:flex-1 xl:grid-cols-[280px_minmax(330px,0.95fr)_minmax(380px,1.15fr)]") &&
+    searchMap.includes("xl:flex-1 xl:grid-cols-[320px_460px_minmax(0,1fr)]") &&
     searchMap.includes("xl:overflow-y-auto xl:overscroll-contain") &&
     searchMap.includes("region: place ? null : region") &&
     home.includes("region: place ? null : region") &&
@@ -226,6 +228,20 @@ check(
     masterPage.includes("firstWindowParams.set(\"workspace\", firstWindow.workspaceId)") &&
     !masterPage.includes("reference-portfolio") &&
     !masterPage.includes("Записаться на 19:00"),
+);
+check(
+  "checkout opens a modal snapshot from the selected service, master, date, slot, workspace and live price",
+  booking.includes('data-step="booking-confirmation"') &&
+    booking.includes("n2g-dialog-viewport") &&
+    css.includes("max-height: calc(100vh - 2rem);") &&
+    booking.includes('aria-modal="true"') &&
+    booking.includes("service.name") && booking.includes("bookingMasterName") &&
+    booking.includes("formatDateLabel(dateISO)") && booking.includes("{selectedSlot}") &&
+    booking.includes("bookingPlace || selectedWorkspace.name") &&
+    booking.includes("formatRub(service.price)") &&
+    booking.includes("onClick={() => void confirmBooking()}") &&
+    booking.includes("createBooking({") &&
+    booking.includes("selectedWorkspace.isPrimary ? masterCard?.address : null"),
 );
 check(
   "витрина и личные кабинеты используют fallback viewport height для старого WebKit",
@@ -289,9 +305,11 @@ check(
   "временные слоты на витрине, записи и переносе переносятся с запасными margin",
   home.includes('className="flex flex-wrap"') &&
     home.includes("mr-2 mb-2 flex-[1_1_9rem]") &&
-    booking.includes('className="mt-2 flex flex-wrap gap-2"') &&
+    (booking.match(/className="mt-2 flex flex-wrap"/g) ?? []).length >= 2 &&
+    !booking.includes('className="mt-2 flex flex-wrap gap-2"') &&
     booking.includes("mr-2 mb-2 rounded-lg border") &&
-    reschedule.includes('className="mt-2 flex flex-wrap gap-2"') &&
+    reschedule.includes('className="mt-2 flex flex-wrap"') &&
+    !reschedule.includes('className="mt-2 flex flex-wrap gap-2"') &&
     reschedule.includes("mr-2 mb-2 rounded-lg border"),
 );
 check(
@@ -330,6 +348,17 @@ check(
     login.includes("Получить код") && !login.includes("import.meta.env.DEV && devOtpAvailable") &&
     app.includes('path="/pro/login"') && app.includes('initialRole="master"') &&
     app.includes('masterOnly ? "/pro/login" : "/login"') && authUi.includes('"dev_login"'),
+);
+check(
+  "вход сохраняет VK/Yandex OAuth и Telegram OTP, а кнопки быстрых провайдеров остаются динамическими",
+  quickLogin.includes("authApi.oauthStart(provider") && quickLogin.includes("authApi.botStart(provider") &&
+    quickLogin.includes("providerOrder") && quickLogin.includes('data-provider={item.provider}') &&
+    login.includes("requestTelegramCode") && login.includes('data-action="request-telegram-code"') &&
+    authShared.includes("slice(0, 4)"),
+);
+check(
+  "публичный редизайн использует коралловый акцент без возврата к #FF0066/#E6005C",
+  [searchMap, cityMap, login, authShared, quickLogin, booking].every((source) => !/#ff0066|#e6005c|bg-pink-500/i.test(source)),
 );
 check(
   "неизвестный номер создаётся только в dev_login, существующая роль остаётся строгой",

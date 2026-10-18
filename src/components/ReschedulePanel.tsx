@@ -99,14 +99,14 @@ export function ReschedulePanel({ booking, as, onDone }: Props) {
   }
 
   return (
-    <div className="mt-3 rounded-xl border border-[#f1dde6] px-3 py-3" data-reschedule-panel>
+    <div className="mt-3 rounded-xl border border-[#f0e4e0] px-3 py-3" data-reschedule-panel>
       <p className="text-sm font-medium">Перенести на другое время</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <input
           type="date"
           value={dateISO}
           onChange={(event) => setDateISO(event.target.value)}
-          className="rounded-lg border border-[#f1dde6] px-3 py-1.5 text-sm outline-none focus:border-pink-400"
+          className="rounded-lg border border-[#f0e4e0] px-3 py-1.5 text-sm outline-none focus:border-[#E58E82]"
           aria-label="Новая дата"
         />
         <span className="text-xs text-slate-400">
@@ -123,7 +123,7 @@ export function ReschedulePanel({ booking, as, onDone }: Props) {
       )}
 
       {!loading && slots.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className="mt-2 flex flex-wrap">
           {slots.map((slot) => (
             <button
               key={slot.startMinute}
@@ -133,8 +133,8 @@ export function ReschedulePanel({ booking, as, onDone }: Props) {
               data-slot={slot.startMinute}
               className={`mr-2 mb-2 rounded-lg border px-3 py-1.5 text-sm transition ${
                 chosen === slot.startMinute
-                  ? "border-pink-500 bg-pink-500 text-white"
-                  : "border-[#f1dde6] text-slate-600 hover:border-pink-300"
+                  ? "border-[#E58E82] bg-[#E58E82] text-white"
+                  : "border-[#f0e4e0] text-slate-600 hover:border-[#e8b8b0]"
               }`}
             >
               {slot.label}
@@ -151,7 +151,7 @@ export function ReschedulePanel({ booking, as, onDone }: Props) {
           disabled={busy || chosen === null}
           onClick={() => void submit()}
           data-action="reschedule-submit"
-          className="rounded-lg bg-pink-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-pink-600 disabled:opacity-60"
+          className="rounded-lg bg-[#E58E82] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#d77d72] disabled:opacity-60"
         >
           {busy ? "Переносим…" : "Перенести запись"}
         </button>

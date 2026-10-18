@@ -140,22 +140,22 @@ function LoginForm({ initialRole }: { initialRole: LoginRole }) {
         : codeSubtitle}
       footer={
         <>
-          <p className="flex flex-wrap items-center gap-2">
+          <p className="flex flex-wrap items-center">
             Ещё нет аккаунта?
             <Link
               to={`/register${screen.returnTo ? `?returnTo=${encodeURIComponent(screen.returnTo)}` : ""}`}
               data-action="go-register"
-              className="rounded-xl border border-[#f1dde6] px-3 py-1.5 font-medium text-pink-600 hover:border-pink-300"
+              className="ml-2 rounded-xl border border-[#f0e4e0] px-3 py-1.5 font-medium text-[#bd7168] hover:border-[#e8b8b0]"
             >
               Зарегистрироваться
             </Link>
           </p>
-          <p className="mt-3 rounded-xl bg-[#fff4f8] px-3 py-2 text-xs text-slate-500">
+          <p className="mt-3 rounded-xl bg-[#fff7f5] px-3 py-2 text-xs text-slate-500">
             {devOtpAvailable
               ? "Тестовый вход активирован сервером: код появится в форме. SMS и внешние провайдеры для проверки не нужны."
               : "Платные SMS не используются. В production четырёхзначный код выдаёт Telegram-бот после проверки привязанного Telegram ID."}
           </p>
-          <Link to="/" className="mt-2 inline-block text-pink-600 hover:text-pink-700">
+          <Link to="/" className="mt-2 inline-block text-[#bd7168] hover:text-[#a85f57]">
             Вернуться на главную
           </Link>
         </>
@@ -163,8 +163,16 @@ function LoginForm({ initialRole }: { initialRole: LoginRole }) {
     >
       {screen.step === "phone" && !telegramFlow ? (
         <>
-          <form onSubmit={screen.askCode} className="mt-6 space-y-3">
+          <div className="mt-6">
             <RoleChoice role={screen.role} onChange={screen.setRole} legend="Куда входите?" />
+          </div>
+          <QuickLogin role={screen.role} returnTo={screen.returnTo} onError={screen.setError} />
+          <div className="my-5 flex items-center text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400">
+            <span className="mr-3 h-px flex-1 bg-[#f0e4e0]" />
+            <span className="mr-3 whitespace-nowrap">Или войдите по телефону</span>
+            <span className="h-px flex-1 bg-[#f0e4e0]" />
+          </div>
+          <form onSubmit={screen.askCode} className="space-y-3">
             <input
               value={screen.phone}
               onChange={(event) => {
@@ -173,7 +181,7 @@ function LoginForm({ initialRole }: { initialRole: LoginRole }) {
               }}
               inputMode="tel"
               data-field="phone"
-              className="w-full rounded-xl border border-[#f1dde6] px-4 py-3 text-sm outline-none transition focus:border-pink-300"
+              className="w-full rounded-xl border border-[#f0e4e0] px-4 py-3 text-sm outline-none transition focus:border-[#E58E82]"
               placeholder="Телефон +79991234567"
             />
             {(screen.error || telegramError) && <p className="text-sm text-rose-500">{telegramError || screen.error}</p>}
@@ -184,7 +192,7 @@ function LoginForm({ initialRole }: { initialRole: LoginRole }) {
                   onClick={() => void screen.askDevCode()}
                   disabled={screen.pending}
                   data-action="ask-code"
-                  className="w-full rounded-xl bg-pink-500 py-3 text-sm font-semibold text-white transition hover:bg-pink-600 disabled:opacity-60"
+                  className="w-full rounded-xl bg-[#E58E82] py-3 text-sm font-semibold text-white transition hover:bg-[#d77d72] disabled:opacity-60"
                 >
                   {screen.pending ? "Запрашиваем…" : "Получить код"}
                 </button>
@@ -193,7 +201,7 @@ function LoginForm({ initialRole }: { initialRole: LoginRole }) {
                   onClick={() => void requestTelegramCode()}
                   disabled={telegramPending || screen.pending}
                   data-action="request-telegram-code"
-                  className="w-full rounded-xl border border-[#f1dde6] py-2.5 text-sm font-medium text-slate-600 transition hover:border-pink-300 disabled:opacity-60"
+                  className="w-full rounded-xl border border-[#f0e4e0] py-2.5 text-sm font-medium text-slate-600 transition hover:border-[#e8b8b0] disabled:opacity-60"
                 >
                   {telegramPending ? "Создаём ссылку…" : "Другой способ — Telegram"}
                 </button>
@@ -204,13 +212,12 @@ function LoginForm({ initialRole }: { initialRole: LoginRole }) {
                 onClick={() => void requestTelegramCode()}
                 disabled={telegramPending || screen.pending}
                 data-action="request-telegram-code"
-                className="w-full rounded-xl bg-pink-500 py-3 text-sm font-semibold text-white transition hover:bg-pink-600 disabled:opacity-60"
+                className="w-full rounded-xl bg-[#E58E82] py-3 text-sm font-semibold text-white transition hover:bg-[#d77d72] disabled:opacity-60"
               >
                 {telegramPending ? "Создаём ссылку…" : "Получить код"}
               </button>
             )}
           </form>
-          <QuickLogin role={screen.role} returnTo={screen.returnTo} onError={screen.setError} />
         </>
       ) : (
         <>

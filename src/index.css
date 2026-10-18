@@ -124,14 +124,17 @@ body {
 
 @media (min-width: 1280px) {
   .n2g-search-page {
+    display: flex;
+    flex-direction: column;
     height: 100vh;
     height: calc(var(--vh, 1vh) * 100);
     overflow: hidden;
   }
 
   .n2g-search-shell {
-    height: 100%;
+    height: auto;
     min-height: 0;
+    flex: 1 1 auto;
   }
 
   .n2g-search-footer {
@@ -172,6 +175,11 @@ body {
 .n2g-h-viewport {
   height: 100vh;
   height: calc(var(--vh, 1vh) * 100);
+}
+
+.n2g-dialog-viewport {
+  max-height: calc(100vh - 2rem);
+  max-height: calc(var(--vh, 1vh) * 100 - 2rem);
 }
 
 @keyframes n2g-soft-pulse {

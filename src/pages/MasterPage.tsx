@@ -301,7 +301,6 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
                   ["Отзывы", "#reviews"],
                   ["О мастере", "#about"],
                   ["Блог", "#blog"],
-                  ["Контакты", "#contacts"],
                 ].map(([label, target], index) => (
                   <a
                     key={target}
@@ -426,7 +425,7 @@ export function MasterPage({ slugOverride }: { slugOverride?: string } = {}) {
 
               <section id="blog" className="mt-5 min-w-0 border-t border-[#eee4e1] pt-5 xl:mt-0 xl:border-t-0 xl:pt-0" data-section="master-blog">
                 <div className="mb-3 flex items-center justify-between">
-                  <h2 className="text-lg font-medium text-[#302a29]">Блог NailGo</h2>
+                  <h2 className="text-lg font-medium text-[#302a29]">Блог</h2>
                   <Link to="/journal" className="ml-3 shrink-0 text-xs font-medium text-[#c8756b] hover:text-[#a85f57]">Все статьи</Link>
                 </div>
                 {journal.data?.items.length ? (

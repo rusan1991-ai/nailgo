@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { CalendarDays, MapPin, X } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { useBookings } from "../bookings/BookingContext";
@@ -9,6 +10,7 @@ import { formatRub } from "../data/mock";
 import { formatDateLabel, todayISO, upcomingDays } from "../store/bookings";
 import { useMasterServices } from "../api/masterServices";
 import { useMasterCard, type MasterWorkspaceView } from "../api/masterCard";
+import { Avatar } from "../components/NailUi";
 
 type SlotResponse = {
   date: string;
@@ -61,8 +63,18 @@ export function BookingPage() {
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
   /** Запись создана и ждёт предоплату: показываем шаг оплаты вместо перехода. */
   const [waitingPayment, setWaitingPayment] = useState<{ bookingId: string; amount: number } | null>(null);
+
+  useEffect(() => {
+    if (!confirmationOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !pending) setConfirmationOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [confirmationOpen, pending]);
 
   const master = useMemo(
     () => masters.find((item) => item.slug === masterSlug),
@@ -82,6 +94,20 @@ export function BookingPage() {
     }
   }, [masterCard, requestedWorkspaceId, workspaceId, workspaces]);
   const selectedWorkspace = workspaces.find((workspace) => workspace.id === workspaceId);
+  const bookingMasterName = masterCard?.name ?? master?.name ?? "Мастер";
+  const bookingMasterAvatar = masterCard?.gallery.avatar?.thumbUrl ?? master?.avatarUrl ??
+    (masterSlug === "anna-smirnova" ? "/images/reference-profile-anna.jpg" : null);
+  const bookingPlace = selectedWorkspace
+    ? [
+        selectedWorkspace.name,
+        selectedWorkspace.locationName,
+        selectedWorkspace.locationRegion,
+        selectedWorkspace.isPrimary ? masterCard?.address : null,
+      ]
+        .filter((value): value is string => Boolean(value?.trim()))
+        .filter((value, index, values) => values.indexOf(value) === index)
+        .join(", ")
+    : "";
 
   /** Прайс всегда загружается в scope выбранного мастера; общий каталог здесь не используется. */
   const masterServices = masterServicesData?.items ?? [];
@@ -136,8 +162,12 @@ export function BookingPage() {
     };
   }, [dateISO, masterSlug, service, workspaceId]);
 
-  const onSubmit = async (event: FormEvent) => {
+  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!service) {
+      setError("Выберите услугу из прайса мастера.");
+      return;
+    }
     if (!workspaceId) {
       setError("Выберите активный филиал мастера.");
       return;
@@ -155,6 +185,12 @@ export function BookingPage() {
       return;
     }
     setError("");
+    setConfirmationOpen(true);
+  };
+
+  const confirmBooking = async () => {
+    if (!service || !workspaceId || !selectedSlot) return;
+    setError("");
     setPending(true);
     try {
       const created = await createBooking({
@@ -168,6 +204,7 @@ export function BookingPage() {
         comment,
       });
 
+      setConfirmationOpen(false);
       if (created.payment.status === "pending" && created.payment.paymentId) {
         setWaitingPayment({ bookingId: created.booking.id, amount: created.payment.amount ?? 0 });
         return;
@@ -181,15 +218,15 @@ export function BookingPage() {
   };
 
   return (
-    <main className="n2g-min-h-viewport bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
-      <div className="mx-auto max-w-[1050px] rounded-[26px] border border-[#ffe6ef] bg-white p-5 shadow-[0_20px_80px_-40px_rgba(236,72,153,0.45)] sm:p-8">
+    <main className="n2g-min-h-viewport bg-[#fbf7f5] p-4 text-slate-800 sm:p-8">
+      <div className="mx-auto max-w-[1050px] rounded-[26px] border border-[#f0ddd8] bg-white p-5 shadow-[0_20px_80px_-40px_rgba(143,88,75,0.2)] sm:p-8">
         <AppHeader />
 
         <section className="mt-8 grid gap-8 lg:grid-cols-[1.1fr_1fr]">
-          <div className="rounded-2xl border border-[#f1dde6] p-5">
+          <div className="rounded-2xl border border-[#f0e4e0] p-5">
             <h1 className="text-3xl font-semibold">Выбор услуги и даты</h1>
 
-            <div className="mt-5 rounded-xl border border-[#f2dfe7] p-3">
+            <div className="mt-5 rounded-xl border border-[#f0e4e0] p-3">
               <p className="text-xs text-slate-500">Услуга</p>
               {service ? (
                 <>
@@ -198,7 +235,7 @@ export function BookingPage() {
                       value={service.id}
                       onChange={(event) => setServiceId(event.target.value)}
                       data-field="service"
-                      className="mt-1 w-full rounded-lg border border-[#f1dde6] px-2 py-1.5 font-medium outline-none focus:border-pink-300"
+                      className="mt-1 w-full rounded-lg border border-[#f0e4e0] px-2 py-1.5 font-medium outline-none focus:border-[#E58E82]"
                     >
                       {masterServices.map((item) => (
                         <option key={item.id} value={item.id}>
@@ -213,7 +250,7 @@ export function BookingPage() {
                     {formatRub(service.price)} · {durationLabel(service.durationMinutes)}
                   </p>
                   {service.kind === "combo" && service.comboSteps && (
-                    <div className="mt-3 rounded-lg bg-[#fff8fb] p-3" data-booking-combo={service.id}>
+                    <div className="mt-3 rounded-lg bg-[#fff7f5] p-3" data-booking-combo={service.id}>
                       <p className="text-xs font-semibold text-slate-700">Шаги комбо · занятость всех исполнителей проверяется по расписанию филиала</p>
                       <ol className="mt-2 space-y-1 text-xs text-slate-600">
                         {service.comboSteps.map((step) => (
@@ -237,18 +274,18 @@ export function BookingPage() {
               )}
             </div>
 
-            <div className="mt-3 rounded-xl border border-[#f2dfe7] p-3 text-sm text-slate-600">
+            <div className="mt-3 rounded-xl border border-[#f0e4e0] p-3 text-sm text-slate-600">
               <p className="font-medium text-slate-900">Мастер: {master?.name ?? "—"}</p>
               <p>{master?.metro}</p>
               <p>Дата: {formatDateLabel(dateISO)}</p>
             </div>
 
-            <div className="mt-3 rounded-xl border border-[#f2dfe7] p-3" data-field="booking-workspace">
+            <div className="mt-3 rounded-xl border border-[#f0e4e0] p-3" data-field="booking-workspace">
               <label className="block">
                 <span className="text-xs text-slate-500">{service?.kind === "combo" ? "Филиал комбо" : "Филиал мастера"}</span>
                 {service?.kind === "combo" ? (
                   comboWorkspace ? (
-                    <p className="mt-1 rounded-lg border border-[#f1dde6] px-3 py-2 font-medium text-slate-700" data-field="workspace">
+                    <p className="mt-1 rounded-lg border border-[#f0e4e0] px-3 py-2 font-medium text-slate-700" data-field="workspace">
                       {comboWorkspace.salonName} · фиксированный филиал
                     </p>
                   ) : (
@@ -265,7 +302,7 @@ export function BookingPage() {
                       setSelectedSlot("");
                     }}
                     data-field="workspace"
-                    className="mt-1 w-full rounded-lg border border-[#f1dde6] px-2 py-2 font-medium outline-none focus:border-pink-300"
+                    className="mt-1 w-full rounded-lg border border-[#f0e4e0] px-2 py-2 font-medium outline-none focus:border-[#E58E82]"
                   >
                     {workspaces.map((workspace) => (
                       <option key={workspace.id} value={workspace.id}>
@@ -296,13 +333,13 @@ export function BookingPage() {
             </div>
 
             <p className="mt-5 text-xs uppercase tracking-[0.14em] text-slate-400">Дата</p>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap">
               {upcomingDays(14).map((day) => (
                 <button
                   key={day.iso}
                   onClick={() => setDateISO(day.iso)}
-                  className={`rounded-lg border px-3 py-2 text-sm transition ${
-                    dateISO === day.iso ? "border-pink-500 bg-pink-500 text-white" : "border-[#f1dde6] hover:border-pink-300"
+                  className={`mr-2 mb-2 rounded-lg border px-3 py-2 text-sm transition ${
+                    dateISO === day.iso ? "border-[#E58E82] bg-[#E58E82] text-white" : "border-[#f0e4e0] hover:border-[#e8b8b0]"
                   }`}
                 >
                   {day.label}
@@ -312,7 +349,7 @@ export function BookingPage() {
                 type="date"
                 value={dateISO}
                 onChange={(event) => event.target.value && setDateISO(event.target.value)}
-                className="rounded-lg border border-[#f1dde6] px-3 py-2 text-sm outline-none focus:border-pink-300"
+                className="mr-2 mb-2 rounded-lg border border-[#f0e4e0] px-3 py-2 text-sm outline-none focus:border-[#E58E82]"
               />
             </div>
 
@@ -324,15 +361,15 @@ export function BookingPage() {
                 На эту дату свободных окон нет. Выберите другой день.
               </p>
             )}
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap">
               {slots.map((slot) => (
                 <button
                   key={slot.label}
                   onClick={() => setSelectedSlot(slot.label)}
                   className={`mr-2 mb-2 rounded-lg border px-3 py-2 text-sm transition ${
                     selectedSlot === slot.label
-                      ? "border-pink-500 bg-pink-500 text-white"
-                      : "border-[#f1dde6] hover:border-pink-300"
+                      ? "border-[#E58E82] bg-[#E58E82] text-white"
+                      : "border-[#f0e4e0] hover:border-[#e8b8b0]"
                   }`}
                 >
                   {slot.label}
@@ -341,7 +378,7 @@ export function BookingPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[#f1dde6] p-5">
+          <div className="rounded-2xl border border-[#f0e4e0] p-5">
             {waitingPayment ? (
               <div data-step="payment">
                 <h2 className="text-2xl font-semibold">Записи нужна предоплата</h2>
@@ -354,13 +391,13 @@ export function BookingPage() {
                   <Link
                     to={`/pay/${waitingPayment.bookingId}`}
                     data-action="go-pay"
-                    className="rounded-xl bg-pink-500 px-4 py-3 text-center font-semibold text-white hover:bg-pink-600"
+                    className="rounded-xl bg-[#E58E82] px-4 py-3 text-center font-semibold text-white hover:bg-[#d77d72]"
                   >
                     Перейти к оплате
                   </Link>
                   <button
                     onClick={() => navigate("/account")}
-                    className="rounded-xl border border-[#f1dde6] px-4 py-2 text-sm text-slate-600 hover:border-pink-300"
+                    className="rounded-xl border border-[#f0e4e0] px-4 py-2 text-sm text-slate-600 hover:border-[#e8b8b0]"
                   >
                     Оплачу позже
                   </button>
@@ -376,27 +413,32 @@ export function BookingPage() {
               <input
                 value={clientName}
                 onChange={(event) => setClientName(event.target.value)}
-                className="w-full rounded-xl border border-[#f1dde6] px-3 py-3 text-sm outline-none"
+                className="w-full rounded-xl border border-[#f0e4e0] px-3 py-3 text-sm outline-none"
                 placeholder="Имя"
               />
               <input
                 value={clientPhone}
                 onChange={(event) => setClientPhone(event.target.value)}
-                className="w-full rounded-xl border border-[#f1dde6] px-3 py-3 text-sm outline-none"
+                className="w-full rounded-xl border border-[#f0e4e0] px-3 py-3 text-sm outline-none"
                 placeholder="Телефон"
               />
               <textarea
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
-                className="h-28 w-full rounded-xl border border-[#f1dde6] px-3 py-3 text-sm outline-none"
+                className="h-28 w-full rounded-xl border border-[#f0e4e0] px-3 py-3 text-sm outline-none"
                 placeholder="Комментарий для мастера"
               />
               {error && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</p>}
-              <div className="rounded-xl border border-[#f1dde6] bg-[#fff8fb] p-3 text-sm text-slate-600">
-                Подтверждение: {formatDateLabel(dateISO)}
-                {selectedSlot ? `, ${selectedSlot}` : ""}, {service?.name ?? "услуга не выбрана"}
-                {service ? ` · ${formatRub(service.price)}` : ""}
-                {selectedWorkspace ? ` · ${selectedWorkspace.name}` : ""}
+              <div className="rounded-xl border border-[#f0e4e0] bg-[#fff7f5] p-3 text-sm text-slate-600">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Выбранный визит</p>
+                <p className="mt-1 font-medium text-slate-800">
+                  {formatDateLabel(dateISO)}{selectedSlot ? ` · ${selectedSlot}` : ""}
+                </p>
+                <p className="mt-0.5 leading-relaxed">
+                  {service?.name ?? "услуга не выбрана"}
+                  {service ? ` · ${formatRub(service.price)}` : ""}
+                  {selectedWorkspace ? ` · ${selectedWorkspace.name}` : ""}
+                </p>
                 {service && (service.prepaymentPercent ?? 0) > 0 && (
                   <span className="mt-1 block text-amber-600" data-note="prepayment">
                     Услуга с предоплатой {(service.prepaymentPercent ?? 0)}% —{" "}
@@ -408,9 +450,9 @@ export function BookingPage() {
               <button
                 type="submit"
                 disabled={pending || !service || !workspaceId || slotsLoading || !selectedSlot}
-                className="w-full rounded-xl bg-pink-500 py-3 font-semibold text-white transition hover:bg-pink-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-xl bg-[#E58E82] py-3 font-semibold text-white transition hover:bg-[#d77d72] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {pending ? "Отправляем…" : "Подтвердить запись"}
+                Проверить запись
               </button>
             </form>
             </>
@@ -418,6 +460,118 @@ export function BookingPage() {
           </div>
         </section>
       </div>
+
+      {confirmationOpen && service && selectedWorkspace && (
+        <div
+          className="fixed inset-0 z-[100] grid place-items-center p-3 sm:p-6"
+          style={{ backgroundColor: "rgba(34, 26, 24, 0.46)" }}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !pending) setConfirmationOpen(false);
+          }}
+          data-booking-confirmation-backdrop
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="booking-confirmation-title"
+            aria-describedby="booking-confirmation-description"
+            aria-busy={pending}
+            className="n2g-dialog-viewport w-full max-w-[560px] overflow-y-auto rounded-3xl border border-[#f0ddd8] bg-white p-5 shadow-[0_30px_90px_-45px_rgba(34,26,24,0.55)] sm:p-7"
+            data-step="booking-confirmation"
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex min-w-0 items-start">
+                <span className="mr-3 grid h-11 w-11 min-h-[44px] min-w-[44px] place-items-center rounded-full bg-[#fff3f0] text-[#E58E82]">
+                  <CalendarDays className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <h2 id="booking-confirmation-title" className="text-xl font-semibold text-slate-900 sm:text-2xl">
+                    Подтверждение записи
+                  </h2>
+                  <p id="booking-confirmation-description" className="mt-1 text-sm leading-relaxed text-slate-500">
+                    Проверьте детали визита перед отправкой мастеру.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmationOpen(false)}
+                disabled={pending}
+                aria-label="Закрыть подтверждение"
+                className="ml-3 grid h-9 w-9 min-h-[36px] min-w-[36px] shrink-0 place-items-center rounded-full text-slate-400 transition hover:bg-[#fff3f0] hover:text-[#bd7168] disabled:opacity-50"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <dl className="mt-5 divide-y divide-[#f0e4e0] rounded-2xl border border-[#f0e4e0] bg-[#fffdfc] px-4">
+              <div className="grid grid-cols-[82px_minmax(0,1fr)] py-3">
+                <dt className="text-xs text-slate-500">Услуга</dt>
+                <dd className="min-w-0 text-right text-sm font-semibold text-slate-800">{service.name}</dd>
+              </div>
+              <div className="grid grid-cols-[82px_minmax(0,1fr)] items-center py-3">
+                <dt className="text-xs text-slate-500">Мастер</dt>
+                <dd className="flex min-w-0 items-center justify-end">
+                  <Avatar size={40} src={bookingMasterAvatar} name={bookingMasterName} className="mr-2 shrink-0" />
+                  <span className="min-w-0 text-right text-sm font-semibold text-slate-800">
+                    <span className="block truncate">{bookingMasterName}</span>
+                    {typeof masterCard?.rating === "number" && (
+                      <span className="block whitespace-nowrap text-xs font-medium text-[#a7762e]">★ {masterCard.rating.toFixed(1)}</span>
+                    )}
+                  </span>
+                </dd>
+              </div>
+              <div className="grid grid-cols-[82px_minmax(0,1fr)] py-3">
+                <dt className="text-xs text-slate-500">Дата</dt>
+                <dd className="text-right text-sm font-medium text-slate-800">{formatDateLabel(dateISO)}</dd>
+              </div>
+              <div className="grid grid-cols-[82px_minmax(0,1fr)] py-3">
+                <dt className="text-xs text-slate-500">Время</dt>
+                <dd className="text-right text-sm font-medium text-slate-800">{selectedSlot}</dd>
+              </div>
+              <div className="grid grid-cols-[82px_minmax(0,1fr)] py-3">
+                <dt className="flex items-start text-xs text-slate-500">
+                  <MapPin className="mr-1 h-3.5 w-3.5 shrink-0 text-[#E58E82]" aria-hidden="true" />
+                  Адрес / место
+                </dt>
+                <dd className="text-right text-sm leading-relaxed text-slate-700">{bookingPlace || selectedWorkspace.name}</dd>
+              </div>
+            </dl>
+
+            <div className="mt-4 flex items-center justify-between rounded-2xl bg-[#fff3f0] px-4 py-3">
+              <span className="text-sm font-medium text-slate-700">Итого</span>
+              <span className="text-lg font-semibold text-[#bd7168]">{formatRub(service.price)}</span>
+            </div>
+            {(service.prepaymentPercent ?? 0) > 0 && (
+              <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800" data-note="prepayment">
+                Предоплата {service.prepaymentPercent}% — {formatRub(Math.round((service.price * (service.prepaymentPercent ?? 0)) / 100))}.
+                Запись подтвердится после оплаты; остаток отдадите мастеру после визита.
+              </p>
+            )}
+            {error && <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-600" role="alert">{error}</p>}
+
+            <div className="mt-5 grid grid-cols-1 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setConfirmationOpen(false)}
+                disabled={pending}
+                className="mb-2 mr-2 rounded-xl border border-[#ead4ce] px-4 py-3 text-sm font-semibold text-[#8b6c65] transition hover:bg-[#fff8f6] disabled:opacity-50 sm:mb-0"
+              >
+                Вернуться к выбору
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmBooking()}
+                disabled={pending}
+                data-action="confirm-booking"
+                className="rounded-xl bg-[#E58E82] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#d77d72] disabled:cursor-wait disabled:opacity-60"
+              >
+                {pending ? "Создаём запись…" : "Подтвердить запись"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

@@ -1,6 +1,4 @@
-import { useMemo } from "react";
 import { ClientShell } from "../components/ClientShell";
-import { reviewFeed } from "../data/mock";
 import { usePublishedReviews } from "../api/reviews";
 
 const monthNames = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
@@ -14,21 +12,8 @@ function shortDate(iso: string): string {
 export function ReviewsPage() {
   const { data, loading, error } = usePublishedReviews();
 
-  const reviews = useMemo(() => {
-    if (data && data.items.length > 0) return data.items;
-    return reviewFeed.map((item) => ({
-      id: item.id,
-      clientName: item.client,
-      score: item.score,
-      text: item.text,
-      dateISO: "2024-05-22",
-      dateLabel: item.date,
-      masterName: "Мастер Nail 2 Go",
-    }));
-  }, [data]);
-
-  const live = Boolean(data && data.items.length > 0);
-  const average = live && data ? data.average.toFixed(1) : "—";
+  const reviews = data?.items ?? [];
+  const average = data && data.total > 0 ? data.average.toFixed(1) : "—";
 
   return (
     <ClientShell title="Отзывы о мастерах">
@@ -36,7 +21,13 @@ export function ReviewsPage() {
         <div className="rounded-2xl border border-[#f1dde6] p-4">
           <p className="text-4xl font-semibold">{average}</p>
           <p className="text-sm text-slate-500">
-            {live && data ? `${data.total} отзывов` : "пока нет отзывов из базы"}
+            {data && data.total > 0
+              ? `${data.total} отзывов`
+              : loading
+                ? "Загружаем отзывы…"
+                : data
+                  ? "Пока нет опубликованных отзывов"
+                  : "Отзывы пока недоступны"}
           </p>
         </div>
 
@@ -52,7 +43,7 @@ export function ReviewsPage() {
               <div className="flex items-center justify-between gap-3">
                 <p className="font-medium">{review.clientName}</p>
                 <p className="text-sm text-slate-500">
-                  {"dateLabel" in review ? review.dateLabel : shortDate(review.dateISO)}
+                  {shortDate(review.dateISO)}
                 </p>
               </div>
               <p className="mt-1 text-sm text-yellow-500">{"★".repeat(review.score)}</p>
@@ -68,18 +59,16 @@ export function ReviewsPage() {
           ))}
           {reviews.length === 0 && (
             <p className="rounded-2xl border border-dashed border-[#f1dde6] p-5 text-sm text-slate-500">
-              {loading ? "Загружаем отзывы…" : "Опубликованных отзывов пока нет."}
+              {loading ? "Загружаем отзывы…" : error ? "Отзывы временно недоступны." : "Опубликованных отзывов пока нет."}
             </p>
           )}
         </div>
 
-        <p className="mt-3 text-xs text-slate-400">
-          {live
-            ? "Отзывы опубликованы мастерами после модерации — их видно и в кабинете мастера."
-            : loading
-              ? "Загружаем отзывы из базы…"
-              : "API недоступен — показаны демонстрационные отзывы"}
-        </p>
+        {data && data.total > 0 && (
+          <p className="mt-3 text-xs text-slate-400">
+            Отзывы опубликованы после модерации и загружены из профилей мастеров.
+          </p>
+        )}
       </section>
     </ClientShell>
   );

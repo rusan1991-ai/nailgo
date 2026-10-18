@@ -1,8 +1,8 @@
 import { FavoriteButton } from "../components/FavoriteButton";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CalendarDays, Heart, MapPin, Search } from "lucide-react";
+import { ArrowRight, CalendarDays, Check, Clock3, MapPin, MessageCircle, Search, Star, UsersRound } from "lucide-react";
 import { motion } from "framer-motion";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { MarketplaceHeader } from "../components/MarketplaceHeader";
 import { HomeHero } from "../components/HomeHero";
@@ -17,6 +17,7 @@ import { SmartSearchPanel } from "../components/SmartSearchPanel";
 import { useMasterSearch, type MasterSearchItem, type MasterSort } from "../api/search";
 import { useMasterServices } from "../api/masterServices";
 import { useMasterCard } from "../api/masterCard";
+import { usePublishedReviews } from "../api/reviews";
 import { formatDateLabel } from "../store/bookings";
 import { useJournal } from "../api/journal";
 import { JournalArticleCard } from "../components/JournalArticleCard";
@@ -26,9 +27,15 @@ const popularServices = [
   { title: "Маникюр", caption: "Классика и покрытие", query: "маникюр", terms: ["маникюр"], image: "/images/reference-service-manicure.jpg" },
   { title: "Педикюр", caption: "Уход и покрытие", query: "педикюр", terms: ["педикюр"], image: "/images/reference-service-pedicure.jpg" },
   { title: "Наращивание ногтей", caption: "Длина и форма", query: "наращивание ногтей", terms: ["наращивание", "коррекция ногтей"], image: "/images/reference-service-extensions.jpg" },
-  { title: "Дизайн ногтей", caption: "Акценты и рисунки", query: "дизайн ногтей", terms: ["дизайн"], image: "/images/reference-service-design.jpg" },
-  { title: "Укрепление ногтей", caption: "Уход и стойкость", query: "укрепление ногтей", terms: ["укрепление"], image: "/images/reference-service-strengthening.jpg" },
-  { title: "Снятие покрытия", caption: "Бережный уход", query: "снятие покрытия", terms: ["снятие"], image: "/images/reference-service-removal.jpg" },
+  { title: "Покрытие лаком", caption: "Гель-лак и снятие", query: "покрытие лаком", terms: ["покрытие", "гель-лак", "лак"], image: "/images/reference-service-strengthening.jpg" },
+  { title: "SPA-процедуры", caption: "Уход и расслабление", query: "спа", terms: ["spa", "спа"], image: "/images/reference-service-spa.jpg" },
+];
+
+const howSteps = [
+  { title: "Найдите мастера", description: "Выберите услугу и посмотрите специалистов рядом.", Icon: Search },
+  { title: "Выберите время", description: "Сравните ближайшие свободные окна.", Icon: CalendarDays },
+  { title: "Запишитесь онлайн", description: "Подтвердите удобное время в пару шагов.", Icon: Check },
+  { title: "Наслаждайтесь", description: "Приходите на процедуру и делитесь впечатлениями.", Icon: Star },
 ];
 
 function masterCountWord(count: number): string {
@@ -41,9 +48,12 @@ function masterCountWord(count: number): string {
 
 export function HomePage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const { masters, services, status: catalogStatus } = useCatalog();
-  const journal = useJournal(null, 3);
+  const journal = useJournal(null, 4);
+  const publishedReviewsRequest = usePublishedReviews(4);
+  const publishedReviews = publishedReviewsRequest.data?.items ?? [];
   const { region, chosen } = useCity();
   /**
    * Выбранное место живёт в адресе (?metro=… или ?district=…): так ссылку на
@@ -67,6 +77,14 @@ export function HomePage() {
   const queryParam = searchParams.get("query");
   const [queryText, setQueryText] = useState(queryParam ?? "");
   useEffect(() => setQueryText(queryParam ?? ""), [queryParam]);
+  useEffect(() => {
+    if (location.pathname !== "/" || !location.hash) return;
+    const sectionId = location.hash.slice(1);
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(sectionId)?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [location.pathname, location.hash]);
   const setParam = (key: string, value: string | null) => {
     const params = new URLSearchParams(searchParams);
     if (value) params.set(key, value);
@@ -137,6 +155,8 @@ export function HomePage() {
   const listedMasters: MasterSearchItem[] =
     smartActive && smart.data ? smart.data.items : (placeMasters as MasterSearchItem[]);
   const listedCount = listedMasters.length;
+  const regionalReviewCount = regionalMasters.reduce((total, master) => total + master.reviewsCount, 0);
+  const mastersWithUpcomingWindows = regionalMasters.filter((master) => Boolean(master.nextWindows?.length)).length;
   const homeImpressionsRef = usePromotionImpressions("home", listedMasters.map((master) => master.slug));
   const showcaseMaster = listedMasters[0];
   const { data: heroMasterCard } = useMasterCard(showcaseMaster?.slug);
@@ -193,6 +213,8 @@ export function HomePage() {
         <HomeHero
           queryText={queryText}
           onQueryChange={setQueryText}
+          date={dateParam}
+          onDateChange={(value) => setParam("date", value)}
           onSubmit={(event) => {
             event.preventDefault();
             const params = new URLSearchParams(searchParams);
@@ -210,17 +232,13 @@ export function HomePage() {
           onMasterClick={showcaseMaster ? () => recordPromotionEvent(showcaseMaster.slug, "profile_click", "home") : undefined}
         />
 
-        <section className="mt-0" data-block="home-popular-services">
-          <div className="mb-4 flex min-w-0 flex-wrap items-end justify-between">
-            <div className="mr-4 mb-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#EF4444]">Выберите услугу</p>
-              <h2 className="mt-1 text-2xl font-bold text-gray-900">Популярные услуги</h2>
-            </div>
-            <Link to={searchHref} className="mb-2 inline-flex items-center text-sm font-medium text-[#EF4444] hover:text-[#DC2626]">
-              Все услуги <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
-            </Link>
+        <section id="home-popular-services" className="mt-10 scroll-mt-28" data-block="home-popular-services">
+          <div className="mb-6 text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#E58E82]">Для красивых рук и ног</p>
+            <h2 className="mt-2 text-2xl font-bold text-[#1B1C2C] sm:text-3xl">Популярные услуги</h2>
+            <p className="mt-2 text-sm text-[#777887]">Выберите услугу, которая вам нужна</p>
           </div>
-          <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-6">
+          <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-5">
             {popularServices.map((service) => {
               const startingPrice = servicePrices.get(service.query);
               return (
@@ -230,15 +248,15 @@ export function HomePage() {
                   onClick={() => setParam("query", service.query)}
                   data-home-category={service.title}
                   aria-label={`Найти услугу: ${service.title}`}
-                  className="group flex min-h-[176px] min-w-0 flex-col items-center rounded-2xl border border-gray-100 bg-white p-3 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-4"
+                  className="group flex min-h-[176px] min-w-0 flex-col items-start rounded-2xl border border-gray-100 bg-white p-2.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-3"
                 >
-                  <span className="mb-3 grid h-[84px] w-[84px] min-h-[84px] min-w-[84px] place-items-center overflow-hidden rounded-full bg-[#FFF5F6] sm:h-[96px] sm:w-[96px] sm:min-h-[96px] sm:min-w-[96px]">
+                  <span className="mb-3 block h-[92px] w-full min-w-0 overflow-hidden rounded-lg bg-[#FFF5F3] sm:h-[112px]">
                     <img
                       src={service.image}
                       alt=""
                       loading="lazy"
                       decoding="async"
-                      className="block h-full w-full rounded-full object-cover transition duration-300 group-hover:scale-105"
+                      className="block h-full w-full rounded-lg object-cover transition duration-300 group-hover:scale-[1.03]"
                       onError={(event) => {
                         const image = event.currentTarget;
                         if (image.dataset.fallbackApplied === "true") {
@@ -250,12 +268,12 @@ export function HomePage() {
                       }}
                     />
                   </span>
-                  <span className="block w-full truncate text-sm font-semibold text-gray-900">{service.title}</span>
-                  <span className="mt-1 block w-full truncate text-xs text-gray-500">{service.caption}</span>
+                  <span className="block w-full truncate text-sm font-semibold text-[#242537]">{service.title}</span>
+                  <span className="mt-1 block w-full truncate text-xs text-[#858592]">{service.caption}</span>
                   <span
                     data-service-price={service.query}
                     data-price-value={startingPrice ?? ""}
-                    className="mt-2 block text-xs font-semibold text-[#EF4444]"
+                    className="mt-2 block text-xs font-semibold text-[#E58E82]"
                   >
                     {startingPrice ? `от ${formatRub(startingPrice)}` : "Цена уточняется"}
                   </span>
@@ -263,53 +281,257 @@ export function HomePage() {
               );
             })}
           </div>
+          <div className="mt-6 flex justify-center">
+            <Link to={searchHref} className="inline-flex min-h-10 items-center rounded-xl border border-[#E9C5BF] bg-white px-7 py-2 text-sm font-semibold text-[#D77D72] transition hover:bg-[#FFF6F4]">
+              Все услуги
+            </Link>
+          </div>
         </section>
 
-        <section className="mt-12 grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-2" data-block="home-discovery">
-          <div className="relative min-h-[200px] min-w-0 overflow-hidden rounded-3xl border border-gray-100 bg-[#FFF5F6] p-5 shadow-sm sm:min-h-[220px] sm:p-7">
-            <img
-              src="/images/reference-master-banner.jpg"
-              alt=""
-              aria-hidden="true"
-              loading="lazy"
-              decoding="async"
-              className="absolute bottom-0 right-0 hidden h-full w-[43%] object-cover object-center sm:block"
-            />
-            <div className="pointer-events-none absolute inset-y-0 right-[25%] hidden w-1/4 sm:block" aria-hidden="true" style={{ background: "linear-gradient(90deg, #FFF5F6 0%, rgba(255,245,246,0) 100%)" }} />
-            <div className="relative z-10 max-w-full sm:max-w-[62%]">
-              <p className="text-xs font-semibold uppercase tracking-[0.13em] text-[#EF4444]">Для мастеров</p>
-              <h2 className="mt-2 text-xl font-semibold leading-tight text-slate-900 sm:text-2xl">Вы мастер маникюра?</h2>
-              <p className="mt-2 text-sm leading-relaxed text-slate-600">Покажите свои услуги новым клиентам и принимайте онлайн-запись.</p>
-              <Link to="/pro" className="mt-4 inline-flex items-center rounded-xl bg-[#EF4444] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#DC2626]">
-                Стать мастером <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+        <section id="home-why-us" className="mt-16 grid min-w-0 grid-cols-1 items-center gap-8 lg:grid-cols-[0.8fr_1.2fr]" data-block="home-discovery">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#E58E82]">Почему выбирают nail2go</p>
+            <h2 className="mt-2 max-w-xl text-2xl font-bold leading-tight text-[#1B1C2C] sm:text-3xl">Красота начинается с удобного выбора</h2>
+            <p className="mt-3 max-w-lg text-sm leading-relaxed text-[#777887] sm:text-base">
+              Сравнивайте профили, цены, оценки и ближайшие окна мастеров. Выбирайте то, что подходит именно вам.
+            </p>
+            <Link to="/#how-it-works" className="mt-5 inline-flex items-center rounded-xl bg-[#E58E82] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#D77D72]">
+              Как это работает <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+            </Link>
+          </div>
+
+          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4" data-home-proof-grid>
+            <article className="flex min-w-0 items-start rounded-2xl border border-[#F1E8E6] bg-white p-4 sm:p-5" data-home-stat="masters">
+              <span className="mr-3 grid h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 place-items-center rounded-full bg-[#FFF5F3] text-[#E58E82]"><UsersRound className="h-5 w-5" aria-hidden="true" /></span>
+              <div className="min-w-0">
+                <p className="text-2xl font-bold leading-none text-[#E58E82]" data-stat-value="masters">{catalogStatus === "ready" ? regionalMasters.length.toLocaleString("ru-RU") : "—"}</p>
+                <h3 className="mt-2 text-sm font-semibold text-[#242537]">Мастера в регионе</h3>
+                <p className="mt-1 text-xs leading-relaxed text-[#858592]">Каталог обновляется из профилей специалистов</p>
+              </div>
+            </article>
+            <article className="flex min-w-0 items-start rounded-2xl border border-[#F1E8E6] bg-white p-4 sm:p-5" data-home-stat="reviews">
+              <span className="mr-3 grid h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 place-items-center rounded-full bg-[#FFF5F3] text-[#E58E82]"><Star className="h-5 w-5" aria-hidden="true" /></span>
+              <div className="min-w-0">
+                <p className="text-2xl font-bold leading-none text-[#E58E82]" data-stat-value="reviews">{catalogStatus === "ready" ? regionalReviewCount.toLocaleString("ru-RU") : "—"}</p>
+                <h3 className="mt-2 text-sm font-semibold text-[#242537]">Оценок и отзывов</h3>
+                <p className="mt-1 text-xs leading-relaxed text-[#858592]">Суммарно в профилях мастеров региона</p>
+              </div>
+            </article>
+            <article className="flex min-w-0 items-start rounded-2xl border border-[#F1E8E6] bg-white p-4 sm:p-5" data-home-stat="availability">
+              <span className="mr-3 grid h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 place-items-center rounded-full bg-[#FFF5F3] text-[#E58E82]"><Clock3 className="h-5 w-5" aria-hidden="true" /></span>
+              <div className="min-w-0">
+                <p className="text-2xl font-bold leading-none text-[#E58E82]" data-stat-value="availability">{catalogStatus === "ready" ? mastersWithUpcomingWindows.toLocaleString("ru-RU") : "—"}</p>
+                <h3 className="mt-2 text-sm font-semibold text-[#242537]">С ближайшими окнами</h3>
+                <p className="mt-1 text-xs leading-relaxed text-[#858592]">Свободное время приходит из расписания</p>
+              </div>
+            </article>
+            <article className="flex min-w-0 items-start rounded-2xl border border-[#F1E8E6] bg-white p-4 sm:p-5" data-home-stat="booking">
+              <span className="mr-3 grid h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 place-items-center rounded-full bg-[#FFF5F3] text-[#E58E82]"><CalendarDays className="h-5 w-5" aria-hidden="true" /></span>
+              <div className="min-w-0">
+                <p className="text-2xl font-bold leading-none text-[#E58E82]">Онлайн</p>
+                <h3 className="mt-2 text-sm font-semibold text-[#242537]">Запись без звонков</h3>
+                <p className="mt-1 text-xs leading-relaxed text-[#858592]">Выберите мастера и время на сайте</p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="how-it-works" className="mt-16 scroll-mt-28" data-block="home-how-it-works">
+          <div className="mb-8 text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#E58E82]">Как это работает</p>
+            <h2 className="mt-2 text-2xl font-bold text-[#1B1C2C] sm:text-3xl">Всего 4 простых шага</h2>
+            <p className="mt-2 text-sm text-[#777887]">От поиска до любимого мастера</p>
+          </div>
+          <div className="relative grid min-w-0 grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-5">
+            <span className="pointer-events-none absolute left-[13%] right-[13%] top-6 hidden border-t border-dashed border-[#F0C8D1] sm:block" aria-hidden="true" />
+            {howSteps.map((step, index) => {
+              const StepIcon = step.Icon;
+              return (
+                <article key={step.title} className="relative z-10 min-w-0 text-center" data-home-step={index + 1}>
+                  <span className="block text-[11px] font-bold tracking-[0.12em] text-[#E58E82]">0{index + 1}</span>
+                  <span className="mx-auto mb-3 mt-2 grid h-14 w-14 min-h-[56px] min-w-[56px] place-items-center rounded-full border border-[#F0D8D3] bg-white text-[#E58E82] shadow-sm">
+                    <StepIcon className="h-6 w-6" strokeWidth={1.8} aria-hidden="true" />
+                  </span>
+                  <h3 className="text-sm font-semibold text-[#242537] sm:text-base">{step.title}</h3>
+                  <p className="mx-auto mt-2 max-w-[210px] text-xs leading-relaxed text-[#858592] sm:text-sm">{step.description}</p>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="mt-16 grid min-w-0 grid-cols-1 items-center overflow-hidden rounded-[26px] border border-[#F1E2DE] bg-[#FFF4F2] p-5 sm:p-8 lg:grid-cols-2 lg:px-10" data-block="home-mobile-promo">
+          <div className="relative z-10 min-w-0 py-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#E58E82]">Мобильная версия nail2go</p>
+            <h2 className="mt-2 max-w-lg text-2xl font-bold leading-tight text-[#1B1C2C] sm:text-3xl">Удобная запись — в вашем телефоне</h2>
+            <p className="mt-3 max-w-lg text-sm leading-relaxed text-[#777887]">
+              Сравнивайте профили и услуги, проверяйте свободные окна и записывайтесь на маникюр прямо в браузере.
+            </p>
+            <Link to={searchHref} className="mt-5 inline-flex items-center rounded-xl bg-[#E58E82] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#D77D72]">
+              Открыть каталог <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+            </Link>
+          </div>
+          <div className="relative mt-7 flex min-w-0 items-center justify-center -space-x-8 sm:-space-x-12 lg:mt-0" data-home-mobile-preview>
+            <span className="absolute h-56 w-56 rounded-full bg-white/75" aria-hidden="true" />
+            <div className="relative z-20 w-[min(44vw,220px)] min-w-0 rounded-[27px] border-[6px] border-[#282936] bg-white p-2.5 shadow-[0_24px_55px_-28px_rgba(39,25,31,0.42)] sm:p-3">
+              <div className="mx-auto mb-2.5 h-1.5 w-11 rounded-full bg-[#E7E7EA]" aria-hidden="true" />
+              {showcaseMaster ? (
+                <div className="rounded-xl border border-[#F0E7E5] bg-white p-2.5" data-mobile-preview-master={showcaseMaster.slug}>
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#9697A2]">Профиль мастера</p>
+                  <div className="mt-2.5 flex min-w-0 items-center">
+                    <Avatar size={36} src={showcaseMaster.avatarUrl} name={showcaseMaster.name} className="mr-2 border border-[#F0E7E5]" />
+                    <div className="min-w-0">
+                      <p className="truncate text-[11px] font-semibold text-[#242537]">{showcaseMaster.name}</p>
+                      <p className="mt-0.5 truncate text-[9px] text-[#E58E82]">★ {showcaseMaster.rating.toFixed(1)} · {showcaseMaster.reviewsCount} отзывов</p>
+                    </div>
+                  </div>
+                  <p className="mt-2.5 border-t border-[#F0E7E5] pt-2 text-[9px] text-[#777887]">
+                    {showcaseMaster.priceFrom > 0 ? `Услуги от ${formatRub(showcaseMaster.priceFrom)}` : "Стоимость — в профиле мастера"}
+                  </p>
+                  <p className="mt-1 rounded-lg bg-[#FFF5F3] px-2 py-1.5 text-[9px] font-medium text-[#C8776E]">
+                    {firstShowcaseWindow
+                      ? `Ближайшее окно: ${formatDateLabel(firstShowcaseWindow.dateISO)} · ${firstShowcaseWindow.label}`
+                      : "Свободное время — в профиле мастера"}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid min-h-[164px] place-items-center rounded-xl bg-[#FFF7F6] p-3 text-center text-[10px] text-[#777887]">
+                  {catalogStatus === "offline" ? "Каталог временно недоступен" : "Загружаем реальные профили мастеров…"}
+                </div>
+              )}
+              <div className="mx-auto mt-2.5 h-1 w-9 rounded-full bg-[#E7E7EA]" aria-hidden="true" />
+            </div>
+
+            <div className="relative z-10 mt-9 w-[min(44vw,220px)] min-w-0 rotate-3 rounded-[27px] border-[6px] border-[#282936] bg-white p-2.5 shadow-[0_24px_55px_-28px_rgba(39,25,31,0.34)] sm:p-3" data-mobile-preview-schedule>
+              <div className="mx-auto mb-2.5 h-1.5 w-11 rounded-full bg-[#E7E7EA]" aria-hidden="true" />
+              <div className="rounded-xl border border-[#F0E7E5] bg-white p-2.5">
+                <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#9697A2]">Запись онлайн</p>
+                <p className="mt-2 text-[11px] font-semibold text-[#242537]">Свободные окна</p>
+                {firstShowcaseWindow ? (
+                  <div className="mt-2 rounded-lg bg-[#FFF5F3] px-2 py-2 text-center" data-mobile-preview-window>
+                    <span className="block text-[9px] text-[#777887]">{formatDateLabel(firstShowcaseWindow.dateISO)}</span>
+                    <span className="mt-0.5 block text-sm font-bold text-[#C8776E]">{firstShowcaseWindow.label}</span>
+                  </div>
+                ) : (
+                  <p className="mt-2 rounded-lg bg-[#FFF7F6] px-2 py-2 text-center text-[9px] leading-relaxed text-[#777887]" data-mobile-preview-window-empty>
+                    {showcaseMaster ? "Актуальные окна — в профиле мастера" : "Свободное время появится после загрузки каталога"}
+                  </p>
+                )}
+                <div className="mt-2.5 border-t border-[#F0E7E5] pt-2">
+                  <p className="truncate text-[9px] text-[#777887]">{showcaseServices[0]?.name ?? "Услуги мастера"}</p>
+                  <p className="mt-0.5 text-[10px] font-semibold text-[#242537]">
+                    {showcaseServices[0] ? formatRub(showcaseServices[0].price) : "Стоимость — в профиле"}
+                  </p>
+                </div>
+              </div>
+              <Link to={showcaseBookingLink} className="mt-2 block w-full truncate rounded-lg bg-[#E58E82] px-2 py-2 text-center text-[9px] font-semibold text-white">
+                Выбрать время
               </Link>
-            </div>
-          </div>
-
-          <div id="how-it-works" className="min-w-0 rounded-[24px] border border-[#f0e3df] bg-white p-5 sm:p-7" data-block="home-how-it-works">
-            <p className="text-xs font-semibold uppercase tracking-[0.13em] text-[#EF4444]">Всё просто</p>
-            <h2 className="mt-2 text-xl font-semibold text-slate-900 sm:text-2xl">Как это работает</h2>
-            <div className="mt-5 grid grid-cols-3 text-slate-600">
-              <div className="min-w-0 pr-2 sm:pr-4">
-                <span className="mb-2 grid h-9 w-9 min-h-[36px] min-w-[36px] place-items-center rounded-full bg-white text-[#EF4444]"><Search className="h-4 w-4" aria-hidden="true" /></span>
-                <span className="block text-xs font-medium leading-snug sm:text-sm">Найдите мастера</span>
-              </div>
-              <div className="min-w-0 border-l border-[#f0e3df] px-2 sm:px-4">
-                <span className="mb-2 grid h-9 w-9 min-h-[36px] min-w-[36px] place-items-center rounded-full bg-white text-[#EF4444]"><CalendarDays className="h-4 w-4" aria-hidden="true" /></span>
-                <span className="block text-xs font-medium leading-snug sm:text-sm">Выберите время</span>
-              </div>
-              <div className="min-w-0 border-l border-[#f0e3df] pl-2 sm:pl-4">
-                <span className="mb-2 grid h-9 w-9 min-h-[36px] min-w-[36px] place-items-center rounded-full bg-white text-[#EF4444]"><Heart className="h-4 w-4" aria-hidden="true" /></span>
-                <span className="block text-xs font-medium leading-snug sm:text-sm">Запишитесь онлайн</span>
-              </div>
+              <div className="mx-auto mt-2.5 h-1 w-9 rounded-full bg-[#E7E7EA]" aria-hidden="true" />
             </div>
           </div>
         </section>
 
+        <section id="home-reviews" className="mt-16 scroll-mt-28" data-block="home-reviews">
+          <div className="mb-6 flex min-w-0 flex-wrap items-end justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#E58E82]">Отзывы клиентов</p>
+              <h2 className="mt-2 text-2xl font-bold text-[#1B1C2C] sm:text-3xl">Слова тех, кто уже записался</h2>
+              <p className="mt-2 text-sm text-[#777887]">Опубликованные отзывы клиентов nail2go</p>
+            </div>
+            <Link to="/search" className="mt-3 inline-flex shrink-0 items-center text-sm font-semibold text-[#C8776E] hover:text-[#D77D72]">
+              Выбрать мастера <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+            </Link>
+          </div>
+          {publishedReviews.length > 0 ? (
+            <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" data-home-reviews-grid>
+              {publishedReviews.slice(0, 4).map((review) => (
+                <article key={review.id} className="flex min-w-0 flex-col rounded-2xl border border-[#F0E7E5] bg-white p-5 shadow-sm" data-home-review={review.id}>
+                  <div className="flex min-w-0 items-center justify-between">
+                    <span className="inline-flex min-w-0 items-center" aria-label={`Оценка ${review.score} из 5`}>
+                      {Array.from({ length: 5 }, (_, starIndex) => (
+                        <Star
+                          key={starIndex}
+                          className={`mr-0.5 h-4 w-4 shrink-0 ${starIndex < review.score ? "fill-[#E58E82] text-[#E58E82]" : "text-[#E9DCD8]"}`}
+                          aria-hidden="true"
+                        />
+                      ))}
+                    </span>
+                    <time className="ml-2 shrink-0 text-[11px] text-[#90909B]" dateTime={review.dateISO}>
+                      {new Date(`${review.dateISO}T12:00:00`).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}
+                    </time>
+                  </div>
+                  <p className="mt-4 min-h-[88px] flex-1 text-sm leading-relaxed text-[#505160]">“{review.text}”</p>
+                  <div className="mt-4 flex min-w-0 items-center border-t border-[#F0E7E5] pt-3 text-sm">
+                    <span className="mr-3 grid h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 place-items-center rounded-full bg-[#FFF5F3] text-xs font-semibold text-[#B86860]" aria-hidden="true">
+                      {review.clientName.trim().split(/\s+/).slice(0, 2).map((part) => part[0] ?? "").join("").toLocaleUpperCase("ru-RU")}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold text-[#2B2C3D]">{review.clientName}</span>
+                      <span className="mt-0.5 block truncate text-xs text-[#858592]">{review.service}</span>
+                    </span>
+                  </div>
+                  <Link to={`/master/${review.masterSlug}#reviews`} className="mt-3 inline-flex min-w-0 items-center text-xs font-medium text-[#C8776E] hover:text-[#D77D72]">
+                    <span className="mr-1.5 truncate">{review.masterName}</span>
+                    <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  </Link>
+                  {review.replyText && (
+                    <div className="mt-3 rounded-xl bg-[#FFF7F6] p-3" data-home-review-reply>
+                      <p className="flex items-center text-[11px] font-semibold text-[#A86D64]">
+                        <MessageCircle className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Ответ мастера
+                      </p>
+                      <p className="mt-1 text-xs leading-relaxed text-[#686977]">{review.replyText}</p>
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-2xl border border-dashed border-[#F0E7E5] bg-white px-5 py-8 text-center text-sm text-[#777887]" data-home-reviews-empty>
+              {publishedReviewsRequest.loading
+                ? "Загружаем опубликованные отзывы…"
+                : publishedReviewsRequest.error
+                  ? "Отзывы временно недоступны."
+                  : "Здесь появятся опубликованные отзывы клиентов."}
+            </p>
+          )}
+        </section>
+      </div>
+
+      <section
+        id="home-journal"
+        className="mx-auto mt-8 max-w-[1440px] scroll-mt-28 rounded-[26px] border border-[#F0E7E5] bg-white p-5 shadow-sm sm:p-8"
+        data-block="home-journal"
+      >
+        <div className="mb-5 flex flex-wrap items-end justify-between">
+          <div className="mr-3 mb-3">
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#E58E82]">Журнал nail2go</p>
+            <h2 className="mt-1 text-2xl font-semibold text-slate-900">Идеи и уход для ваших ногтей</h2>
+          </div>
+          <Link to="/journal" className="mb-3 text-sm font-medium text-[#E58E82] hover:text-[#D77D72]">
+            Все статьи →
+          </Link>
+        </div>
+        {journal.data && journal.data.items.length > 0 ? (
+          <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4">
+            {journal.data.items.slice(0, 4).map((article) => <JournalArticleCard key={article.id} article={article} />)}
+          </div>
+        ) : (
+          <p className="rounded-2xl border border-dashed border-[#F0E7E5] px-5 py-8 text-center text-sm text-[#777887]" data-home-journal-empty>
+            {journal.loading
+              ? "Загружаем опубликованные статьи…"
+              : journal.error
+                ? "Журнал временно недоступен."
+                : "Опубликованных статей пока нет."}
+          </p>
+        )}
+      </section>
+
+      <div className="mx-auto w-full min-w-0 max-w-[1600px] px-3 sm:px-4" data-home-directory>
         <section className="mt-12 min-w-0" data-block="home-master-catalog">
           <div className="mb-4 flex min-w-0 flex-wrap items-end justify-between">
             <div className="mr-4 mb-2 min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#EF4444]">Каталог Nail 2 Go</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#E58E82]">Каталог nail2go</p>
               <h2 className="mt-1 text-2xl font-bold text-gray-900 sm:text-3xl">
                 {place ? "Мастера у выбранного места" : "Мастера рядом"}
               </h2>
@@ -331,7 +553,7 @@ export function HomePage() {
                             : `в регионе «${region}» мастеров пока нет`}
               </p>
             </div>
-            <Link to={searchHref} className="mb-2 inline-flex shrink-0 items-center text-sm font-medium text-[#EF4444] hover:text-[#DC2626]">
+            <Link to={searchHref} className="mb-2 inline-flex shrink-0 items-center text-sm font-medium text-[#E58E82] hover:text-[#D77D72]">
               Все мастера <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
             </Link>
           </div>
@@ -383,17 +605,17 @@ export function HomePage() {
                       <Link
                         to={`/master/${master.slug}`}
                         onClick={() => recordPromotionEvent(master.slug, "profile_click", "home")}
-                        className="block truncate text-base font-semibold text-gray-900 transition hover:text-[#EF4444] sm:text-lg"
+                        className="block truncate text-base font-semibold text-gray-900 transition hover:text-[#E58E82] sm:text-lg"
                       >
                         {master.name}
                       </Link>
                       <p className="mt-0.5 truncate text-xs text-gray-500 sm:text-sm">{master.tags}</p>
                       <p className="mt-1 flex min-w-0 items-center text-sm text-gray-600">
-                        <span className="mr-1 font-semibold text-[#EF4444]" data-master-rating={master.rating}>★ {master.rating.toFixed(1)}</span>
+                        <span className="mr-1 font-semibold text-[#E58E82]" data-master-rating={master.rating}>★ {master.rating.toFixed(1)}</span>
                         <span className="truncate">({master.reviewsCount} отзывов)</span>
                       </p>
                       <p className="mt-1 flex min-w-0 items-center text-xs text-gray-500 sm:text-sm">
-                        <MapPin className="mr-1.5 h-4 w-4 shrink-0 text-[#EF4444]" aria-hidden="true" />
+                        <MapPin className="mr-1.5 h-4 w-4 shrink-0 text-[#E58E82]" aria-hidden="true" />
                         <span className="truncate">{master.metro}{master.distance ? ` · ${master.distance}` : ""}</span>
                       </p>
                     </div>
@@ -414,7 +636,7 @@ export function HomePage() {
                         to={bookingLinkForMaster(master)}
                         onClick={() => recordPromotionEvent(master.slug, "booking_click", "home")}
                         data-home-master-action={master.slug}
-                        className="inline-flex min-h-10 shrink-0 items-center rounded-xl bg-[#EF4444] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#DC2626] sm:px-5"
+                        className="inline-flex min-h-10 shrink-0 items-center rounded-xl bg-[#E58E82] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#D77D72] sm:px-5"
                       >
                         Записаться <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
                       </Link>
@@ -437,9 +659,9 @@ export function HomePage() {
           data-block="home-availability"
         >
           <div className="min-w-0">
-            <div className="rounded-3xl border border-[#f0e3df] bg-white p-4 shadow-sm sm:p-5">
+            <div className="rounded-3xl border border-[#F0E7E5] bg-white p-4 shadow-sm sm:p-5">
               <div className="mb-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#e58e82]">Уточнить выдачу</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#E58E82]">Уточнить выдачу</p>
                 <h2 className="mt-1 text-lg font-semibold text-slate-900">Свободное время и сортировка</h2>
               </div>
               <SmartSearchPanel
@@ -455,20 +677,20 @@ export function HomePage() {
           </div>
 
           <div
-            className="order-3 w-full min-w-0 rounded-3xl border border-[#f0e3df] bg-white p-4 shadow-sm sm:p-5 lg:order-none lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:self-start"
+            className="order-3 w-full min-w-0 rounded-3xl border border-[#F0E7E5] bg-white p-4 shadow-sm sm:p-5 lg:order-none lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:self-start"
             data-city-block
           >
             <div className="mb-3 flex flex-wrap items-end justify-between">
               <div className="mr-2 mb-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#e58e82]">Ориентир</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#E58E82]">Ориентир</p>
                 <h2 className="mt-1 text-xl font-semibold text-slate-900">Мастера на карте</h2>
               </div>
-              <span className="mb-2 rounded-full bg-[#fff3f0] px-3 py-1 text-xs font-medium text-[#bd7168]">
+              <span className="mb-2 rounded-full bg-[#FFF5F3] px-3 py-1 text-xs font-medium text-[#D77D72]">
                 {listedCount} {masterCountWord(listedCount)}
               </span>
             </div>
             {!chosen && (
-              <p className="mb-3 rounded-2xl bg-[#fff3f0] px-4 py-3 text-sm text-slate-600">
+              <p className="mb-3 rounded-2xl bg-[#FFF5F3] px-4 py-3 text-sm text-slate-600">
                 Выбрали {region} — мастера этого региона на карте и в выдаче. Город можно переключить здесь.
               </p>
             )}
@@ -496,12 +718,12 @@ export function HomePage() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.35 }}
             ref={showcaseImpressionRef}
-            className="order-2 min-w-0 rounded-3xl border border-[#f0e3df] bg-white p-5 shadow-[0_30px_50px_-35px_rgba(118,72,63,0.18)] lg:order-none lg:col-start-1"
+            className="order-2 min-w-0 rounded-3xl border border-[#F0E7E5] bg-white p-5 shadow-[0_30px_50px_-35px_rgba(118,72,63,0.18)] lg:order-none lg:col-start-1"
             data-block="home-showcase"
             data-showcase-master={showcaseMaster?.slug ?? ""}
           >
             <div className="mb-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#e58e82]">Быстрая запись</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#E58E82]">Быстрая запись</p>
               <h2 className="mt-1 text-xl font-semibold text-slate-900">Услуги и свободные окна</h2>
             </div>
             {showcaseMaster ? (
@@ -512,13 +734,13 @@ export function HomePage() {
                     <Link
                       to={showcaseProfileLink}
                       onClick={() => showcaseMaster && recordPromotionEvent(showcaseMaster.slug, "profile_click", "home")}
-                      className="text-2xl font-semibold hover:text-[#e58e82]"
+                      className="text-2xl font-semibold hover:text-[#E58E82]"
                     >
                       {showcaseMaster.name}
                     </Link>
                     <p className="truncate text-sm text-slate-500">{showcaseMaster.tags}</p>
                     <p className="mt-1 text-sm text-slate-600">
-                      <span className="font-medium text-[#e58e82]">★ {showcaseMaster.rating}</span> ({showcaseMaster.reviewsCount} отзывов)
+                      <span className="font-medium text-[#E58E82]">★ {showcaseMaster.rating}</span> ({showcaseMaster.reviewsCount} отзывов)
                     </p>
                   </div>
                 </div>
@@ -528,7 +750,7 @@ export function HomePage() {
                     <div
                       key={service.id}
                       data-master-service={service.id}
-                      className="flex items-center justify-between space-x-3 rounded-xl border border-[#f0e3df] px-3 py-2"
+                      className="flex items-center justify-between space-x-3 rounded-xl border border-[#F0E7E5] px-3 py-2"
                     >
                       <div className="min-w-0">
                         <p className="truncate font-medium">{service.name}</p>
@@ -540,7 +762,7 @@ export function HomePage() {
                           to={serviceLink(service.id)}
                           onClick={() => recordPromotionEvent(showcaseMaster.slug, "booking_click", "home")}
                           data-booking-service={service.id}
-                          className="rounded-lg border border-[#e8c7bf] px-3 py-1 text-[#e58e82] transition hover:bg-[#fff3f0]"
+                          className="rounded-lg border border-[#E9C5BF] px-3 py-1 text-[#E58E82] transition hover:bg-[#FFF5F3]"
                         >
                           Записаться
                         </Link>
@@ -548,7 +770,7 @@ export function HomePage() {
                     </div>
                   ))}
                   {showcaseServices.length === 0 && (
-                    <p data-state="empty-master-services" className="rounded-xl bg-[#fff7f5] px-4 py-5 text-center text-slate-500">
+                    <p data-state="empty-master-services" className="rounded-xl bg-[#FFF7F6] px-4 py-5 text-center text-slate-500">
                       {showcaseServicesLoading
                         ? "Загружаем услуги…"
                         : showcaseServicesError
@@ -577,7 +799,7 @@ export function HomePage() {
                             slot: window.label,
                           })}
                           className={`mr-2 mb-2 flex-[1_1_9rem] min-w-0 rounded-xl border px-3 py-2 text-center text-sm ${
-                            index === 0 ? "border-[#e58e82] bg-[#fff3f0] text-[#bd7168]" : "border-[#f0ddd8] hover:border-[#e9b8ae]"
+                            index === 0 ? "border-[#E58E82] bg-[#FFF5F3] text-[#D77D72]" : "border-[#F0E7E5] hover:border-[#E9C5BF]"
                           }`}
                         >
                           <span className="block font-medium">{window.label}</span>
@@ -586,7 +808,7 @@ export function HomePage() {
                       ))}
                     </div>
                   ) : (
-                    <p data-state="empty-master-windows" className="rounded-xl bg-[#fff7f5] px-4 py-4 text-center text-sm text-slate-500">
+                    <p data-state="empty-master-windows" className="rounded-xl bg-[#FFF7F6] px-4 py-4 text-center text-sm text-slate-500">
                       {showcaseServicesLoading ? "Загружаем свободные окна…" : "Свободных окон пока нет."}
                     </p>
                   )}
@@ -594,7 +816,7 @@ export function HomePage() {
                     to={showcaseBookingLink}
                     onClick={() => recordPromotionEvent(showcaseMaster.slug, "booking_click", "home")}
                     data-action="showcase-booking"
-                    className="mt-3 block w-full rounded-xl bg-[#e58e82] py-3 text-center text-sm font-semibold text-white transition hover:bg-[#d77d72]"
+                    className="mt-3 block w-full rounded-xl bg-[#E58E82] py-3 text-center text-sm font-semibold text-white transition hover:bg-[#d77d72]"
                   >
                     {firstShowcaseWindow
                       ? `Записаться на ${firstShowcaseWindow.label}`
@@ -613,34 +835,48 @@ export function HomePage() {
                       ? "Каталог временно недоступен."
                       : "В этой выдаче пока нет мастеров"}
                 </p>
-                <Link to={searchHref} className="mt-3 text-sm font-medium text-[#e58e82] hover:text-[#bd7168]">
+                <Link to={searchHref} className="mt-3 text-sm font-medium text-[#E58E82] hover:text-[#D77D72]">
                   Открыть карту мастеров
                 </Link>
               </div>
             )}
           </motion.aside>
         </section>
+
       </div>
 
-      {journal.data && journal.data.items.length > 0 && (
-        <section
-          className="mx-auto mt-8 max-w-[1440px] rounded-[26px] border border-[#f0e3df] bg-white p-5 shadow-sm sm:p-8"
-          data-block="home-journal"
-        >
-          <div className="mb-5 flex flex-wrap items-end justify-between">
-            <div className="mr-3 mb-3">
-              <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#e58e82]">Журнал Nail 2 Go</p>
-              <h2 className="mt-1 text-2xl font-semibold text-slate-900">Идеи и уход для ваших ногтей</h2>
-            </div>
-            <Link to="/journal" className="mb-3 text-sm font-medium text-[#e58e82] hover:text-[#bd7168]">
-              Все статьи →
-            </Link>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {journal.data.items.map((article) => <JournalArticleCard key={article.id} article={article} />)}
-          </div>
-        </section>
-      )}
+      <section className="mt-12 border-y border-[#F1E2DE] bg-[#FFF9F8] px-3 py-5 sm:px-5 sm:py-6" data-block="home-benefit-strip" aria-label="Показатели nail2go">
+        <div className="mx-auto grid w-full max-w-[1440px] min-w-0 grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-5 xl:grid-cols-4">
+          <Link to="/search" className="flex min-w-0 items-center rounded-xl px-2 py-2 transition hover:bg-white" data-home-kpi="masters">
+            <span className="mr-2.5 grid h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 place-items-center rounded-full bg-white text-[#E58E82] shadow-sm"><Search className="h-4 w-4" aria-hidden="true" /></span>
+            <span className="min-w-0">
+              <span className="block text-base font-bold leading-tight text-[#302A29]" data-kpi-value="masters">{catalogStatus === "ready" ? regionalMasters.length.toLocaleString("ru-RU") : "—"}</span>
+              <span className="mt-1 block text-[11px] font-medium leading-snug text-[#77716F] sm:text-xs">Мастеров в регионе</span>
+            </span>
+          </Link>
+          <Link to="/#home-reviews" className="flex min-w-0 items-center rounded-xl px-2 py-2 transition hover:bg-white" data-home-kpi="reviews">
+            <span className="mr-2.5 grid h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 place-items-center rounded-full bg-white text-[#E58E82] shadow-sm"><MessageCircle className="h-4 w-4" aria-hidden="true" /></span>
+            <span className="min-w-0">
+              <span className="block text-base font-bold leading-tight text-[#302A29]" data-kpi-value="reviews">{publishedReviewsRequest.data ? publishedReviewsRequest.data.total.toLocaleString("ru-RU") : "—"}</span>
+              <span className="mt-1 block text-[11px] font-medium leading-snug text-[#77716F] sm:text-xs">Опубликованных отзывов</span>
+            </span>
+          </Link>
+          <Link to="/#home-reviews" className="flex min-w-0 items-center rounded-xl px-2 py-2 transition hover:bg-white" data-home-kpi="rating">
+            <span className="mr-2.5 grid h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 place-items-center rounded-full bg-white text-[#E58E82] shadow-sm"><Star className="h-4 w-4" aria-hidden="true" /></span>
+            <span className="min-w-0">
+              <span className="block text-base font-bold leading-tight text-[#302A29]" data-kpi-value="rating">{publishedReviewsRequest.data?.total ? publishedReviewsRequest.data.average.toFixed(1) : "—"}</span>
+              <span className="mt-1 block text-[11px] font-medium leading-snug text-[#77716F] sm:text-xs">Средняя оценка</span>
+            </span>
+          </Link>
+          <Link to="/search" className="flex min-w-0 items-center rounded-xl px-2 py-2 transition hover:bg-white" data-home-kpi="availability">
+            <span className="mr-2.5 grid h-10 w-10 min-h-[40px] min-w-[40px] shrink-0 place-items-center rounded-full bg-white text-[#E58E82] shadow-sm"><CalendarDays className="h-4 w-4" aria-hidden="true" /></span>
+            <span className="min-w-0">
+              <span className="block text-base font-bold leading-tight text-[#302A29]" data-kpi-value="availability">{catalogStatus === "ready" ? mastersWithUpcomingWindows.toLocaleString("ru-RU") : "—"}</span>
+              <span className="mt-1 block text-[11px] font-medium leading-snug text-[#77716F] sm:text-xs">Мастеров с ближайшими окнами</span>
+            </span>
+          </Link>
+        </div>
+      </section>
     </main>
   );
 }

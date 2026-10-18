@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { CalendarDays, Check, ChevronDown, MapPin, Search, ShieldCheck, Star } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, Clock3, MapPin, Search, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { MasterCardReview } from "../api/masterCard";
 import type { MasterSearchItem } from "../api/search";
@@ -12,6 +12,8 @@ type ServiceChoice = { query: string; title: string };
 type Props = {
   queryText: string;
   onQueryChange: (value: string) => void;
+  date: string | null;
+  onDateChange: (value: string | null) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   serviceOptions: ServiceChoice[];
   place: PickedPlace;
@@ -22,10 +24,10 @@ type Props = {
 };
 
 const benefits = [
-  { label: "Проверенные мастера", Icon: Check },
-  { label: "Честные отзывы", Icon: Star },
-  { label: "Удобная онлайн-запись", Icon: CalendarDays },
-  { label: "Безопасность", Icon: ShieldCheck },
+  { label: "Профили мастеров", Icon: Check },
+  { label: "Опубликованные отзывы", Icon: Star },
+  { label: "Онлайн-запись", Icon: CalendarDays },
+  { label: "Ближайшие окна", Icon: Clock3 },
 ];
 
 function reviewInitials(name: string): string {
@@ -38,10 +40,19 @@ function reviewInitials(name: string): string {
     .toLocaleUpperCase("ru-RU");
 }
 
-/** Верхний блок главной: поиск, преимущества и API-карточка поверх фото из макета. */
+function localDateISO(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/** Главный поисковый блок: локальное фото, фильтры и карточка мастера из API. */
 export function HomeHero({
   queryText,
   onQueryChange,
+  date,
+  onDateChange,
   onSubmit,
   serviceOptions,
   place,
@@ -51,48 +62,47 @@ export function HomeHero({
   onMasterClick,
 }: Props) {
   const masterAvatar = master?.avatarUrl ?? (master?.slug === "anna-smirnova" ? "/images/reference-profile-anna.jpg" : null);
-  const isTopMaster = Boolean(master && master.rating >= 4.8 && master.reviewsCount >= 3);
+  const visibleClientReviews = clientReviews
+    .filter((review) => review.status === "published" && review.text.trim().length > 0)
+    .slice(0, 3);
 
   return (
     <section
-      className="relative isolate mb-8 mt-2 flex min-h-[460px] min-w-0 flex-col items-center justify-between overflow-hidden rounded-3xl bg-[#FFF5F6] p-5 shadow-[0_26px_70px_-42px_rgba(143,75,87,0.38)] sm:mb-10 sm:p-8 xl:mb-12 xl:mt-4 xl:flex-row xl:p-12"
+      className="relative isolate grid min-h-[480px] min-w-0 grid-cols-1 overflow-hidden rounded-3xl bg-[#FFF7F8] lg:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)] xl:min-h-[500px]"
       data-block="home-hero"
     >
-      <span className="pointer-events-none absolute -left-24 -top-28 h-72 w-72 rounded-full bg-[#FBE9EC]" aria-hidden="true" />
-      <span className="pointer-events-none absolute -bottom-32 left-[34%] h-80 w-80 rounded-full bg-[#FCEDEF]" aria-hidden="true" />
-
-      <div className="relative z-10 w-full min-w-0 xl:w-[55%]">
-        <h1 className="max-w-[720px] text-3xl font-extrabold leading-tight text-gray-900 sm:text-4xl xl:text-5xl">
+      <div className="relative z-10 min-w-0 px-5 py-7 sm:px-8 sm:py-9 lg:px-9 xl:px-12 xl:py-12">
+        <p className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-[#E58E82]">Красота в деталях</p>
+        <h1 className="max-w-[720px] text-3xl font-extrabold leading-tight text-[#1B1C2C] sm:text-4xl xl:text-5xl">
           <span className="block">Найдите своего идеального</span>
-          <span className="block text-[#EF4444]">мастера маникюра</span>
+          <span className="block">мастера маникюра и педикюра</span>
         </h1>
-        <p className="mt-4 max-w-[620px] text-sm leading-relaxed text-gray-600 sm:text-base">
-          Проверенные специалисты, честные отзывы и удобная запись — найдите мастера рядом с вами.
+        <p className="mb-0 mt-4 max-w-[560px] text-sm leading-relaxed text-[#777887] sm:text-base">
+          Сравнивайте профили, цены и опубликованные отзывы, выбирайте удобное время и записывайтесь онлайн.
         </p>
 
         <form
           onSubmit={onSubmit}
           role="search"
           aria-label="Поиск мастера"
-          className="mt-6 w-full max-w-3xl rounded-2xl border border-gray-100 bg-white p-2 shadow-md sm:p-3 xl:p-2"
-          style={{ boxShadow: "0 14px 34px -24px rgba(240,84,79,0.38)" }}
+          className="mt-7 w-full max-w-[800px] rounded-2xl border border-[#F0E7E5] bg-white p-2 shadow-[0_18px_44px_-30px_rgba(91,43,59,0.24)] sm:p-3"
           data-home-hero-search
         >
-          <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:items-center xl:gap-0 xl:space-x-4">
+          <div className="grid min-w-0 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[120px_minmax(0,1fr)_135px_172px] lg:items-center lg:gap-1">
             <CityPicker
               appearance="hero"
-              className="min-w-0 xl:w-[145px] xl:shrink-0 xl:border-r xl:border-gray-100 xl:pr-4"
+              className="min-w-0 lg:border-r lg:border-[#F0E7E5] lg:pr-2"
             />
 
-            <label className="relative min-w-0 xl:w-[132px] xl:shrink-0 xl:border-r xl:border-gray-100 xl:pr-4">
+            <label className="relative min-w-0 lg:border-r lg:border-[#F0E7E5] lg:pr-2">
               <span className="sr-only">Услуга</span>
               <select
                 aria-label="Услуга"
                 value={queryText}
                 onChange={(event) => onQueryChange(event.target.value)}
-                className="h-11 w-full appearance-none rounded-xl border-0 bg-transparent px-2 pr-8 text-sm font-medium text-gray-700 outline-none transition focus:bg-[#FFF8F7]"
+                className="h-11 w-full appearance-none rounded-xl border-0 bg-transparent px-2 pr-8 text-sm font-medium text-[#3D3E4E] outline-none transition focus:bg-[#FFF7F6]"
               >
-                <option value="">Услуга</option>
+                <option value="">Выберите услугу</option>
                 {queryText && !serviceOptions.some((service) => service.query === queryText) && (
                   <option value={queryText}>{queryText}</option>
                 )}
@@ -100,36 +110,26 @@ export function HomeHero({
                   <option key={service.query} value={service.query}>{service.title}</option>
                 ))}
               </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden="true" />
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9A9BA7]" aria-hidden="true" />
             </label>
 
-            <details
-              open={Boolean(place)}
-              className="group relative z-30 min-w-0 xl:flex-1 xl:border-r xl:border-gray-100 xl:pr-4"
-              data-hero-place-select
-            >
-              <summary className="flex h-11 min-w-0 cursor-pointer list-none items-center justify-between rounded-xl px-2 text-sm text-gray-600 transition hover:bg-[#FFF8F7]">
-                <span className="flex min-w-0 items-center">
-                  <MapPin className="mr-2 h-4 w-4 shrink-0 text-[#EF4444]" aria-hidden="true" />
-                  <span className="truncate">
-                    {place ? `${place.kind === "metro" ? "м. " : "г. "}${place.name}` : "Метро или район"}
-                  </span>
-                </span>
-                <ChevronDown className="ml-2 h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
-              </summary>
-              <div className="absolute left-0 top-[calc(100%+12px)] z-50 w-[min(540px,90vw)] max-w-[90vw] rounded-2xl border border-gray-100 bg-white p-2 shadow-xl">
-                <LocationPicker
-                  place={place}
-                  onPick={onPickPlace}
-                  variant="compact"
-                  className="border-0 bg-white p-2"
-                />
-              </div>
-            </details>
+            <label className="relative flex min-w-0 items-center rounded-xl px-2 focus-within:bg-[#FFF7F6] lg:pr-2">
+              <CalendarDays className="mr-2 h-4 w-4 shrink-0 text-[#E58E82]" aria-hidden="true" />
+              <span className="sr-only">Дата записи</span>
+              <input
+                type="date"
+                aria-label="Выберите дату записи"
+                value={date ?? ""}
+                min={localDateISO(new Date())}
+                onChange={(event) => onDateChange(event.target.value || null)}
+                className="h-11 min-w-0 w-full border-0 bg-transparent text-sm text-[#3D3E4E] outline-none"
+                data-field="home-date"
+              />
+            </label>
 
             <button
               type="submit"
-              className="inline-flex h-12 w-full shrink-0 items-center justify-center rounded-xl bg-[#EF4444] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#DC2626] xl:w-auto xl:min-w-[148px]"
+              className="inline-flex h-12 w-full shrink-0 items-center justify-center whitespace-nowrap rounded-xl bg-[#E58E82] px-3 py-3 text-sm font-semibold text-white transition hover:bg-[#D77D72] lg:w-auto"
             >
               <Search className="mr-2 h-4 w-4" aria-hidden="true" />
               Найти мастера
@@ -137,92 +137,91 @@ export function HomeHero({
           </div>
         </form>
 
-        <div className="mt-6 flex flex-wrap items-center text-xs font-medium text-gray-500" data-home-hero-benefits>
+        <details open={Boolean(place)} className="group relative z-30 mt-3 inline-block max-w-full" data-hero-place-select>
+          <summary className="inline-flex max-w-full cursor-pointer list-none items-center rounded-full border border-[#F0E4E8] bg-white/90 px-3 py-2 text-xs font-medium text-[#747583] transition hover:border-[#EFC3CE] hover:text-[#D77D72]">
+            <MapPin className="mr-1.5 h-3.5 w-3.5 shrink-0 text-[#E58E82]" aria-hidden="true" />
+            <span className="truncate">{place ? `${place.kind === "metro" ? "м. " : "г. "}${place.name}` : "Метро или район"}</span>
+            <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 text-[#9697A2]" aria-hidden="true" />
+          </summary>
+          <div className="absolute left-0 top-[calc(100%+10px)] z-50 w-[min(540px,90vw)] max-w-[90vw] rounded-2xl border border-[#F0E7E5] bg-white p-2 shadow-xl">
+            <LocationPicker place={place} onPick={onPickPlace} variant="compact" className="border-0 bg-white p-2" />
+          </div>
+        </details>
+
+        <div className="mt-5 grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-4 lg:mt-6" data-home-hero-benefits>
           {benefits.map(({ label, Icon }) => (
-            <div key={label} className="mb-2 mr-6 flex items-center">
-              <span className="mr-2 grid h-8 w-8 min-h-[32px] min-w-[32px] shrink-0 place-items-center rounded-full border border-[#F8B6B2] bg-white text-[#EF4444]">
+            <div key={label} className="flex min-w-0 items-center">
+              <span className="mr-2 grid h-9 w-9 min-h-[36px] min-w-[36px] shrink-0 place-items-center rounded-full border border-[#F0D8D3] bg-white text-[#E58E82]">
                 <Icon className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
               </span>
-              <span className="whitespace-nowrap">{label}</span>
+              <span className="text-[11px] font-medium leading-snug text-[#4F5060] sm:text-xs">{label}</span>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="relative z-10 mt-10 w-full min-w-0 xl:mt-0 xl:w-[40%]" data-home-hero-featured>
-        <div className="absolute -inset-3 rounded-[34px] bg-[#F5DCE1] opacity-70" aria-hidden="true" />
-        <div className="relative h-[340px] w-full overflow-hidden rounded-3xl border-[5px] border-white bg-[#F9E9E9] shadow-2xl sm:h-[390px] xl:h-[370px]">
-          <img
-            src="/images/reference-hero-hands.jpg"
-            alt=""
-            aria-hidden="true"
-            className="block h-full w-full object-cover"
-            loading="eager"
-            decoding="async"
-            onError={(event) => {
-              const image = event.currentTarget;
-              if (image.dataset.fallbackApplied === "true") {
-                image.hidden = true;
-                return;
-              }
-              image.dataset.fallbackApplied = "true";
-              image.src = "/images/reference-hero.jpg";
-            }}
-            data-hero-hands-photo
-          />
+      <div className="relative min-h-[280px] w-full overflow-hidden bg-[#F6E9E6] sm:min-h-[360px] lg:min-h-[480px]" data-home-hero-featured>
+        <img
+          src="/images/reference-hero-hands.jpg"
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 block h-full w-full object-cover object-center"
+          loading="eager"
+          decoding="async"
+          onError={(event) => {
+            const image = event.currentTarget;
+            if (image.dataset.fallbackApplied === "true") {
+              image.hidden = true;
+              return;
+            }
+            image.dataset.fallbackApplied = "true";
+            image.src = "/images/reference-hero.jpg";
+          }}
+          data-hero-hands-photo
+        />
+        <span className="pointer-events-none absolute inset-y-0 left-0 hidden w-28 bg-gradient-to-r from-[#FFF7F8] to-transparent lg:block" aria-hidden="true" />
 
-          {master && (
-            <Link
-              to={`/master/${master.slug}`}
-              onClick={onMasterClick}
-              className="absolute bottom-6 left-4 right-4 flex min-w-0 items-center rounded-2xl border border-pink-50 bg-white/95 p-4 shadow-2xl backdrop-blur-md sm:left-auto sm:right-6 sm:w-[360px]"
-              style={{
-                maxWidth: "calc(100% - 2rem)",
-                backgroundColor: "rgba(255,255,255,0.96)",
-                WebkitBackdropFilter: "blur(12px)",
-                backdropFilter: "blur(12px)",
-              }}
-              aria-label={`Открыть профиль мастера ${master.name}`}
-              data-home-hero-master={master.slug}
-              data-hero-master-name={master.name}
-              data-hero-master-rating={master.rating}
-            >
-              <Avatar size={48} src={masterAvatar} name={master.name} className="ring-2 ring-white shadow-md" />
-              <span className="ml-3 min-w-0 flex-1">
-                <span className="flex min-w-0 items-center">
-                  <span className="truncate text-sm font-semibold text-gray-900">{master.name}</span>
-                  {isTopMaster && <span className="ml-1 shrink-0 whitespace-nowrap text-[11px] font-medium text-[#AD6C64]">• Топ-мастер</span>}
+        {master && (
+          <Link
+            to={`/master/${master.slug}`}
+            onClick={onMasterClick}
+            className="absolute bottom-4 right-4 flex min-w-0 items-center rounded-2xl border border-[#F0E7E5] bg-white p-3 shadow-xl sm:bottom-6 sm:right-6 sm:max-w-[340px]"
+            style={{ maxWidth: "calc(100% - 2rem)", backgroundColor: "rgba(255,255,255,0.96)" }}
+            aria-label={`Открыть профиль мастера ${master.name}`}
+            data-home-hero-master={master.slug}
+            data-hero-master-name={master.name}
+            data-hero-master-rating={master.rating}
+          >
+            <Avatar size={44} src={masterAvatar} name={master.name} className="ring-2 ring-white shadow-sm" />
+            <span className="ml-3 min-w-0 flex-1">
+              <span className="block truncate text-sm font-semibold text-[#232436]">{master.name}</span>
+              <span className="mt-1 flex min-w-0 items-center">
+                <span className="inline-flex shrink-0 items-center rounded-full bg-[#FFF7F6] px-2 py-1 text-xs font-semibold text-[#D77D72]" data-hero-master-rating-label>
+                  <Star className="mr-1 h-3.5 w-3.5 fill-current text-[#E58E82]" aria-hidden="true" />
+                  {master.rating.toFixed(1)} · {master.reviewsCount} отзывов
                 </span>
-                <span className="mt-1 flex min-w-0 items-center">
-                  <span className="inline-flex shrink-0 items-center rounded-full bg-[#FFF6DF] px-2 py-1 text-xs font-semibold text-[#A77619]" data-hero-master-rating-label>
-                    <Star className="mr-1 h-3.5 w-3.5 fill-current text-yellow-500" aria-hidden="true" />
-                    {master.rating.toFixed(1)}
-                  </span>
-                  <span className="ml-auto flex shrink-0 items-center" aria-label="Клиентки, оставившие отзывы" data-hero-client-carousel>
-                    {clientReviews.slice(0, 3).map((review, index) => (
-                      <span
-                        key={review.id}
-                        role="img"
-                        aria-label={review.clientName}
-                        title={review.clientName}
-                        data-hero-client-avatar={review.clientName}
-                        className={`grid h-7 w-7 min-h-[28px] min-w-[28px] place-items-center rounded-full border-2 border-white text-[9px] font-semibold text-[#8B5E59] shadow-sm ${
-                          index === 0 ? "bg-[#F8E4DF]" : index === 1 ? "-ml-2 bg-[#F2E5D5]" : "-ml-2 bg-[#EEDFE8]"
-                        }`}
-                      >
-                        {reviewInitials(review.clientName)}
-                      </span>
-                    ))}
-                  </span>
-                </span>
-                <span className="mt-1 flex min-w-0 items-center truncate text-[11px] text-gray-500">
-                  <MapPin className="mr-1 h-3 w-3 shrink-0 text-[#EF4444]" aria-hidden="true" />
-                  {master.metro}{master.distance ? ` · ${master.distance}` : ""}
+                <span className="ml-auto hidden shrink-0 items-center sm:flex" aria-label="Авторы отзывов мастера" data-hero-client-carousel>
+                  {visibleClientReviews.map((review, index) => (
+                    <span
+                      key={review.id}
+                      role="img"
+                      aria-label={review.clientName}
+                      title={review.clientName}
+                      data-hero-client-avatar={review.clientName}
+                      className={`grid h-7 w-7 min-h-[28px] min-w-[28px] place-items-center rounded-full border-2 border-white text-[9px] font-semibold text-[#78515C] shadow-sm ${index === 0 ? "bg-[#F5E9E6]" : index === 1 ? "-ml-2 bg-[#F0E7E5]" : "-ml-2 bg-[#F1EAE8]"}`}
+                    >
+                      {reviewInitials(review.clientName)}
+                    </span>
+                  ))}
                 </span>
               </span>
-            </Link>
-          )}
-        </div>
+              <span className="mt-1 flex min-w-0 items-center truncate text-[11px] text-[#747583]">
+                <MapPin className="mr-1 h-3 w-3 shrink-0 text-[#E58E82]" aria-hidden="true" />
+                {master.metro}{master.distance ? ` · ${master.distance}` : ""}
+              </span>
+            </span>
+          </Link>
+        )}
       </div>
     </section>
   );

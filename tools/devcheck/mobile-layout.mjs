@@ -43,6 +43,7 @@ const cityPicker = read("src/components/CityPicker.tsx");
 const locationPicker = read("src/components/LocationPicker.tsx");
 const searchMap = read("src/pages/SearchMapPage.tsx");
 const masterPage = read("src/pages/MasterPage.tsx");
+const reviewsPage = read("src/pages/ReviewsPage.tsx");
 const journalPage = read("src/pages/JournalPage.tsx");
 const journalArticlePage = read("src/pages/JournalArticlePage.tsx");
 const lastMinutePage = read("src/pages/LastMinutePage.tsx");
@@ -125,34 +126,36 @@ check(
     searchMap.includes("grid min-w-0 grid-cols-[64px_minmax(0,1fr)]"),
 );
 check(
-  "верхний hero собран монолитно, с реальным поиском, фото рук и API-виджетом мастера",
+  "hero сохраняет реальный поиск, выбор даты, локальное фото и API-виджет мастера",
   homeHero.includes('data-block="home-hero"') &&
     homeHero.includes("rounded-3xl") &&
-    homeHero.includes("min-h-[460px]") &&
-    homeHero.includes("bg-[#FFF5F6]") &&
-    homeHero.includes("xl:p-12") &&
-    homeHero.includes("text-3xl font-extrabold leading-tight text-gray-900") &&
+    homeHero.includes("min-h-[480px]") &&
+    homeHero.includes("bg-[#FFF7F8]") &&
     homeHero.includes("Найдите своего идеального") &&
-    homeHero.includes("мастера маникюра") &&
-    homeHero.includes("text-[#EF4444]") &&
-    homeHero.includes("max-w-3xl rounded-2xl border border-gray-100 bg-white p-2") &&
-    homeHero.includes("xl:space-x-4") && homeHero.includes("xl:gap-0") &&
-    homeHero.includes("xl:border-r xl:border-gray-100") &&
-    homeHero.includes("Найти мастера") &&
-    homeHero.includes("data-home-hero-benefits") &&
-    homeHero.includes("Проверенные мастера") && homeHero.includes("Честные отзывы") && homeHero.includes("Удобная онлайн-запись") &&
-    homeHero.includes("Безопасность") &&
-    homeHero.includes("Icon: Check") && homeHero.includes("Icon: Star") && homeHero.includes("Icon: CalendarDays") &&
-    homeHero.includes("Icon: ShieldCheck") &&
+    homeHero.includes("мастера маникюра и педикюра") &&
+    homeHero.includes("text-[#E58E82]") &&
+    homeHero.includes("data-home-hero-search") &&
+    homeHero.includes('aria-label="Услуга"') &&
+    homeHero.includes('data-field="home-date"') &&
+    homeHero.includes("localDateISO(new Date())") &&
+    homeHero.includes("onDateChange(event.target.value || null)") &&
     homeHero.includes('src="/images/reference-hero-hands.jpg"') &&
-    homeHero.includes("bottom-6") && homeHero.includes("sm:right-6") &&
-    homeHero.includes("bg-white/95") && homeHero.includes("backdrop-blur-md") && homeHero.includes("border-pink-50") &&
     homeHero.includes("data-home-hero-master={master.slug}") &&
     homeHero.includes("master.rating.toFixed(1)") &&
-    homeHero.includes("clientReviews.slice(0, 3)") &&
+    homeHero.includes("visibleClientReviews.map((review, index)") &&
+    homeHero.includes("data-home-hero-benefits") &&
+    homeHero.includes("Профили мастеров") && homeHero.includes("Опубликованные отзывы") &&
+    homeHero.includes("Онлайн-запись") && homeHero.includes("Ближайшие окна") &&
+    !homeHero.includes("проверенные мастера") &&
     home.includes('data-block="home-discovery"') &&
     home.includes('data-block="home-how-it-works"') &&
-    home.includes("grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-6") &&
+    home.includes('data-block="home-mobile-promo"') &&
+    home.includes('data-block="home-reviews"') &&
+    home.includes('data-home-reviews-grid') &&
+    home.includes("usePublishedReviews(4)") &&
+    home.includes('data-block="home-benefit-strip"') &&
+    home.includes('data-kpi-value="rating"') &&
+    home.includes("grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-5") &&
     home.includes("src={service.image}") &&
     home.includes('data-block="home-master-catalog"') &&
     home.includes("data-master-catalog-card={master.slug}") &&
@@ -160,9 +163,18 @@ check(
     home.includes("data-master-price={master.priceFrom}") &&
     home.includes("<FavoriteButton") &&
     home.includes("className=\"absolute -right-2 -top-1 z-10\"") &&
-    homeHero.includes('alt=\"\"') &&
-    !homeHero.includes("Ухоженные руки с нежным розовым маникюром") &&
     home.includes("Мастера рядом"),
+);
+check(
+  "главная следует референсу: услуги, преимущества, шаги, мобильный промо-блок, отзывы и статьи",
+  home.indexOf('data-block="home-hero"') < home.indexOf('data-block="home-popular-services"') &&
+    home.indexOf('data-block="home-popular-services"') < home.indexOf('data-block="home-discovery"') &&
+    home.indexOf('data-block="home-discovery"') < home.indexOf('data-block="home-how-it-works"') &&
+    home.indexOf('data-block="home-how-it-works"') < home.indexOf('data-block="home-mobile-promo"') &&
+    home.indexOf('data-block="home-mobile-promo"') < home.indexOf('data-block="home-reviews"') &&
+    home.indexOf('data-block="home-reviews"') < home.indexOf('data-block="home-journal"') &&
+    home.indexOf('data-block="home-journal"') < home.indexOf('data-home-directory') &&
+    home.indexOf('data-home-directory') < home.indexOf('data-block="home-benefit-strip"'),
 );
 check(
   "цены категорий берутся из загруженного API-каталога, а витрина мастера динамическая",
@@ -174,15 +186,27 @@ check(
     !home.includes('const startingPrice = 1200'),
 );
 check(
-  "главная и поиск используют общую шапку с реальным поиском, а регион в поиске не дублирует выбор города",
+  "отзывы и рейтинг на отдельной странице берутся только из опубликованного API-ответа",
+  reviewsPage.includes("usePublishedReviews()") && reviewsPage.includes("data?.items ?? []") &&
+    reviewsPage.includes("data.average.toFixed(1)") && reviewsPage.includes("shortDate(review.dateISO)") &&
+    !reviewsPage.includes("reviewFeed") && !reviewsPage.includes("демонстрационные отзывы"),
+);
+check(
+  "главная и поиск используют общую навигацию; поиск остаётся в hero, а регион доступен в шапке",
   marketplaceHeader.includes("data-marketplace-header") &&
     marketplaceHeader.includes("data-header-search") &&
     marketplaceHeader.includes("new URLSearchParams(location.search)") &&
+    marketplaceHeader.includes("!isProfile && !isHome") &&
+    marketplaceHeader.includes("isHome && showRegionPicker") &&
     home.includes('<MarketplaceHeader showRegionPicker variant="home" />') &&
     searchMap.includes("<MarketplaceHeader showRegionPicker={false} />") &&
     marketplaceHeader.includes("data-header-region") &&
     marketplaceHeader.includes("sticky top-0") &&
     marketplaceHeader.includes("xl:h-20") &&
+    marketplaceHeader.includes("const homeNavigation") &&
+    marketplaceHeader.includes("Как это работает") && marketplaceHeader.includes("Отзывы") &&
+    marketplaceHeader.includes("grid-cols-5") && marketplaceHeader.includes("Зарегистрироваться") &&
+    marketplaceHeader.includes("Найди своего мастера") &&
     marketplaceHeader.includes("border-gray-100 bg-white xl:h-20") &&
     !marketplaceHeader.includes("bg-white/90 backdrop-blur-md") &&
     marketplaceHeader.includes("border-gray-100") &&
@@ -194,15 +218,16 @@ check(
     marketplaceHeader.includes("order-5 mt-1 grid w-full grid-cols-2"),
 );
 check(
-  "общая шапка и футер оформлены в коралловой палитре, а футер имеет пять колонок без фиктивных контактов",
-  marketplaceHeader.includes("bg-[#e58e82]") && marketplaceHeader.includes("data-header-search") &&
-    marketplaceFooter.includes('data-block="newsletter"') &&
-    marketplaceFooter.includes("lg:grid-cols-5") &&
-    marketplaceFooter.includes("data-field=\"newsletter-email\"") &&
-    marketplaceFooter.includes("Адрес пока не сохранён") &&
-    !marketplaceFooter.includes("support@nailgo") &&
+  "общие шапка и футер используют nail2go, фактические контакты и пять адаптивных колонок",
+  marketplaceHeader.includes("bg-[#E58E82]") && marketplaceHeader.includes("data-header-search") &&
+    marketplaceFooter.includes("data-footer-grid") &&
+    marketplaceFooter.includes("lg:grid-cols-[1.2fr_0.9fr_0.9fr_0.9fr_1.15fr]") &&
+    marketplaceFooter.includes("nail2go") && marketplaceFooter.includes("Выбранный регион: {region}") &&
+    marketplaceFooter.includes("Адрес и способы связи доступны в профиле выбранного мастера") &&
+    marketplaceFooter.includes("VITE_PUBLIC_VK_URL") && marketplaceFooter.includes("VITE_PUBLIC_TELEGRAM_URL") &&
+    !marketplaceFooter.includes('data-block="newsletter"') &&
+    !marketplaceFooter.includes("support@nailgo") && !marketplaceFooter.includes("+7 (800)") &&
     app.includes("homeAccent={pathname === \"/\"}") &&
-    marketplaceFooter.includes("Будьте в курсе новинок") &&
     app.includes("<MarketplaceFooter compactSearch={pathname === \"/search\"}"),
 );
 check(
@@ -234,7 +259,7 @@ check(
 );
 check(
   "главная использует локальные оптимизированные изображения и не зависит от внешних image URL",
-  ["reference-hero.jpg", "reference-hero-hands.jpg", "reference-master-banner.jpg", "reference-master-anna.jpg", "reference-service-manicure.jpg", "reference-service-pedicure.jpg", "reference-service-extensions.jpg", "reference-service-design.jpg", "reference-service-strengthening.jpg", "reference-service-removal.jpg"].every((name) => {
+  ["reference-hero.jpg", "reference-hero-hands.jpg", "reference-master-banner.jpg", "reference-master-anna.jpg", "reference-service-manicure.jpg", "reference-service-pedicure.jpg", "reference-service-extensions.jpg", "reference-service-design.jpg", "reference-service-strengthening.jpg", "reference-service-removal.jpg", "reference-service-spa.jpg"].every((name) => {
     const imagePath = path.join(root, "public/images", name);
     return fs.existsSync(imagePath) && fs.statSync(imagePath).size < 150_000;
   }),
@@ -312,7 +337,7 @@ check(
     home.includes("data-master-catalog-card={master.slug}") &&
     home.includes("size={64}") && home.includes("size={80}") &&
     !home.includes("Фото пока не добавлено") &&
-    home.includes("bg-[#EF4444]") &&
+    home.includes("bg-[#E58E82]") &&
     !home.includes("n2g-master-carousel") &&
     searchMap.includes("grid min-w-0 grid-cols-[64px_minmax(0,1fr)]") &&
     searchMap.includes("mb-1 mr-2 inline-flex items-center rounded-lg border"),
@@ -391,15 +416,16 @@ check(
     authShared.includes("slice(0, 4)"),
 );
 check(
-  "публичный редизайн использует коралловый акцент без возврата к #FF0066/#E6005C",
+  "публичный редизайн использует розовый акцент без возврата к #FF0066/#E6005C",
   [searchMap, cityMap, login, authShared, quickLogin, booking].every((source) => !/#ff0066|#e6005c|bg-pink-500/i.test(source)),
 );
 check(
-  "#EF4444 ограничен новой главной и её футером; глобальный акцент внутренних страниц остаётся #E58E82",
+  "главная, общая шапка, внутренние публичные страницы и футер используют акцент #E58E82",
   /:root\s*\{[^}]*--n2g-coral:\s*#e58e82/i.test(redesignCss) &&
-    /\.n2g-home\s*\{[^}]*--n2g-coral:\s*#ef4444/i.test(redesignCss) &&
-    /\.n2g-site-footer\.n2g-home-footer\s*\{[^}]*--n2g-coral:\s*#ef4444/i.test(redesignCss) &&
-    app.includes('homeAccent={pathname === "/"}'),
+    /\.n2g-home\s*\{[^}]*--n2g-coral:\s*#e58e82/i.test(redesignCss) &&
+    /\.n2g-site-footer\.n2g-home-footer\s*\{[^}]*--n2g-coral:\s*#e58e82/i.test(redesignCss) &&
+    marketplaceHeader.includes("#E58E82") && marketplaceFooter.includes("#E58E82") &&
+    redesignCss.includes(".n2g-public-inner") && app.includes('homeAccent={pathname === "/"}'),
 );
 check(
   "неизвестный номер создаётся только в dev_login, существующая роль остаётся строгой",

@@ -11,7 +11,7 @@
  *   cd tools/devcheck && node bundle.mjs && npm run locations
  */
 import fs from "node:fs";
-import { api, apiAs, check, loginMaster, makeDom, rootText, setField, wait } from "./harness.mjs";
+import { api, apiAs, check, loginMaster, makeDom, rootText, wait } from "./harness.mjs";
 
 let failures = 0;
 const assert = (label, ok, extra = "") => {
@@ -374,7 +374,7 @@ assert(
 const referencePortraits = [...homeWindow.document.querySelectorAll('img[src="/images/reference-master-anna.jpg"]')];
 assert(
   "локальное фото-кроп используется только у соответствующей карточки seeded-мастера",
-  referencePortraits.length === (homeCatalogSlugs.includes("anna-smirnova") ? 1 : 0) &&
+  referencePortraits.length === (homeCatalogSlugs.includes("anna-smirnova") ? 2 : 0) &&
     referencePortraits.every((photo) =>
       photo.closest("[data-master-catalog-card]")?.getAttribute("data-master-catalog-card") === "anna-smirnova",
     ),
@@ -449,15 +449,17 @@ if (showcaseSlug) {
       `показано=${queryShowcase}; ожидается=${showcaseSlug}`,
     );
 
-    const headerSearch = setField(queryHome.dom, "Услуга, мастер, метро", "запрос-которого-точно-нет");
-    headerSearch.closest("form")?.dispatchEvent(new queryHome.window.Event("submit", { bubbles: true, cancelable: true }));
+    const heroService = queryHome.window.document.querySelector("select[aria-label='Услуга']");
+    if (!heroService) throw new Error("не найден селектор услуги в hero");
+    Object.getOwnPropertyDescriptor(queryHome.window.HTMLSelectElement.prototype, "value").set.call(heroService, "педикюр");
+    heroService.dispatchEvent(new queryHome.window.Event("change", { bubbles: true }));
+    heroService.closest("form")?.dispatchEvent(new queryHome.window.Event("submit", { bubbles: true, cancelable: true }));
     await wait(900);
     assert(
-      "кнопка «Найти» отправляет введённый текст в URL и API-выдачу",
+      "поиск из hero отправляет выбранную услугу в каталог",
       queryHome.window.location.pathname === "/search" &&
-        queryHome.window.location.search.includes("query=%D0%B7%D0%B0%D0%BF%D1%80%D0%BE%D1%81") &&
-        rootText(queryHome.dom).includes("Подходящих мастеров пока нет"),
-      `${queryHome.window.location.search} · ${rootText(queryHome.dom).slice(0, 140)}`,
+        new URLSearchParams(queryHome.window.location.search).get("query") === "педикюр",
+      `${queryHome.window.location.pathname}${queryHome.window.location.search}`,
     );
     queryHome.dom.window.close();
   }
@@ -488,9 +490,8 @@ const expectedHomePriceCategories = [
   { query: "маникюр", terms: ["маникюр"] },
   { query: "педикюр", terms: ["педикюр"] },
   { query: "наращивание ногтей", terms: ["наращивание", "коррекция ногтей"] },
-  { query: "дизайн ногтей", terms: ["дизайн"] },
-  { query: "укрепление ногтей", terms: ["укрепление"] },
-  { query: "снятие покрытия", terms: ["снятие"] },
+  { query: "покрытие лаком", terms: ["покрытие", "гель-лак", "лак"] },
+  { query: "спа", terms: ["spa", "спа"] },
 ];
 assert("каталог услуг для главной отвечает из API", serviceCatalog.status === 200 && Array.isArray(serviceCatalog.data.items));
 assert("цены страницы вычисляются по мастерам выбранного региона", priceScopeMastersResponse.status === 200 && priceScopeMasterSlugs.size > 0);
@@ -501,8 +502,8 @@ await wait(1300);
 const manicureCategory = mobileHome.window.document.querySelector("[data-home-category='Маникюр']");
 assert("на мобильной главной показан быстрый поиск по услуге", Boolean(manicureCategory));
 assert(
-  "на главной есть шесть популярных услуг и оба discovery-блока",
-  mobileHome.window.document.querySelectorAll("[data-home-category]").length === 6 &&
+  "на главной есть пять популярных услуг и оба discovery-блока",
+  mobileHome.window.document.querySelectorAll("[data-home-category]").length === 5 &&
     Boolean(mobileHome.window.document.querySelector("[data-block='home-discovery']")) &&
     Boolean(mobileHome.window.document.querySelector("[data-block='home-how-it-works']")),
   `услуг=${mobileHome.window.document.querySelectorAll("[data-home-category]").length}`,
@@ -536,8 +537,8 @@ await wait(600);
 assert(
   "выбор популярной услуги заполняет поиск и обновляет URL",
   mobileHome.window.location.search.includes("query=%D0%BC%D0%B0%D0%BD%D0%B8%D0%BA%D1%8E%D1%80") &&
-    mobileHome.window.document.querySelector("input[aria-label='Услуга, мастер или метро']")?.value === "маникюр",
-  `${mobileHome.window.location.search} · ${mobileHome.window.document.querySelector("input[aria-label='Услуга, мастер или метро']")?.value}`,
+    mobileHome.window.document.querySelector("select[aria-label='Услуга']")?.value === "маникюр",
+  `${mobileHome.window.location.search} · ${mobileHome.window.document.querySelector("select[aria-label='Услуга']")?.value}`
 );
 mobileHome.window.document.querySelector("[data-block='home-hero'] form")?.dispatchEvent(
   new mobileHome.window.Event("submit", { bubbles: true, cancelable: true }),

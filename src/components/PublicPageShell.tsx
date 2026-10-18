@@ -27,7 +27,7 @@ export function PublicPageShell({
       <main className="n2g-public-page-content mx-auto w-full min-w-0 max-w-[1480px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10" data-public-page>
         {showHeading && (
           <div className="mb-6" data-public-page-heading>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#E58E82]">Nail 2 Go</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#E58E82]">nail2go</p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{title}</h1>
           </div>
         )}

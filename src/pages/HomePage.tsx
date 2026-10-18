@@ -1,6 +1,6 @@
 import { FavoriteButton } from "../components/FavoriteButton";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CalendarDays, Flower2, Heart, MapPin, Search, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, CalendarDays, Heart, MapPin, Search } from "lucide-react";
 import { motion } from "framer-motion";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
@@ -23,12 +23,12 @@ import { JournalArticleCard } from "../components/JournalArticleCard";
 import { recordPromotionEvent, usePromotionImpression, usePromotionImpressions } from "../api/promotion";
 
 const popularServices = [
-  { title: "Маникюр", caption: "Классика и покрытие", query: "маникюр", terms: ["маникюр"], image: "/images/reference-service-manicure.jpg", icon: Sparkles },
-  { title: "Педикюр", caption: "Уход и покрытие", query: "педикюр", terms: ["педикюр"], image: "/images/reference-service-pedicure.jpg", icon: Flower2 },
-  { title: "Наращивание ногтей", caption: "Длина и форма", query: "наращивание ногтей", terms: ["наращивание", "коррекция ногтей"], image: "/images/reference-service-extensions.jpg", icon: Sparkles },
-  { title: "Дизайн ногтей", caption: "Акценты и рисунки", query: "дизайн ногтей", terms: ["дизайн"], image: "/images/reference-service-design.jpg", icon: Heart },
-  { title: "Укрепление ногтей", caption: "Уход и стойкость", query: "укрепление ногтей", terms: ["укрепление"], image: "/images/reference-service-strengthening.jpg", icon: ShieldCheck },
-  { title: "Снятие покрытия", caption: "Бережный уход", query: "снятие покрытия", terms: ["снятие"], image: "/images/reference-service-removal.jpg", icon: CalendarDays },
+  { title: "Маникюр", caption: "Классика и покрытие", query: "маникюр", terms: ["маникюр"], image: "/images/reference-service-manicure.jpg" },
+  { title: "Педикюр", caption: "Уход и покрытие", query: "педикюр", terms: ["педикюр"], image: "/images/reference-service-pedicure.jpg" },
+  { title: "Наращивание ногтей", caption: "Длина и форма", query: "наращивание ногтей", terms: ["наращивание", "коррекция ногтей"], image: "/images/reference-service-extensions.jpg" },
+  { title: "Дизайн ногтей", caption: "Акценты и рисунки", query: "дизайн ногтей", terms: ["дизайн"], image: "/images/reference-service-design.jpg" },
+  { title: "Укрепление ногтей", caption: "Уход и стойкость", query: "укрепление ногтей", terms: ["укрепление"], image: "/images/reference-service-strengthening.jpg" },
+  { title: "Снятие покрытия", caption: "Бережный уход", query: "снятие покрытия", terms: ["снятие"], image: "/images/reference-service-removal.jpg" },
 ];
 
 function masterCountWord(count: number): string {
@@ -187,7 +187,7 @@ export function HomePage() {
   };
 
   return (
-    <main className="n2g-min-h-viewport w-full max-w-full min-w-0 bg-white font-sans text-[#302a29]">
+    <main className="n2g-min-h-viewport n2g-home w-full max-w-full min-w-0 bg-white font-sans text-[#302a29]">
       <MarketplaceHeader showRegionPicker variant="home" />
       <div className="mx-auto w-full min-w-0 max-w-[1600px] px-3 py-3 sm:px-4 sm:py-5">
         <HomeHero
@@ -210,19 +210,18 @@ export function HomePage() {
           onMasterClick={showcaseMaster ? () => recordPromotionEvent(showcaseMaster.slug, "profile_click", "home") : undefined}
         />
 
-        <section className="mt-7" data-block="home-popular-services">
-          <div className="mb-3 flex flex-wrap items-end justify-between">
+        <section className="mt-0" data-block="home-popular-services">
+          <div className="mb-4 flex min-w-0 flex-wrap items-end justify-between">
             <div className="mr-4 mb-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#e58e82]">Выберите услугу</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-900 sm:text-2xl">Популярные услуги</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#EF4444]">Выберите услугу</p>
+              <h2 className="mt-1 text-2xl font-bold text-gray-900">Популярные услуги</h2>
             </div>
-            <Link to={searchHref} className="mb-2 inline-flex items-center text-sm font-semibold text-[#e58e82] hover:text-[#bd7168]">
+            <Link to={searchHref} className="mb-2 inline-flex items-center text-sm font-medium text-[#EF4444] hover:text-[#DC2626]">
               Все услуги <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
             </Link>
           </div>
-          <div className="grid min-w-0 grid-cols-2 sm:grid-cols-3 xl:grid-cols-6">
+          <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-6">
             {popularServices.map((service) => {
-              const Icon = service.icon;
               const startingPrice = servicePrices.get(service.query);
               return (
                 <button
@@ -230,15 +229,16 @@ export function HomePage() {
                   type="button"
                   onClick={() => setParam("query", service.query)}
                   data-home-category={service.title}
-                  className="mb-3 mr-3 flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[#f0e3df] bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#e9b8ae] hover:shadow-md sm:mr-4"
+                  aria-label={`Найти услугу: ${service.title}`}
+                  className="group flex min-h-[176px] min-w-0 flex-col items-center rounded-2xl border border-gray-100 bg-white p-3 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-4"
                 >
-                  <span className="relative block h-[98px] w-full min-w-0 overflow-hidden bg-[#fff3f0] sm:h-[112px]">
+                  <span className="mb-3 grid h-[84px] w-[84px] min-h-[84px] min-w-[84px] place-items-center overflow-hidden rounded-full bg-[#FFF5F6] sm:h-[96px] sm:w-[96px] sm:min-h-[96px] sm:min-w-[96px]">
                     <img
                       src={service.image}
                       alt=""
                       loading="lazy"
                       decoding="async"
-                      className="block h-full w-full object-cover"
+                      className="block h-full w-full rounded-full object-cover transition duration-300 group-hover:scale-105"
                       onError={(event) => {
                         const image = event.currentTarget;
                         if (image.dataset.fallbackApplied === "true") {
@@ -249,23 +249,15 @@ export function HomePage() {
                         image.src = "/images/reference-hero.jpg";
                       }}
                     />
-                    <span className="absolute bottom-2 right-2 grid h-8 w-8 min-h-[32px] min-w-[32px] place-items-center rounded-full border border-[#f0ddd8] bg-white text-[#e58e82]">
-                      <Icon className="h-4 w-4" aria-hidden="true" />
-                    </span>
                   </span>
-                  <span className="flex min-w-0 flex-1 items-center justify-between px-3 pt-2.5">
-                    <span className="min-w-0 truncate pr-2 text-sm font-semibold text-slate-800">{service.title}</span>
-                    <ArrowRight className="h-4 w-4 shrink-0 text-[#e58e82]" aria-hidden="true" />
-                  </span>
-                  <span className="mt-auto flex min-w-0 items-center justify-between px-3 pb-3 pt-1">
-                    <span className="min-w-0 truncate pr-2 text-xs text-slate-500">{service.caption}</span>
-                    <span
-                      data-service-price={service.query}
-                      data-price-value={startingPrice ?? ""}
-                      className="ml-1 shrink-0 text-xs font-semibold text-[#e58e82]"
-                    >
-                      {startingPrice ? `от ${formatRub(startingPrice)}` : "Цена уточняется"}
-                    </span>
+                  <span className="block w-full truncate text-sm font-semibold text-gray-900">{service.title}</span>
+                  <span className="mt-1 block w-full truncate text-xs text-gray-500">{service.caption}</span>
+                  <span
+                    data-service-price={service.query}
+                    data-price-value={startingPrice ?? ""}
+                    className="mt-2 block text-xs font-semibold text-[#EF4444]"
+                  >
+                    {startingPrice ? `от ${formatRub(startingPrice)}` : "Цена уточняется"}
                   </span>
                 </button>
               );
@@ -273,8 +265,8 @@ export function HomePage() {
           </div>
         </section>
 
-        <section className="mt-4 grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2" data-block="home-discovery">
-          <div className="relative min-h-[200px] min-w-0 overflow-hidden rounded-[24px] border border-[#f0e3df] bg-[#fff3f0] p-5 sm:min-h-[220px] sm:p-7">
+        <section className="mt-12 grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-2" data-block="home-discovery">
+          <div className="relative min-h-[200px] min-w-0 overflow-hidden rounded-3xl border border-gray-100 bg-[#FFF5F6] p-5 shadow-sm sm:min-h-[220px] sm:p-7">
             <img
               src="/images/reference-master-banner.jpg"
               alt=""
@@ -283,45 +275,45 @@ export function HomePage() {
               decoding="async"
               className="absolute bottom-0 right-0 hidden h-full w-[43%] object-cover object-center sm:block"
             />
-            <div className="pointer-events-none absolute inset-y-0 right-[25%] hidden w-1/4 sm:block" aria-hidden="true" style={{ background: "linear-gradient(90deg, #fff3f0 0%, rgba(255,245,242,0) 100%)" }} />
+            <div className="pointer-events-none absolute inset-y-0 right-[25%] hidden w-1/4 sm:block" aria-hidden="true" style={{ background: "linear-gradient(90deg, #FFF5F6 0%, rgba(255,245,246,0) 100%)" }} />
             <div className="relative z-10 max-w-full sm:max-w-[62%]">
-              <p className="text-xs font-semibold uppercase tracking-[0.13em] text-[#e58e82]">Для мастеров</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.13em] text-[#EF4444]">Для мастеров</p>
               <h2 className="mt-2 text-xl font-semibold leading-tight text-slate-900 sm:text-2xl">Вы мастер маникюра?</h2>
               <p className="mt-2 text-sm leading-relaxed text-slate-600">Покажите свои услуги новым клиентам и принимайте онлайн-запись.</p>
-              <Link to="/pro" className="mt-4 inline-flex items-center rounded-xl bg-[#e58e82] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#d77d72]">
+              <Link to="/pro" className="mt-4 inline-flex items-center rounded-xl bg-[#EF4444] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#DC2626]">
                 Стать мастером <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
               </Link>
             </div>
           </div>
 
           <div id="how-it-works" className="min-w-0 rounded-[24px] border border-[#f0e3df] bg-white p-5 sm:p-7" data-block="home-how-it-works">
-            <p className="text-xs font-semibold uppercase tracking-[0.13em] text-[#e58e82]">Всё просто</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.13em] text-[#EF4444]">Всё просто</p>
             <h2 className="mt-2 text-xl font-semibold text-slate-900 sm:text-2xl">Как это работает</h2>
             <div className="mt-5 grid grid-cols-3 text-slate-600">
               <div className="min-w-0 pr-2 sm:pr-4">
-                <span className="mb-2 grid h-9 w-9 min-h-[36px] min-w-[36px] place-items-center rounded-full bg-[#fff3f0] text-[#e58e82]"><Search className="h-4 w-4" aria-hidden="true" /></span>
+                <span className="mb-2 grid h-9 w-9 min-h-[36px] min-w-[36px] place-items-center rounded-full bg-white text-[#EF4444]"><Search className="h-4 w-4" aria-hidden="true" /></span>
                 <span className="block text-xs font-medium leading-snug sm:text-sm">Найдите мастера</span>
               </div>
               <div className="min-w-0 border-l border-[#f0e3df] px-2 sm:px-4">
-                <span className="mb-2 grid h-9 w-9 min-h-[36px] min-w-[36px] place-items-center rounded-full bg-[#fff3f0] text-[#e58e82]"><CalendarDays className="h-4 w-4" aria-hidden="true" /></span>
+                <span className="mb-2 grid h-9 w-9 min-h-[36px] min-w-[36px] place-items-center rounded-full bg-white text-[#EF4444]"><CalendarDays className="h-4 w-4" aria-hidden="true" /></span>
                 <span className="block text-xs font-medium leading-snug sm:text-sm">Выберите время</span>
               </div>
               <div className="min-w-0 border-l border-[#f0e3df] pl-2 sm:pl-4">
-                <span className="mb-2 grid h-9 w-9 min-h-[36px] min-w-[36px] place-items-center rounded-full bg-[#fff3f0] text-[#e58e82]"><Heart className="h-4 w-4" aria-hidden="true" /></span>
+                <span className="mb-2 grid h-9 w-9 min-h-[36px] min-w-[36px] place-items-center rounded-full bg-white text-[#EF4444]"><Heart className="h-4 w-4" aria-hidden="true" /></span>
                 <span className="block text-xs font-medium leading-snug sm:text-sm">Запишитесь онлайн</span>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="mt-8 min-w-0" data-block="home-master-carousel">
+        <section className="mt-12 min-w-0" data-block="home-master-catalog">
           <div className="mb-4 flex min-w-0 flex-wrap items-end justify-between">
             <div className="mr-4 mb-2 min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#e58e82]">Каталог Nail 2 Go</p>
-              <h2 className="mt-1 text-2xl font-semibold text-[#302a29] sm:text-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#EF4444]">Каталог Nail 2 Go</p>
+              <h2 className="mt-1 text-2xl font-bold text-gray-900 sm:text-3xl">
                 {place ? "Мастера у выбранного места" : "Мастера рядом"}
               </h2>
-              <p className="mt-1 text-sm text-[#817774]">
+              <p className="mt-1 text-sm text-gray-500">
                 {listedCount > 0
                   ? `${listedCount} ${masterCountWord(listedCount)}` +
                     (place ? `: ${place.kind === "metro" ? "м. " : "г. "}${place.name}` : ` в регионе: ${region}`) +
@@ -339,7 +331,7 @@ export function HomePage() {
                             : `в регионе «${region}» мастеров пока нет`}
               </p>
             </div>
-            <Link to={searchHref} className="mb-2 inline-flex shrink-0 items-center text-sm font-semibold text-[#bd7168] hover:text-[#a85f57]">
+            <Link to={searchHref} className="mb-2 inline-flex shrink-0 items-center text-sm font-medium text-[#EF4444] hover:text-[#DC2626]">
               Все мастера <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
             </Link>
           </div>
@@ -347,15 +339,15 @@ export function HomePage() {
           {listedMasters.length > 0 ? (
             <div
               ref={homeImpressionsRef}
-              className="n2g-master-carousel flex min-w-0 snap-x snap-mandatory overflow-x-auto overscroll-x-contain pb-4"
+              className="mt-6 grid min-w-0 grid-cols-1 gap-4"
               data-block="home-masters"
-              data-master-carousel
+              data-master-catalog
               role="list"
               aria-label="Мастера рядом с вами"
             >
               {listedMasters.map((master, idx) => {
                 const nextWindow = master.nextWindows?.[0];
-                // Keep the supplied portrait only as a fallback for the matching seeded profile; uploaded API media wins.
+                // Use only this seeded master's local reference image; uploaded API portraits take precedence.
                 const usesReferencePortrait = !master.avatarUrl && master.slug === "anna-smirnova";
                 const photoUrl = master.avatarUrl ?? (usesReferencePortrait ? "/images/reference-master-anna.jpg" : null);
                 return (
@@ -363,85 +355,76 @@ export function HomePage() {
                     key={master.slug}
                     role="listitem"
                     data-promotion-master={master.slug}
-                    data-master-carousel-card={master.slug}
-                    initial={{ opacity: 0, y: 12 }}
+                    data-master-catalog-card={master.slug}
+                    data-master-photo-state={photoUrl ? (master.avatarUrl ? "uploaded" : "reference-fallback") : "not-uploaded"}
+                    initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: Math.min(idx, 5) * 0.05 }}
-                    className={`mr-4 mb-2 flex w-[278px] min-w-[278px] shrink-0 snap-start flex-col overflow-hidden rounded-[22px] border bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg sm:w-[300px] sm:min-w-[300px] ${
-                      idx === 0 ? "border-[#e9b8ae]" : "border-[#f0e3df]"
-                    }`}
+                    transition={{ delay: Math.min(idx, 5) * 0.04 }}
+                    className="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-center gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition hover:shadow-md sm:grid-cols-[80px_minmax(0,1fr)_auto] sm:gap-4"
                   >
-                    <div
-                      className="relative h-[166px] min-h-[166px] w-full overflow-hidden bg-[#fff3f0] sm:h-[178px] sm:min-h-[178px]"
-                      data-master-photo-state={photoUrl ? (master.avatarUrl ? "uploaded" : "reference-fallback") : "not-uploaded"}
-                    >
-                      <div className="absolute inset-0 grid place-items-center bg-[#fff5f2]" aria-hidden="true">
-                        <Avatar size={96} name={master.name} className="border-4 border-white shadow-lg" />
-                      </div>
-                      {photoUrl && (
-                        <img
-                          src={photoUrl}
-                          alt={`Фото мастера ${master.name}`}
-                          loading="lazy"
-                          decoding="async"
-                          className={`relative block h-full w-full object-cover ${master.avatarUrl ? "object-center" : "object-top"}`}
-                          data-master-photo-state={master.avatarUrl ? "uploaded" : "reference-fallback"}
-                          onError={(event) => {
-                            event.currentTarget.hidden = true;
-                          }}
-                        />
-                      )}
-                      <span className="absolute left-3 top-3 inline-flex max-w-[190px] items-center justify-center truncate rounded-full border border-[#f0e3df] bg-white px-3 py-1 text-center text-[11px] font-medium text-[#746b68]">
-                        {master.tags.split(",")[0]?.trim() || "Мастер ногтевого сервиса"}
+                    <div className="relative h-16 w-16 min-h-[64px] min-w-[64px] shrink-0 sm:h-20 sm:w-20 sm:min-h-[80px] sm:min-w-[80px]">
+                      <Avatar
+                        size={64}
+                        src={photoUrl}
+                        name={master.name}
+                        className="border border-gray-100 sm:hidden"
+                      />
+                      <span className="hidden sm:block">
+                        <Avatar size={80} src={photoUrl} name={master.name} className="border border-gray-100" />
                       </span>
                       <FavoriteButton
                         masterSlug={master.slug}
                         masterName={master.name}
-                        className="absolute right-3 top-3 z-10"
+                        className="absolute -right-2 -top-1 z-10"
                       />
                     </div>
 
-                    <div className="flex min-h-[174px] min-w-0 flex-1 flex-col p-4">
+                    <div className="min-w-0">
                       <Link
                         to={`/master/${master.slug}`}
                         onClick={() => recordPromotionEvent(master.slug, "profile_click", "home")}
-                        className="block truncate text-lg font-semibold text-[#302a29] hover:text-[#bd7168]"
+                        className="block truncate text-base font-semibold text-gray-900 transition hover:text-[#EF4444] sm:text-lg"
                       >
                         {master.name}
                       </Link>
-                      <p className="mt-0.5 truncate text-sm text-[#817774]">{master.tags}</p>
-                      <p className="mt-2 flex items-center text-sm text-[#746b68]">
-                        <span className="mr-1 font-semibold text-[#bd7168]" data-master-rating={master.rating}>★ {master.rating}</span>
-                        <span>({master.reviewsCount} отзывов)</span>
+                      <p className="mt-0.5 truncate text-xs text-gray-500 sm:text-sm">{master.tags}</p>
+                      <p className="mt-1 flex min-w-0 items-center text-sm text-gray-600">
+                        <span className="mr-1 font-semibold text-[#EF4444]" data-master-rating={master.rating}>★ {master.rating.toFixed(1)}</span>
+                        <span className="truncate">({master.reviewsCount} отзывов)</span>
                       </p>
-                      <p className="mt-2 flex min-w-0 items-center text-xs text-[#817774]">
-                        <MapPin className="mr-1.5 h-4 w-4 shrink-0 text-[#e58e82]" aria-hidden="true" />
+                      <p className="mt-1 flex min-w-0 items-center text-xs text-gray-500 sm:text-sm">
+                        <MapPin className="mr-1.5 h-4 w-4 shrink-0 text-[#EF4444]" aria-hidden="true" />
                         <span className="truncate">{master.metro}{master.distance ? ` · ${master.distance}` : ""}</span>
                       </p>
-                      <div className="mt-auto flex min-w-0 flex-wrap items-end justify-between border-t border-[#f0e3df] pt-3">
-                        <div className="mr-3 mb-2 min-w-0">
-                          <p className="text-[10px] font-medium uppercase tracking-wide text-[#968b87]">Стоимость услуг</p>
-                          <p className="mt-0.5 text-base font-semibold text-[#302a29]" data-master-price={master.priceFrom}>
-                            {master.priceFrom > 0 ? `от ${formatRub(master.priceFrom)}` : "цена по запросу"}
+                    </div>
+
+                    <div className="col-span-2 mt-4 flex min-w-0 items-center justify-between border-t border-gray-100 pt-3 sm:col-span-1 sm:mt-0 sm:ml-6 sm:border-0 sm:pt-0">
+                      <div className="mr-3 min-w-0 sm:text-right">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">Стоимость услуг</p>
+                        <p className="mt-0.5 text-sm font-semibold text-gray-900 sm:text-base" data-master-price={master.priceFrom}>
+                          {master.priceFrom > 0 ? `от ${formatRub(master.priceFrom)}` : "цена по запросу"}
+                        </p>
+                        {nextWindow && (
+                          <p className="mt-1 max-w-[220px] truncate text-[11px] text-gray-500" data-field="next-window">
+                            Ближайшее окно: {formatDateLabel(nextWindow.dateISO)} · {nextWindow.label}
                           </p>
-                          {nextWindow && <p className="mt-1 truncate text-[11px] text-[#8a807d]">Ближайшее окно: {formatDateLabel(nextWindow.dateISO)} · {nextWindow.label}</p>}
-                        </div>
-                        <Link
-                          to={bookingLinkForMaster(master)}
-                          onClick={() => recordPromotionEvent(master.slug, "booking_click", "home")}
-                          data-home-master-action={master.slug}
-                          className="mb-2 ml-auto inline-flex shrink-0 items-center rounded-xl bg-[#e58e82] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#d77d72]"
-                        >
-                          Записаться <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
-                        </Link>
+                        )}
                       </div>
+                      <Link
+                        to={bookingLinkForMaster(master)}
+                        onClick={() => recordPromotionEvent(master.slug, "booking_click", "home")}
+                        data-home-master-action={master.slug}
+                        className="inline-flex min-h-10 shrink-0 items-center rounded-xl bg-[#EF4444] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#DC2626] sm:px-5"
+                      >
+                        Записаться <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
+                      </Link>
                     </div>
                   </motion.article>
                 );
               })}
             </div>
           ) : (
-            <div className="rounded-2xl border border-[#f0e3df] bg-white px-5 py-8 text-center text-sm text-[#817774]">
+            <div className="rounded-2xl border border-gray-100 bg-white px-5 py-8 text-center text-sm text-gray-500">
               {catalogStatus === "loading" || catalogStatus === "idle" || (smartActive && smart.loading)
                 ? "Загружаем мастеров…"
                 : "В этой выдаче пока нет мастеров. Измените место или фильтры поиска."}

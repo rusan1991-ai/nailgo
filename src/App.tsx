@@ -144,7 +144,7 @@ function PublicSiteFooter() {
   ) {
     return null;
   }
-  return <MarketplaceFooter compactSearch={pathname === "/search"} />;
+  return <MarketplaceFooter compactSearch={pathname === "/search"} homeAccent={pathname === "/"} />;
 }
 
 export default function App() {

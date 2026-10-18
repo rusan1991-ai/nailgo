@@ -1,6 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { useJournalArticle } from "../api/journal";
-import { ClientShell } from "../components/ClientShell";
+import { PublicPageShell } from "../components/PublicPageShell";
 import { journalDate } from "../components/JournalArticleCard";
 
 export function JournalArticlePage() {
@@ -9,7 +9,7 @@ export function JournalArticlePage() {
   const article = data?.article;
 
   return (
-    <ClientShell title={article?.title ?? "Журнал"}>
+    <PublicPageShell title="Журнал" showHeading={false}>
       <div className="mx-auto max-w-3xl" data-page="journal-article">
         <Link to="/journal" className="inline-flex rounded-lg px-1 py-1 text-sm font-medium text-pink-600 hover:text-pink-700">
           ← Все статьи
@@ -46,6 +46,6 @@ export function JournalArticlePage() {
           </article>
         )}
       </div>
-    </ClientShell>
+    </PublicPageShell>
   );
 }

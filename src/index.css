@@ -113,15 +113,6 @@ body {
   height: var(--n2g-map-height, 360px);
 }
 
-.n2g-master-carousel {
-  -webkit-overflow-scrolling: touch;
-  scroll-behavior: smooth;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .n2g-master-carousel { scroll-behavior: auto; }
-}
-
 @media (min-width: 1280px) {
   .n2g-search-page {
     display: flex;

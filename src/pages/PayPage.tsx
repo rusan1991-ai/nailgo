@@ -84,7 +84,7 @@ export function PayPage() {
   const booking = data?.booking;
 
   return (
-    <main className="n2g-min-h-viewport bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
+    <main className="n2g-payment-page n2g-min-h-viewport bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
       <div className="mx-auto max-w-[720px] rounded-[26px] border border-[#ffe6ef] bg-white p-5 shadow-[0_20px_80px_-40px_rgba(236,72,153,0.45)] sm:p-8">
         <AppHeader />
 

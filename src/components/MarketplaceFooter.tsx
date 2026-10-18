@@ -53,7 +53,13 @@ function FooterItem({ link }: { link: FooterLink }) {
   return <span className="block py-1 text-sm leading-relaxed text-[#9b918e]">{link.label}</span>;
 }
 
-export function MarketplaceFooter({ compactSearch = false }: { compactSearch?: boolean }) {
+export function MarketplaceFooter({
+  compactSearch = false,
+  homeAccent = false,
+}: {
+  compactSearch?: boolean;
+  homeAccent?: boolean;
+}) {
   const { region } = useCity();
   const [email, setEmail] = useState("");
   const [notice, setNotice] = useState("");
@@ -67,7 +73,7 @@ export function MarketplaceFooter({ compactSearch = false }: { compactSearch?: b
 
   return (
     <footer
-      className={`n2g-site-footer w-full bg-white px-4 pb-5 pt-8 text-[#2f2928] sm:px-6 sm:pt-10 ${compactSearch ? "n2g-search-footer" : ""}`}
+      className={`n2g-site-footer w-full bg-white px-4 pb-5 pt-8 text-[#2f2928] sm:px-6 sm:pt-10 ${homeAccent ? "n2g-home-footer" : ""} ${compactSearch ? "n2g-search-footer" : ""}`}
       data-block="site-footer"
     >
       <div className="mx-auto max-w-[1440px]">
@@ -86,7 +92,7 @@ export function MarketplaceFooter({ compactSearch = false }: { compactSearch?: b
               </span>
               <div className="min-w-0 max-w-xl">
                 <h2 id="newsletter-title" className="text-xl font-medium leading-snug text-[#302a29] sm:text-2xl">
-                  Будьте в курсе новинок и акций
+                  Будьте в курсе новинок
                 </h2>
                 <p className="mt-2 max-w-lg text-sm leading-relaxed text-[#817774] sm:text-base">
                   Подпишитесь на нашу рассылку и получайте полезные советы и специальные предложения

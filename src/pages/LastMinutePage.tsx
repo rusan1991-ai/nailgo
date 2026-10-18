@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Clock, MapPin, Star } from "lucide-react";
-import { ClientShell } from "../components/ClientShell";
+import { PublicPageShell } from "../components/PublicPageShell";
 import { Avatar } from "../components/NailUi";
 import { CityPicker } from "../components/CityPicker";
 import { useCity } from "../city/CityContext";
@@ -33,7 +33,7 @@ export function LastMinutePage() {
   const impressionRef = usePromotionImpressions("last-minute", (data?.items ?? []).map((offer) => offer.masterSlug));
 
   return (
-    <ClientShell title="Горящие окна" showCityPicker={false}>
+    <PublicPageShell title="Горящие окна" showRegionPicker={false}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Период">
           {FILTERS.map((item) => (
@@ -145,6 +145,6 @@ export function LastMinutePage() {
           Окна считаются по расписанию мастеров и уже занятым записям — если время заняли, оно исчезнет из списка.
         </p>
       )}
-    </ClientShell>
+    </PublicPageShell>
   );
 }

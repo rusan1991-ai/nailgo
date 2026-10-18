@@ -218,7 +218,7 @@ export function BookingPage() {
   };
 
   return (
-    <main className="n2g-min-h-viewport bg-[#fbf7f5] p-4 text-slate-800 sm:p-8">
+    <main className="n2g-min-h-viewport n2g-booking-page bg-[#fbf7f5] p-4 text-slate-800 sm:p-8">
       <div className="mx-auto max-w-[1050px] rounded-[26px] border border-[#f0ddd8] bg-white p-5 shadow-[0_20px_80px_-40px_rgba(143,88,75,0.2)] sm:p-8">
         <AppHeader />
 

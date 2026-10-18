@@ -1,22 +1,44 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { Search } from "lucide-react";
+import {
+  Bell,
+  BookOpen,
+  CalendarDays,
+  Clock3,
+  Flower2,
+  Heart,
+  Home,
+  MapPin,
+  Menu,
+  MessagesSquare,
+  Search,
+  Settings,
+  UserRound,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { Avatar } from "./NailUi";
 import { CityPicker } from "./CityPicker";
 import { MessengerBanner } from "./MessengerBanner";
 
-const links = [
-  { to: "/", label: "Главная" },
-  { to: "/search", label: "Карта мастеров" },
-  { to: "/last-minute/moskva", label: "Горящие окна" },
-  { to: "/booking", label: "Запись" },
-  { to: "/favorites", label: "Избранное" },
-  { to: "/messages", label: "Сообщения" },
-  { to: "/notifications", label: "Уведомления" },
-  { to: "/journal", label: "Журнал" },
-  { to: "/account", label: "Профиль" },
-  { to: "/settings", label: "Настройки" },
+type ClientNavItem = {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+};
+
+const links: ClientNavItem[] = [
+  { to: "/", label: "Главная", icon: Home },
+  { to: "/search", label: "Карта мастеров", icon: MapPin },
+  { to: "/last-minute/moskva", label: "Горящие окна", icon: Clock3 },
+  { to: "/booking", label: "Запись", icon: CalendarDays },
+  { to: "/favorites", label: "Избранное", icon: Heart },
+  { to: "/messages", label: "Сообщения", icon: MessagesSquare },
+  { to: "/notifications", label: "Уведомления", icon: Bell },
+  { to: "/journal", label: "Журнал", icon: BookOpen },
+  { to: "/account", label: "Профиль", icon: UserRound },
+  { to: "/settings", label: "Настройки", icon: Settings },
 ];
 
 type ClientShellProps = {
@@ -26,10 +48,64 @@ type ClientShellProps = {
   showCityPicker?: boolean;
 };
 
+function ClientSidebar({ onNavigate }: { onNavigate?: () => void }) {
+  const { user } = useAuth();
+
+  return (
+    <div className="flex h-full flex-col px-4 py-6">
+      <Link to="/" onClick={onNavigate} className="flex items-center" aria-label="Nail 2 Go — главная">
+        <span className="mr-2.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#E58E82] text-white">
+          <Flower2 className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
+        </span>
+        <span className="text-xl font-semibold tracking-tight text-white">Nail 2 Go</span>
+      </Link>
+
+      <nav
+        id={onNavigate ? "client-navigation-mobile" : "client-navigation-desktop"}
+        aria-label="Навигация клиента"
+        data-mobile-nav
+        className="mt-8 flex-1 space-y-1"
+      >
+        {links.map((item) => {
+          const Icon = item.icon;
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              onClick={onNavigate}
+              className={({ isActive }) =>
+                `flex min-w-0 items-center rounded-xl px-3 py-2.5 text-sm transition ${
+                  isActive
+                    ? "bg-white/10 font-medium text-white"
+                    : "text-slate-400 hover:bg-white/5 hover:text-slate-100"
+                }`
+              }
+            >
+              <Icon className="mr-3 h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+              <span className="flex-1">{item.label}</span>
+            </NavLink>
+          );
+        })}
+      </nav>
+
+      <div className="mt-6 border-t border-white/10 pt-4">
+        <div className="flex items-center px-1">
+          <Avatar size={36} name={user?.name ?? "Клиент"} className="mr-3" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-white">{user?.name ?? "Клиент"}</p>
+            <p className="truncate text-xs text-slate-400">{user?.phone ?? "Личный кабинет"}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ClientShell({ title, children, showCityPicker = true }: ClientShellProps) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -37,83 +113,90 @@ export function ClientShell({ title, children, showCityPicker = true }: ClientSh
     if (value) navigate(`/?query=${encodeURIComponent(value)}`);
   };
 
+  const searchControls = (
+    <>
+      {showCityPicker && <CityPicker className="mb-2 max-w-full sm:mb-0 sm:mr-2" />}
+      <form onSubmit={submitSearch} role="search" className="flex w-full min-w-0 sm:w-auto sm:flex-1">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          aria-label="Поиск мастеров"
+          className="mr-2 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#E58E82] sm:w-40 sm:flex-none"
+          placeholder="Поиск мастеров"
+        />
+        <button
+          type="submit"
+          aria-label="Искать мастеров"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-[#E58E82] hover:bg-[#fff8f6] hover:text-[#bd7168]"
+        >
+          <Search aria-hidden="true" className="h-4 w-4" />
+        </button>
+      </form>
+    </>
+  );
+
   return (
-    <main className="n2g-min-h-viewport w-full max-w-full overflow-x-hidden bg-[#fff7fa] p-4 text-slate-800 sm:p-8">
-      <div className="mx-auto grid w-full min-w-0 max-w-[1450px] grid-cols-1 gap-3 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-4">
-        <aside className="min-w-0 rounded-3xl border border-[#f1dde6] bg-white p-3 sm:p-5">
-          <div className="flex items-center justify-between gap-3 lg:block">
-            <Link to="/" className="flex shrink-0 items-center gap-2 text-2xl font-semibold lg:text-3xl">
-              <span className="text-pink-500">Nail</span>
-              <span>2 Go</span>
-            </Link>
-            <div className="flex min-w-0 items-center gap-2 lg:hidden">
-              <Avatar size={32} />
-              <p className="min-w-0 truncate text-sm font-medium">{user?.name ?? "Гость"}</p>
-            </div>
-          </div>
-
-          <nav
-            aria-label="Навигация клиента"
-            data-mobile-nav
-            className="mt-3 grid w-full min-w-0 grid-cols-2 gap-1 text-xs sm:grid-cols-3 sm:text-sm lg:mt-7 lg:block lg:space-y-1"
-          >
-            {links.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `flex min-w-0 items-center rounded-xl px-2.5 py-2 transition sm:px-3 lg:w-full ${
-                    isActive ? "bg-pink-50 text-pink-600" : "text-slate-600 hover:bg-slate-50"
-                  }`
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
-
-          <div className="mt-7 hidden rounded-xl border border-[#f1dde6] p-3 lg:block">
-            <div className="flex items-center gap-3">
-              <Avatar size={40} />
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{user?.name ?? "Гость"}</p>
-                <p className="truncate text-xs text-slate-500">{user?.phone ?? ""}</p>
-              </div>
-            </div>
-          </div>
+    <div
+      className="n2g-client-cabinet n2g-min-h-viewport w-full max-w-full overflow-x-hidden bg-[#f5f6f8] text-slate-800"
+      data-client-cabinet
+    >
+      <div className="flex n2g-min-h-viewport min-w-0">
+        <aside className="sticky top-0 hidden n2g-h-viewport w-60 shrink-0 bg-[#0d1b2e] lg:block" data-client-sidebar>
+          <ClientSidebar />
         </aside>
 
-        <section className="min-w-0 rounded-3xl border border-[#f1dde6] bg-white p-4 sm:p-7">
-          <div className="flex min-w-0 flex-col gap-3 border-b border-[#f6e7ed] pb-4 sm:flex-row sm:items-center sm:justify-between">
-            <h1 className="break-words text-2xl font-semibold sm:text-3xl">{title}</h1>
-            <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
-              {showCityPicker && <CityPicker className="max-w-full" />}
-              <form onSubmit={submitSearch} role="search" className="flex w-full min-w-0 gap-2 sm:w-auto sm:flex-1">
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  aria-label="Поиск мастеров"
-                  className="min-w-0 flex-1 rounded-xl border border-[#f1dde6] px-3 py-2 text-sm outline-none transition focus:border-pink-300 sm:w-40 sm:flex-none"
-                  placeholder="Поиск мастеров"
-                />
-                <button
-                  type="submit"
-                  aria-label="Искать мастеров"
-                  className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[#f1dde6] text-pink-600 transition hover:bg-[#fff4f8]"
-                >
-                  <Search aria-hidden="true" className="h-4 w-4" />
-                </button>
-              </form>
+        <div
+          className={`fixed inset-0 z-40 lg:hidden ${mobileOpen ? "" : "hidden"}`}
+          data-client-drawer
+          aria-hidden={!mobileOpen}
+        >
+          <button
+            type="button"
+            className="absolute inset-0 cursor-default bg-slate-900/50"
+            aria-label="Закрыть меню"
+            onClick={() => setMobileOpen(false)}
+          />
+          <aside className="absolute inset-y-0 left-0 w-72 max-w-[90vw] bg-[#0d1b2e] shadow-2xl" aria-label="Навигация клиента">
+            <ClientSidebar onNavigate={() => setMobileOpen(false)} />
+          </aside>
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <header className="flex min-h-14 items-center justify-between space-x-3 border-b border-slate-200 bg-white px-4 py-2.5 lg:hidden" data-client-mobile-header>
+            <button
+              type="button"
+              onClick={() => setMobileOpen((value) => !value)}
+              aria-label={mobileOpen ? "Закрыть меню" : "Открыть меню"}
+              aria-expanded={mobileOpen}
+              aria-controls="client-navigation-mobile"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-50"
+            >
+              {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+            <h1 className="min-w-0 flex-1 truncate text-center text-sm font-semibold text-slate-700">{title}</h1>
+            <Link to="/account" aria-label="Открыть профиль" className="grid h-9 w-9 shrink-0 place-items-center rounded-full">
+              <Avatar size={32} name={user?.name ?? "Клиент"} />
+            </Link>
+          </header>
+
+          <div className="hidden min-h-[76px] items-center justify-between space-x-5 border-b border-slate-200 bg-white px-6 lg:flex xl:px-8" data-client-desktop-toolbar>
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
+              <p className="mt-0.5 text-xs text-slate-500">Личный кабинет клиента</p>
             </div>
+            <div className="flex min-w-0 items-center">{searchControls}</div>
           </div>
 
-          <div className="space-y-4 pt-5">
+          <main className="min-w-0 px-4 py-5 sm:px-6 lg:px-8 lg:py-8" data-client-page>
+            <div className="mb-4 flex min-w-0 flex-col sm:flex-row sm:items-center lg:hidden" data-client-mobile-tools>
+              {searchControls}
+            </div>
             {/* Напоминания идут только в мессенджер: без привязки человек их не увидит. */}
-            {user && <MessengerBanner settingsTo="/settings" />}
+            {user && <MessengerBanner settingsTo="/settings" className="mb-5" />}
             {children}
-          </div>
-        </section>
+          </main>
+        </div>
       </div>
-    </main>
+    </div>
   );
 }

@@ -328,30 +328,30 @@ assert(
 );
 const homeCatalogSlugs = [...homeWindow.document.querySelectorAll("[data-block='home-masters'] a[href^='/master/']")]
   .map((node) => node.getAttribute("href")?.replace("/master/", ""));
-const carouselSlug = homeCatalogSlugs[0];
-const carouselApiMaster = carouselSlug ? await api(`/masters/${encodeURIComponent(carouselSlug)}`) : null;
-const carouselCard = carouselSlug
-  ? homeWindow.document.querySelector(`[data-master-carousel-card='${carouselSlug}']`)
+const masterSlug = homeCatalogSlugs[0];
+const catalogApiMaster = masterSlug ? await api(`/masters/${encodeURIComponent(masterSlug)}`) : null;
+const catalogCard = masterSlug
+  ? homeWindow.document.querySelector(`[data-master-catalog-card='${masterSlug}']`)
   : null;
 assert(
-  "горизонтальная карточка мастера показывает API-имя, цену, рейтинг и избранное того же slug",
-  carouselApiMaster?.status === 200 &&
-    carouselCard?.querySelector("a[href^='/master/']")?.textContent?.trim() === carouselApiMaster.data.name &&
-    carouselCard?.querySelector("[data-master-rating]")?.getAttribute("data-master-rating") === String(carouselApiMaster.data.rating) &&
-    carouselCard?.querySelector("[data-master-price]")?.getAttribute("data-master-price") === String(carouselApiMaster.data.priceFrom) &&
-    carouselCard?.querySelector("[data-action='favorite-toggle']")?.getAttribute("data-slug") === carouselSlug,
-  `slug=${carouselSlug}; API=${carouselApiMaster?.data?.name}/${carouselApiMaster?.data?.priceFrom}/${carouselApiMaster?.data?.rating}`,
+  "карточка каталога показывает API-имя, цену, рейтинг и избранное того же slug",
+  catalogApiMaster?.status === 200 &&
+    catalogCard?.querySelector("a[href^='/master/']")?.textContent?.trim() === catalogApiMaster.data.name &&
+    catalogCard?.querySelector("[data-master-rating]")?.getAttribute("data-master-rating") === String(catalogApiMaster.data.rating) &&
+    catalogCard?.querySelector("[data-master-price]")?.getAttribute("data-master-price") === String(catalogApiMaster.data.priceFrom) &&
+    catalogCard?.querySelector("[data-action='favorite-toggle']")?.getAttribute("data-slug") === masterSlug,
+  `slug=${masterSlug}; API=${catalogApiMaster?.data?.name}/${catalogApiMaster?.data?.priceFrom}/${catalogApiMaster?.data?.rating}`,
 );
 const heroMasterWidget = homeWindow.document.querySelector("[data-home-hero-master]");
 const shownHeroClients = [...homeWindow.document.querySelectorAll("[data-hero-client-avatar]")]
   .map((node) => node.getAttribute("data-hero-client-avatar"));
-const expectedHeroClients = (carouselApiMaster?.data?.reviews ?? []).slice(0, 3).map((review) => review.clientName);
+const expectedHeroClients = (catalogApiMaster?.data?.reviews ?? []).slice(0, 3).map((review) => review.clientName);
 assert(
   "парящая карточка hero совпадает с данными мастера из API",
-  carouselApiMaster?.status === 200 &&
-    heroMasterWidget?.getAttribute("data-home-hero-master") === carouselSlug &&
-    heroMasterWidget?.getAttribute("data-hero-master-name") === carouselApiMaster.data.name &&
-    heroMasterWidget?.getAttribute("data-hero-master-rating") === String(carouselApiMaster.data.rating),
+  catalogApiMaster?.status === 200 &&
+    heroMasterWidget?.getAttribute("data-home-hero-master") === masterSlug &&
+    heroMasterWidget?.getAttribute("data-hero-master-name") === catalogApiMaster.data.name &&
+    heroMasterWidget?.getAttribute("data-hero-master-rating") === String(catalogApiMaster.data.rating),
   `slug=${heroMasterWidget?.getAttribute("data-home-hero-master")}; имя=${heroMasterWidget?.getAttribute("data-hero-master-name")}; рейтинг=${heroMasterWidget?.getAttribute("data-hero-master-rating")}`,
 );
 assert(
@@ -371,13 +371,13 @@ assert(
     homeMapSlugs.every((slug) => homeCatalogSlugs.includes(slug)),
   `карточки=${homeCatalogSlugs.join(",")}; карта=${homeMapSlugs.join(",")}`,
 );
-const referencePortraits = [...homeWindow.document.querySelectorAll('img[data-master-photo-state="reference-fallback"]')];
+const referencePortraits = [...homeWindow.document.querySelectorAll('img[src="/images/reference-master-anna.jpg"]')];
 assert(
   "локальное фото-кроп используется только у соответствующей карточки seeded-мастера",
-  referencePortraits.every((photo) =>
-    photo.closest("[data-master-carousel-card]")?.getAttribute("data-master-carousel-card") === "anna-smirnova" &&
-    photo.getAttribute("src") === "/images/reference-master-anna.jpg",
-  ),
+  referencePortraits.length === (homeCatalogSlugs.includes("anna-smirnova") ? 1 : 0) &&
+    referencePortraits.every((photo) =>
+      photo.closest("[data-master-catalog-card]")?.getAttribute("data-master-catalog-card") === "anna-smirnova",
+    ),
   `фото-fallback=${referencePortraits.length}`,
 );
 

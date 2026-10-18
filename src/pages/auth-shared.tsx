@@ -71,7 +71,7 @@ export function AuthCard({
   footer?: React.ReactNode;
 }) {
   return (
-    <main className="grid n2g-min-h-viewport w-full max-w-full min-w-0 overflow-x-hidden place-items-center bg-[#fbf7f5] p-4 sm:p-6">
+    <main className="n2g-auth-page grid n2g-min-h-viewport w-full max-w-full min-w-0 overflow-x-hidden place-items-center bg-[#fbf7f5] p-4 sm:p-6">
       <section className="w-full max-w-[460px] rounded-[28px] border border-[#f0ddd8] bg-white p-5 shadow-[0_28px_80px_-50px_rgba(98,61,53,0.36)] sm:p-7" data-card="auth">
         <p className="text-sm uppercase tracking-[0.22em] text-[#E58E82]">Nail 2 Go</p>
         <h1 className="mt-3 text-2xl font-semibold text-slate-900 sm:text-3xl">{title}</h1>

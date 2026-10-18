@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ClientShell } from "../components/ClientShell";
+import { PublicPageShell } from "../components/PublicPageShell";
 import { JournalArticleCard } from "../components/JournalArticleCard";
 import { useJournal } from "../api/journal";
 import { cn } from "../utils/cn";
@@ -9,7 +9,7 @@ export function JournalPage() {
   const { data, loading, error } = useJournal(category);
 
   return (
-    <ClientShell title="Журнал">
+    <PublicPageShell title="Журнал">
       <section className="space-y-5" data-page="journal">
         <div className="max-w-2xl">
           <p className="text-sm leading-relaxed text-slate-500">
@@ -69,6 +69,6 @@ export function JournalPage() {
           </p>
         ))}
       </section>
-    </ClientShell>
+    </PublicPageShell>
   );
 }

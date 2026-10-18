@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { CalendarDays, Check, ChevronDown, MapPin, Search, Star } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, MapPin, Search, ShieldCheck, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { MasterCardReview } from "../api/masterCard";
 import type { MasterSearchItem } from "../api/search";
@@ -25,7 +25,7 @@ const benefits = [
   { label: "Проверенные мастера", Icon: Check },
   { label: "Честные отзывы", Icon: Star },
   { label: "Удобная онлайн-запись", Icon: CalendarDays },
-  { label: "Мастера рядом", Icon: MapPin },
+  { label: "Безопасность", Icon: ShieldCheck },
 ];
 
 function reviewInitials(name: string): string {
@@ -55,16 +55,16 @@ export function HomeHero({
 
   return (
     <section
-      className="relative isolate mt-2 flex min-h-[460px] min-w-0 flex-col items-center justify-between overflow-hidden rounded-3xl bg-[#FFF5F6] p-5 shadow-[0_26px_70px_-42px_rgba(143,75,87,0.38)] sm:p-8 xl:mt-4 xl:flex-row xl:p-12"
+      className="relative isolate mb-8 mt-2 flex min-h-[460px] min-w-0 flex-col items-center justify-between overflow-hidden rounded-3xl bg-[#FFF5F6] p-5 shadow-[0_26px_70px_-42px_rgba(143,75,87,0.38)] sm:mb-10 sm:p-8 xl:mb-12 xl:mt-4 xl:flex-row xl:p-12"
       data-block="home-hero"
     >
       <span className="pointer-events-none absolute -left-24 -top-28 h-72 w-72 rounded-full bg-[#FBE9EC]" aria-hidden="true" />
       <span className="pointer-events-none absolute -bottom-32 left-[34%] h-80 w-80 rounded-full bg-[#FCEDEF]" aria-hidden="true" />
 
-      <div className="relative z-10 w-full min-w-0 xl:w-[57%]">
+      <div className="relative z-10 w-full min-w-0 xl:w-[55%]">
         <h1 className="max-w-[720px] text-3xl font-extrabold leading-tight text-gray-900 sm:text-4xl xl:text-5xl">
           <span className="block">Найдите своего идеального</span>
-          <span className="block text-[#E58E82]">мастера маникюра</span>
+          <span className="block text-[#EF4444]">мастера маникюра</span>
         </h1>
         <p className="mt-4 max-w-[620px] text-sm leading-relaxed text-gray-600 sm:text-base">
           Проверенные специалисты, честные отзывы и удобная запись — найдите мастера рядом с вами.
@@ -74,8 +74,8 @@ export function HomeHero({
           onSubmit={onSubmit}
           role="search"
           aria-label="Поиск мастера"
-          className="mt-8 w-full max-w-2xl rounded-2xl bg-white p-2 shadow-xl shadow-pink-100/50"
-          style={{ boxShadow: "0 18px 48px -24px rgba(229,142,130,0.48)" }}
+          className="mt-6 w-full max-w-3xl rounded-2xl border border-gray-100 bg-white p-2 shadow-md sm:p-3 xl:p-2"
+          style={{ boxShadow: "0 14px 34px -24px rgba(240,84,79,0.38)" }}
           data-home-hero-search
         >
           <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:items-center xl:gap-0 xl:space-x-4">
@@ -110,7 +110,7 @@ export function HomeHero({
             >
               <summary className="flex h-11 min-w-0 cursor-pointer list-none items-center justify-between rounded-xl px-2 text-sm text-gray-600 transition hover:bg-[#FFF8F7]">
                 <span className="flex min-w-0 items-center">
-                  <MapPin className="mr-2 h-4 w-4 shrink-0 text-[#E58E82]" aria-hidden="true" />
+                  <MapPin className="mr-2 h-4 w-4 shrink-0 text-[#EF4444]" aria-hidden="true" />
                   <span className="truncate">
                     {place ? `${place.kind === "metro" ? "м. " : "г. "}${place.name}` : "Метро или район"}
                   </span>
@@ -129,7 +129,7 @@ export function HomeHero({
 
             <button
               type="submit"
-              className="inline-flex h-12 w-full shrink-0 items-center justify-center rounded-xl bg-[#E58E82] px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 xl:w-auto xl:min-w-[148px]"
+              className="inline-flex h-12 w-full shrink-0 items-center justify-center rounded-xl bg-[#EF4444] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#DC2626] xl:w-auto xl:min-w-[148px]"
             >
               <Search className="mr-2 h-4 w-4" aria-hidden="true" />
               Найти мастера
@@ -140,7 +140,7 @@ export function HomeHero({
         <div className="mt-6 flex flex-wrap items-center text-xs font-medium text-gray-500" data-home-hero-benefits>
           {benefits.map(({ label, Icon }) => (
             <div key={label} className="mb-2 mr-6 flex items-center">
-              <span className="mr-2 grid h-8 w-8 min-h-[32px] min-w-[32px] shrink-0 place-items-center rounded-full border border-[#F0C7C2] bg-[#FFF0EE] text-[#E58E82]">
+              <span className="mr-2 grid h-8 w-8 min-h-[32px] min-w-[32px] shrink-0 place-items-center rounded-full border border-[#F8B6B2] bg-white text-[#EF4444]">
                 <Icon className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
               </span>
               <span className="whitespace-nowrap">{label}</span>
@@ -149,7 +149,7 @@ export function HomeHero({
         </div>
       </div>
 
-      <div className="relative z-10 mt-10 w-full min-w-0 xl:mt-0 xl:w-[41%]" data-home-hero-featured>
+      <div className="relative z-10 mt-10 w-full min-w-0 xl:mt-0 xl:w-[40%]" data-home-hero-featured>
         <div className="absolute -inset-3 rounded-[34px] bg-[#F5DCE1] opacity-70" aria-hidden="true" />
         <div className="relative h-[340px] w-full overflow-hidden rounded-3xl border-[5px] border-white bg-[#F9E9E9] shadow-2xl sm:h-[390px] xl:h-[370px]">
           <img
@@ -214,6 +214,10 @@ export function HomeHero({
                       </span>
                     ))}
                   </span>
+                </span>
+                <span className="mt-1 flex min-w-0 items-center truncate text-[11px] text-gray-500">
+                  <MapPin className="mr-1 h-3 w-3 shrink-0 text-[#EF4444]" aria-hidden="true" />
+                  {master.metro}{master.distance ? ` · ${master.distance}` : ""}
                 </span>
               </span>
             </Link>

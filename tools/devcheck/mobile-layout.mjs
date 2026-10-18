@@ -30,6 +30,7 @@ const check = (label, ok, detail = "") => {
 
 const app = read("src/App.tsx");
 const css = read("src/index.css");
+const redesignCss = read("src/styles/site-redesign.css");
 const indexHtml = read("index.html");
 const home = read("src/pages/HomePage.tsx");
 const homeHero = read("src/components/HomeHero.tsx");
@@ -43,6 +44,9 @@ const locationPicker = read("src/components/LocationPicker.tsx");
 const searchMap = read("src/pages/SearchMapPage.tsx");
 const masterPage = read("src/pages/MasterPage.tsx");
 const journalPage = read("src/pages/JournalPage.tsx");
+const journalArticlePage = read("src/pages/JournalArticlePage.tsx");
+const lastMinutePage = read("src/pages/LastMinutePage.tsx");
+const publicPageShell = read("src/components/PublicPageShell.tsx");
 const avatarUi = read("src/components/NailUi.tsx");
 const masterUi = read("src/master/components/ui.tsx");
 const mediaPage = read("src/master/pages/MediaPage.tsx");
@@ -81,11 +85,22 @@ check(
   /@media\s*\(max-width:\s*639px\)\s*\{\s*input,\s*select,\s*textarea\s*\{\s*font-size:\s*16px\s*!important;/s.test(css),
 );
 check(
-  "на мобильном все пункты навигации клиента видны в компактной сетке, на широком экране становятся сайдбаром",
-  clientShell.includes("data-mobile-nav") && clientShell.includes("grid-cols-2") &&
-    clientShell.includes("sm:grid-cols-3") && clientShell.includes("lg:block") &&
-    clientShell.includes("lg:space-y-1") && clientShell.includes("showCityPicker = true") &&
+  "кабинет клиента использует доступное мобильное меню и постоянный тёмный сайдбар на широком экране",
+  clientShell.includes("data-mobile-nav") && clientShell.includes("data-client-drawer") &&
+    clientShell.includes("aria-expanded={mobileOpen}") && clientShell.includes("client-navigation-mobile") &&
+    clientShell.includes("lg:hidden") && clientShell.includes("data-client-sidebar") &&
+    clientShell.includes("lg:block") && clientShell.includes("showCityPicker = true") &&
+    !/flex[^\"]*\\sgap-[^\"]+/.test(clientShell) &&
+    clientShell.includes("space-x-3") && clientShell.includes("mr-3 h-[18px] w-[18px]") &&
     clientShell.includes("Искать мастеров"),
+);
+check(
+  "публичные внутренние страницы используют общую шапку витрины, не наследуя клиентский сайдбар",
+  publicPageShell.includes("<MarketplaceHeader showRegionPicker={showRegionPicker} />") &&
+    journalPage.includes('<PublicPageShell title="Журнал">') &&
+    journalArticlePage.includes('<PublicPageShell title="Журнал" showHeading={false}>') &&
+    lastMinutePage.includes('<PublicPageShell title="Горящие окна" showRegionPicker={false}>') &&
+    clientShell.includes("data-client-cabinet"),
 );
 check(
   "карта витрины зажата адаптивным w-full wrapper без фиксированной ширины",
@@ -96,7 +111,7 @@ check(
     cityMap.includes("block w-full max-w-full min-w-0 overflow-hidden") &&
     cityMap.includes("min-h-0 flex-col border-0 p-0") &&
     !/(?<!max-)w-screen|(?<!max-)w-\[100vw\]|width:\s*100vw|(?<!max-)(?<!min-)w-\[\d+px\]/.test(
-      home.replace(/w-\[(?:278|300)px\]/g, "") + cityMap,
+      home.replace(/w-\[(?:64|80|84|96|278|300)px\]/g, "") + cityMap,
     ),
 );
 check(
@@ -119,14 +134,16 @@ check(
     homeHero.includes("text-3xl font-extrabold leading-tight text-gray-900") &&
     homeHero.includes("Найдите своего идеального") &&
     homeHero.includes("мастера маникюра") &&
-    homeHero.includes("text-[#E58E82]") &&
-    homeHero.includes("bg-white p-2 shadow-xl shadow-pink-100/50") &&
+    homeHero.includes("text-[#EF4444]") &&
+    homeHero.includes("max-w-3xl rounded-2xl border border-gray-100 bg-white p-2") &&
     homeHero.includes("xl:space-x-4") && homeHero.includes("xl:gap-0") &&
     homeHero.includes("xl:border-r xl:border-gray-100") &&
     homeHero.includes("Найти мастера") &&
     homeHero.includes("data-home-hero-benefits") &&
     homeHero.includes("Проверенные мастера") && homeHero.includes("Честные отзывы") && homeHero.includes("Удобная онлайн-запись") &&
+    homeHero.includes("Безопасность") &&
     homeHero.includes("Icon: Check") && homeHero.includes("Icon: Star") && homeHero.includes("Icon: CalendarDays") &&
+    homeHero.includes("Icon: ShieldCheck") &&
     homeHero.includes('src="/images/reference-hero-hands.jpg"') &&
     homeHero.includes("bottom-6") && homeHero.includes("sm:right-6") &&
     homeHero.includes("bg-white/95") && homeHero.includes("backdrop-blur-md") && homeHero.includes("border-pink-50") &&
@@ -135,16 +152,17 @@ check(
     homeHero.includes("clientReviews.slice(0, 3)") &&
     home.includes('data-block="home-discovery"') &&
     home.includes('data-block="home-how-it-works"') &&
-    home.includes("grid min-w-0 grid-cols-2 sm:grid-cols-3 xl:grid-cols-6") &&
+    home.includes("grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-6") &&
     home.includes("src={service.image}") &&
-    home.includes('data-block="home-master-carousel"') &&
+    home.includes('data-block="home-master-catalog"') &&
+    home.includes("data-master-catalog-card={master.slug}") &&
     home.includes("data-master-rating={master.rating}") &&
     home.includes("data-master-price={master.priceFrom}") &&
     home.includes("<FavoriteButton") &&
-    home.includes("className=\"absolute right-3 top-3 z-10\"") &&
+    home.includes("className=\"absolute -right-2 -top-1 z-10\"") &&
     homeHero.includes('alt=\"\"') &&
     !homeHero.includes("Ухоженные руки с нежным розовым маникюром") &&
-    homeHero.includes("Мастера рядом"),
+    home.includes("Мастера рядом"),
 );
 check(
   "цены категорий берутся из загруженного API-каталога, а витрина мастера динамическая",
@@ -183,7 +201,9 @@ check(
     marketplaceFooter.includes("data-field=\"newsletter-email\"") &&
     marketplaceFooter.includes("Адрес пока не сохранён") &&
     !marketplaceFooter.includes("support@nailgo") &&
-    app.includes("<MarketplaceFooter compactSearch={pathname === \"/search\"} />"),
+    app.includes("homeAccent={pathname === \"/\"}") &&
+    marketplaceFooter.includes("Будьте в курсе новинок") &&
+    app.includes("<MarketplaceFooter compactSearch={pathname === \"/search\"}"),
 );
 check(
   "страница поиска адаптивно показывает фильтры, живые карточки и карту с мобильным переключателем",
@@ -273,26 +293,27 @@ check(
     !/(?:bg|text|border)-(?:pink|rose)-[0-9]+\/[0-9]+/.test(allUiSource),
 );
 check(
-  "metro, горизонтальные карточки и категории переносятся без flex-gap и имеют margin-fallback",
+  "мобильные карточки, категории и списки используют margin-fallback вместо flex-gap",
   locationPicker.includes('className="flex flex-wrap px-3 pb-3"') &&
     locationPicker.includes("mr-1.5 mb-1.5") &&
     !locationPicker.includes("items-center justify-between gap-2") &&
     !locationPicker.includes("items-center gap-2 rounded-xl") &&
     !/flex[^"]*\sgap-[^"]+/.test(smartSearch) &&
     !/flex[^"]*\sgap-[^"]+/.test(cityMap) &&
+    !/flex[^"]*\sgap-[^"]+/.test((home + homeHero).replace(/xl:gap-0/g, "")) &&
     smartSearch.includes("mr-1.5 mb-1.5") &&
     smartSearch.includes("bg-[#e58e82] font-semibold text-white") &&
     cityMap.includes("items-center justify-between space-x-2") &&
     cityPicker.includes('className="mt-3 flex flex-wrap"') &&
     cityPicker.includes("mr-2 mb-2") && journalPage.includes('className="flex flex-wrap" aria-label="Категории журнала"') &&
     journalPage.includes("mr-2 mb-2") &&
-    home.includes("n2g-master-carousel flex min-w-0 snap-x snap-mandatory overflow-x-auto") &&
-    home.includes("mr-4 mb-2 flex w-[278px] min-w-[278px] shrink-0 snap-start") &&
-    home.includes("<Avatar size={96} name={master.name}") &&
+    home.includes('data-block="home-master-catalog"') &&
+    home.includes('className="mt-6 grid min-w-0 grid-cols-1 gap-4"') &&
+    home.includes("data-master-catalog-card={master.slug}") &&
+    home.includes("size={64}") && home.includes("size={80}") &&
     !home.includes("Фото пока не добавлено") &&
-    home.includes("bg-[#e58e82] px-3 py-2 text-sm font-semibold text-white") &&
-    home.includes("mb-3 mr-3 flex min-w-0 flex-col") &&
-    home.includes("h-8 w-8 min-h-[32px] min-w-[32px]") &&
+    home.includes("bg-[#EF4444]") &&
+    !home.includes("n2g-master-carousel") &&
     searchMap.includes("grid min-w-0 grid-cols-[64px_minmax(0,1fr)]") &&
     searchMap.includes("mb-1 mr-2 inline-flex items-center rounded-lg border"),
 );
@@ -372,6 +393,13 @@ check(
 check(
   "публичный редизайн использует коралловый акцент без возврата к #FF0066/#E6005C",
   [searchMap, cityMap, login, authShared, quickLogin, booking].every((source) => !/#ff0066|#e6005c|bg-pink-500/i.test(source)),
+);
+check(
+  "#EF4444 ограничен новой главной и её футером; глобальный акцент внутренних страниц остаётся #E58E82",
+  /:root\s*\{[^}]*--n2g-coral:\s*#e58e82/i.test(redesignCss) &&
+    /\.n2g-home\s*\{[^}]*--n2g-coral:\s*#ef4444/i.test(redesignCss) &&
+    /\.n2g-site-footer\.n2g-home-footer\s*\{[^}]*--n2g-coral:\s*#ef4444/i.test(redesignCss) &&
+    app.includes('homeAccent={pathname === "/"}'),
 );
 check(
   "неизвестный номер создаётся только в dev_login, существующая роль остаётся строгой",
